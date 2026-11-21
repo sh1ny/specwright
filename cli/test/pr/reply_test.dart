@@ -1,10 +1,13 @@
+import 'dart:convert';
 import 'dart:io';
 
+import 'package:specwright_cli/src/pr/context.dart';
 import 'package:specwright_cli/src/pr/gh.dart' show GhResult;
 import 'package:specwright_cli/src/pr/queries.dart';
 import 'package:specwright_cli/src/pr/reply.dart';
 import 'package:test/test.dart';
 
+import '../line_support.dart';
 import 'pr_support.dart';
 
 /// Which `gh` call [args] is.
@@ -736,5 +739,108 @@ void main() {
       ]);
       expect(f.leftovers, ['body.md']);
     });
+  });
+
+  // D5 / C1: the GraphQL pending-check line, through the real bounded gh.
+  group('the pending-check line (D5)', () {
+    const helper = [r'C:\sw\sw.exe', '__exec'];
+    final windowsOnly = Platform.isWindows ? null : 'Windows only';
+    late Directory work;
+    late Directory bin;
+
+    setUp(() {
+      work = Directory.systemTemp.createTempSync('sw-reply-line-');
+      bin = Directory('${work.path}\\bin')..createSync();
+    });
+    tearDown(() => work.deleteSync(recursive: true));
+
+    /// The `gh` argument list `pendingCheck` sends for [owner].
+    List<String> pendingArgs(String owner) => [
+      'api',
+      'graphql',
+      '-f',
+      'owner=$owner',
+      '-f',
+      'name=n',
+      '-F',
+      'pr=7',
+      '-f',
+      'query=$pendingQuery',
+      '--jq',
+      pendingJq,
+    ];
+
+    /// An owner that makes `<prefix> <pendingArgs>` exactly [units] units.
+    String ownerFor(List<String> prefix, int units) {
+      var n = units - lineUnits([...prefix, ...pendingArgs('')]);
+      var owner = 'o' * n;
+      while (lineUnits([...prefix, ...pendingArgs(owner)]) != units) {
+        n += units - lineUnits([...prefix, ...pendingArgs(owner)]);
+        owner = 'o' * n;
+      }
+      return owner;
+    }
+
+    Future<(int, String)> react(String owner, String ext) async {
+      File('${bin.path}\\gh.$ext').writeAsBytesSync([0]);
+      final out = <int>[];
+      final err = <int>[];
+      final ctx = PrContext(
+        writeOut: out.addAll,
+        writeErr: err.addAll,
+        environment: withEnv({'PATH': bin.path, 'PATHEXT': '.EXE;.CMD'}),
+        helperCommand: helper,
+        cwd: work.path,
+      );
+      final code = await runReply(ctx, [
+        '7',
+        'react',
+        '5',
+        '+1',
+        '--repo=$owner/n',
+      ]);
+      return (code, utf8.decode(err));
+    }
+
+    test('windows: a react line over the limit only behind the helper exits 127', () async {
+      final path = '${bin.path}\\gh.exe';
+      final owner = ownerFor([path], 32766);
+      // as given it is short of the limit and the resolved line fits: only the
+      // helper's own prefix pushes it over
+      expect(lineUnits([path, ...pendingArgs(owner)]), 32766);
+      final (code, err) = await react(owner, 'exe');
+      expect(
+        err,
+        'bounded: cannot start gh: cannot start the helper: '
+        'its command line is too long\n',
+      );
+      expect(code, 127);
+    }, skip: windowsOnly);
+
+    test(
+      'windows: a line over the limit as given is unrepresentable',
+      () async {
+        final owner = ownerFor(['gh'], 32768);
+        final (code, err) = await react(owner, 'exe');
+        expect(
+          err,
+          'bounded: cannot start gh: unrepresentable command line: gh\n',
+        );
+        expect(code, 127);
+      },
+      skip: windowsOnly,
+    );
+
+    test('windows: a gh.cmd payload over 8,191 is an unsafe batch argument', () async {
+      // The query holds `!` (`String!`), so the refusal is the argument one
+      // before the length one; either way a gh.cmd line of this size is unsafe.
+      final owner = ownerFor(['gh'], 20000);
+      final (code, err) = await react(owner, 'cmd');
+      expect(
+        err,
+        startsWith('bounded: cannot start gh: unsafe batch argument: '),
+      );
+      expect(code, 127);
+    }, skip: windowsOnly);
   });
 }

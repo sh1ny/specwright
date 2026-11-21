@@ -234,6 +234,19 @@ class TestJjCommit(VcsTestCase):
         self.assertIn("work/small.txt", names)
         self.assertEqual([name for name in names if name.endswith(".bin")], [])
 
+    def test_jj_commit_with_a_crlf_message_file(self):
+        (self.repo / "crlf.txt").write_text("named\n", encoding="utf-8")
+        message_file = self.root / "crlf-message.txt"
+        message_file.write_bytes(b"docs(x): subject\r\n\r\nBody line\r\n")  # bytes: no newline translation
+
+        result, _ = self.invoke("commit", "--branch", self.branch, "--message-file", message_file,
+                                "--", "crlf.txt", repo=self.repo)
+
+        self.assertTrue(result["ok"], result)
+        stored = self.raw_message(self.repo, self.bookmark())
+        self.assertNotIn(b"\r", stored)
+        self.assertEqual(stored.rstrip(b"\n"), b"docs(x): subject\n\nBody line")
+
 
 class TestJjCommitOnMain(VcsTestCase):
     """#153: on main the jj state reads branch "" (on_main true); `commit --branch <main>` works as on Git."""

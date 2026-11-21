@@ -94,6 +94,12 @@ Future<void> main(List<String> args) async {
     return;
   }
 
+  /// Deletes the wrapper's own `.install-<pid>` build output.
+  ///
+  /// Constraint C17 of fix-sw-port-gaps: the best-effort cleanup covers
+  /// `sw update sw-install` only. This `mise run install-sw` wrapper's own
+  /// `.install-<pid>.exe` is unchanged, so on Windows it can still fail on a
+  /// file the placed binary or another process holds after placement.
   void discard() {
     final file = File(out);
     if (file.existsSync()) file.deleteSync();

@@ -205,9 +205,11 @@ def fake_bin(tmp):
     return d
 
 
-def run_finish(work, *args, cwd=None):
-    """Run `sw finish <args>` (direct entry, evals/swcall.py); returns (exit code, parsed JSON, raw stdout + stderr)."""
-    r = swcall.run(["finish", *args], cwd=cwd or work, env=dict(os.environ, SPECWRIGHT_HOME=str(vcs_test_support.sw_home())))
+def run_finish(work, *args, cwd=None, env=None):
+    """Run `sw finish <args>` (direct entry, evals/swcall.py); returns (exit code, parsed JSON, raw stdout + stderr).
+    `env` adds variables."""
+    r = swcall.run(["finish", *args], cwd=cwd or work,
+                   env=dict(os.environ, SPECWRIGHT_HOME=str(vcs_test_support.sw_home()), **(env or {})))
     try:
         doc = json.loads(r.stdout)
     except ValueError:
@@ -225,8 +227,9 @@ def plan_args(change, archived=None, prefix="openspec", main="main", branch=None
     return args
 
 
-def run_plan(work, change, archived=None, prefix="openspec", main="main", branch=None, typ=None, cwd=None, dir_=None):
-    return run_finish(work, *plan_args(change, archived, prefix, main, branch, typ, dir_), cwd=cwd)
+def run_plan(work, change, archived=None, prefix="openspec", main="main", branch=None, typ=None, cwd=None, dir_=None,
+             env=None):
+    return run_finish(work, *plan_args(change, archived, prefix, main, branch, typ, dir_), cwd=cwd, env=env)
 
 
 def run_bash(work, tmp, text, name, prefix="openspec"):

@@ -12,6 +12,7 @@ import '../process/limits.dart';
 import '../process/missing_directory.dart';
 import '../process/platform_tree.dart';
 import '../process/resolve.dart';
+import '../process/tree_stop.dart' show ProcessTreeFactory;
 
 /// What one bounded `gh` (or `sw pr reviewers`) call ended in. Without a [limit],
 /// the output and [exitCode] are the command's own; a call that could not
@@ -23,6 +24,7 @@ class GhResult {
     this.limitLine,
     required this.stdout,
     required this.stderr,
+    this.merged,
   });
 
   final int exitCode;
@@ -34,6 +36,12 @@ class GhResult {
   final String? limitLine;
   final Uint8List stdout;
   final Uint8List stderr;
+
+  /// The output of a call that ran in merged mode (the `--log-failed` call):
+  /// stdout and stderr in the order their chunks reached `sw`. Null for every
+  /// other result, including a call that never started a process, whose own
+  /// output is [stderr].
+  final Uint8List? merged;
 }
 
 /// Runs `gh <args>` in [cwd] under the bounded helper: a deadline, a byte bound
@@ -57,14 +65,20 @@ Future<GhResult> runGh(
   bool paged = false,
   RunLimits? limits,
   List<String>? helperCommand,
+  ProcessStarter startProcess = startHelperProcess,
+  ProcessTreeFactory? treeFor,
 }) => _run(
   cwd,
   ['gh', ...args],
   // D8: an inherited GH_REPO never picks the repository of a gh call
   environment: {...(environment ?? Platform.environment)}..remove('GH_REPO'),
   paged: paged,
+  // D4: the failed-job log is one stream in arrival order, under one budget
+  mergeOutput: args.contains('--log-failed'),
   limits: limits,
   helperCommand: helperCommand,
+  startProcess: startProcess,
+  treeFor: treeFor,
 );
 
 /// Runs `sw pr reviewers <args>` the same way (the caller's [command] starts with
@@ -77,13 +91,18 @@ Future<GhResult> runBoundedCommand(
   bool paged = false,
   RunLimits? limits,
   List<String>? helperCommand,
+  ProcessStarter startProcess = startHelperProcess,
+  ProcessTreeFactory? treeFor,
 }) => _run(
   cwd,
   command,
   environment: environment,
   paged: paged,
+  mergeOutput: false,
   limits: limits,
   helperCommand: helperCommand,
+  startProcess: startProcess,
+  treeFor: treeFor,
 );
 
 GhResult _notStarted(String text) => GhResult(
@@ -97,8 +116,11 @@ Future<GhResult> _run(
   List<String> command, {
   required Map<String, String>? environment,
   required bool paged,
+  required bool mergeOutput,
   required RunLimits? limits,
   required List<String>? helperCommand,
+  required ProcessStarter startProcess,
+  required ProcessTreeFactory? treeFor,
 }) async {
   final name = command.first;
   final env = _platformEnv(environment);
@@ -115,17 +137,27 @@ Future<GhResult> _run(
   }
   final path = resolveCommand(name, env, workingDirectory: dir);
   if (path == null) return _notStarted('$name: command not found');
-  final LaunchPlan plan;
+  final BoundedLaunchPlan launchPlan;
   try {
-    plan = planLaunch(path, command, env);
+    launchPlan = planBoundedLaunch(
+      path,
+      command,
+      env,
+      effectiveHelperCommand(helperCommand),
+    );
   } on UnsafeBatchArgument catch (e) {
     return _notStarted('cannot start $name: $e');
   } on Unrepresentable catch (e) {
     return _notStarted('cannot start $name: $e');
   }
+  final plan = launchPlan.plan;
   final result = await BoundedRun(
     command: plan.command,
     rawLine: plan.rawLine,
+    helperArgv: launchPlan.helperArgv,
+    lineTooLong: launchPlan.lineTooLong,
+    mergeOutput: mergeOutput,
+    startProcess: startProcess,
     stdinBytes: plan.stdinBytes,
     workingDirectory: dir,
     environment: environment,
@@ -134,7 +166,7 @@ Future<GhResult> _run(
         limits ??
         resolveLimits(env, paged: paged || (env['SW_PAGED'] ?? '').isNotEmpty),
     helperCommand: helperCommand,
-    treeFor: () => platformTree(env),
+    treeFor: treeFor ?? () => platformTree(env),
     note: (_) {},
   ).run();
   final limit = result.limit;
@@ -164,6 +196,7 @@ Future<GhResult> _run(
     exitCode: result.exitCode ?? 127,
     stdout: Uint8List.fromList(result.stdout),
     stderr: Uint8List.fromList(result.stderr),
+    merged: result.merged == null ? null : Uint8List.fromList(result.merged!),
   );
 }
 

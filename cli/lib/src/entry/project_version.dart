@@ -9,6 +9,7 @@ import 'package:path/path.dart' as p;
 
 import '../commands/version.dart';
 import '../update/sw_install.dart' show swHome;
+import 'regular_file.dart';
 
 /// The commands that check the project's version (native-cli "Project
 /// commands check the project's version"). `version`, `run`, `update`,
@@ -27,22 +28,28 @@ const projectCommands = {
 const _maxVersionBytes = 4096;
 final _version = RegExp(r'^\d+\.\d+\.\d+([-+][0-9A-Za-z.+-]+)?$');
 
-/// The version [root]'s VERSION file holds, or the reason it holds none.
+/// The version [root]'s VERSION file holds, or the reason it holds none. The
+/// stamp is read through [readRegularFile], so a FIFO, device, socket or
+/// directory in its place is refused as not a regular file without being
+/// opened.
 ({String? version, String? problem}) readProjectVersion(String root) {
-  final file = File(p.join(root, 'openspec', '.specwright', 'VERSION'));
+  final path = p.join(root, 'openspec', '.specwright', 'VERSION');
   final List<int> bytes;
   try {
-    final handle = file.openSync();
-    try {
-      bytes = handle.readSync(_maxVersionBytes + 1);
-    } finally {
-      handle.closeSync();
+    final read = readRegularFile(path, limit: _maxVersionBytes + 1);
+    if (read == null) {
+      return (
+        version: null,
+        problem: 'no installed version found in $root: $path does not exist',
+      );
     }
+    bytes = read;
+  } on NotRegularFile {
+    return (version: null, problem: '$path is not a regular file');
   } on FileSystemException {
     return (
       version: null,
-      problem:
-          'no installed version found in $root: ${file.path} does not exist',
+      problem: 'no installed version found in $root: $path does not exist',
     );
   }
   String text;
@@ -57,7 +64,7 @@ final _version = RegExp(r'^\d+\.\d+\.\d+([-+][0-9A-Za-z.+-]+)?$');
         : text;
     return (
       version: null,
-      problem: '$shown is not a version (expected x.y.z) in ${file.path}',
+      problem: '$shown is not a version (expected x.y.z) in $path',
     );
   }
   return (version: text, problem: null);
@@ -65,8 +72,23 @@ final _version = RegExp(r'^\d+\.\d+\.\d+([-+][0-9A-Za-z.+-]+)?$');
 
 /// The first directory at or above [start] that holds `.git` (a directory or,
 /// in a linked worktree, a file); [start] itself when there is none.
+///
+/// C47: an existing [start] is resolved physically first (symbolic links
+/// resolved on its absolute path, so a `link/..` names the directory above the
+/// link's target) before the walk for `.git`, for every project command's
+/// version check. `--project` stays version-only (ADR 0040), so the repository
+/// a command acts on is still chosen by its own options; a start that does not
+/// exist keeps its lexical form.
 String projectRoot(String start) {
-  final from = p.normalize(p.absolute(start));
+  final absolute = p.absolute(start);
+  var from = p.normalize(absolute);
+  if (FileSystemEntity.typeSync(absolute) != FileSystemEntityType.notFound) {
+    try {
+      from = File(absolute).resolveSymbolicLinksSync();
+    } on FileSystemException {
+      // not resolvable after all: keep the lexical form
+    }
+  }
   for (var dir = from; ; dir = p.dirname(dir)) {
     if (FileSystemEntity.typeSync(p.join(dir, '.git')) !=
         FileSystemEntityType.notFound) {
@@ -84,31 +106,57 @@ Map<String, Object?>? versionMismatch(
   String version = buildVersion,
   Map<String, String>? environment,
 }) {
-  final root = projectRoot(start);
-  final found = readProjectVersion(root);
-  final String message;
+  final found = readProjectVersion(projectRoot(start));
   if (found.version == version) return null;
-  if (found.version == null) {
+  return mismatchDocument(
+    found: found.version,
+    problem: found.problem,
+    version: version,
+    environment: environment,
+  );
+}
+
+/// The `sw_mismatch` document for a project that holds [found] (a version that
+/// differs from [version]) or, when [found] is null, no usable version for the
+/// reason [problem].
+Map<String, Object?> mismatchDocument({
+  String? found,
+  String? problem,
+  String version = buildVersion,
+  Map<String, String>? environment,
+}) {
+  final String message;
+  if (found == null) {
     message =
-        'sw $version cannot check this project: ${found.problem}; rerun the install prompt';
+        'sw $version cannot check this project: $problem; rerun the install prompt';
   } else {
     final home = swHome(environment ?? Platform.environment)
-        .replaceAll('\\', '/');
+        .replaceAll(r'\', '/');
     final binary =
-        '$home/.specwright/bin/${found.version}/sw${Platform.isWindows ? '.exe' : ''}';
+        '$home/.specwright/bin/$found/sw${Platform.isWindows ? '.exe' : ''}';
     message =
-        'sw $version does not match this project, which is at ${found.version}; '
+        'sw $version does not match this project, which is at $found; '
         'run $binary, or rerun the install prompt';
   }
   return {'ok': false, 'error': 'sw_mismatch', 'message': message};
 }
 
+/// Whether [version] is a version the stamp may hold (x.y.z, an optional
+/// pre-release or build suffix).
+bool isVersionText(String version) => _version.hasMatch(version);
+
+/// The most bytes the VERSION reader accepts.
+const maxVersionBytes = _maxVersionBytes;
+
 /// What the leading `--project` and the command's own arguments choose.
 class ProjectChoice {
-  ProjectChoice(this.dir, this.rest);
+  ProjectChoice(this.dir, this.rest, {this.project});
 
   /// The directory to start the VERSION search from.
   final String dir;
+
+  /// The leading `--project <dir>` the call gave, null when it gave none.
+  final String? project;
 
   /// The arguments after a leading `--project <dir>`, which is dropped.
   final List<String> rest;
@@ -143,7 +191,7 @@ ProjectChoice chooseProject(List<String> args, String cwd) {
       throw ProjectUsage('--project is given twice');
     }
   }
-  if (project != null) return ProjectChoice(project, rest);
+  if (project != null) return ProjectChoice(project, rest, project: project);
   if (rest.isEmpty) return ProjectChoice(cwd, rest);
   final command = rest.first;
   final tail = rest.sublist(1);

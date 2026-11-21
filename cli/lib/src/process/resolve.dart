@@ -1,6 +1,9 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
+
+import '../native/libc.dart' as libc;
 
 /// Finds the file `sw run` starts for [name], or null when there is none.
 ///
@@ -19,15 +22,30 @@ import 'package:path/path.dart' as p;
 /// kept, as the OS follows links before `..`); nothing is
 /// checked against this process's own directory (C11). Without it, relative
 /// candidates are checked and returned as they are.
+///
+/// On POSIX a `PATH` candidate is taken only when [canExecute] accepts it too,
+/// so a same-named file the user cannot execute is skipped and the search goes
+/// on, as the shell does. [canExecute] defaults to always true when [isFile] is
+/// injected, and to the effective-ID check on POSIX otherwise; Windows does not
+/// use it. A name with a separator is checked by [isFile] alone.
+///
+/// Constraint C26: lookup and start stay separate. A candidate that passes
+/// lookup and then fails to start (its permission removed in between) is
+/// reported as that start failure; no launcher goes on down `PATH` after a
+/// failed start.
 String? resolveCommand(
   String name,
   Map<String, String> env, {
   bool? windows,
   bool Function(String path)? isFile,
+  bool Function(String path)? canExecute,
   String? workingDirectory,
 }) {
   final win = windows ?? Platform.isWindows;
   final exists = isFile ?? _isFile;
+  final bool Function(String path) executable = win
+      ? (_) => true
+      : canExecute ?? (isFile != null ? (_) => true : _canExecute);
   final separator = win ? RegExp(r'[\\/]') : RegExp('/');
   final style = win ? p.Context(style: p.Style.windows) : p.posix;
   // A relative candidate is anchored to the working directory when the caller
@@ -59,10 +77,12 @@ String? resolveCommand(
     final base = dir.endsWith('/') || (win && dir.endsWith(r'\'))
         ? '$dir$name'
         : '$dir${win ? r'\' : '/'}$name';
-    if (hasKnownExtension && exists(anchor(base))) return anchor(base);
+    if (hasKnownExtension && exists(anchor(base)) && executable(anchor(base))) {
+      return anchor(base);
+    }
     for (final ext in extensions) {
       final candidate = anchor('$base$ext');
-      if (exists(candidate)) return candidate;
+      if (exists(candidate) && executable(candidate)) return candidate;
     }
   }
   return null;
@@ -102,6 +122,15 @@ String? _lookup(Map<String, String> env, String key, bool windows) {
   return null;
 }
 
+/// The default file check: a regular file, and on POSIX one with an execute
+/// bit. It is all a name with a separator gets, so an explicit path the user
+/// cannot execute still reaches the start and fails there.
+///
+/// Constraint C22: POSIX command lookup accepts a `PATH` candidate only when
+/// `faccessat(AT_FDCWD, path, X_OK, AT_EACCESS)` succeeds ([_canExecute]).
+/// `AT_EACCESS` is required because the start uses the effective IDs, and plain
+/// `access` (real IDs) could accept a candidate the user cannot start and skip
+/// a runnable one later on `PATH`.
 bool _isFile(String path) {
   if (FileSystemEntity.typeSync(path) != FileSystemEntityType.file) {
     return false;
@@ -109,3 +138,5 @@ bool _isFile(String path) {
   if (Platform.isWindows) return true;
   return File(path).statSync().mode & 0x49 != 0; // any execute bit
 }
+
+bool _canExecute(String path) => libc.canExecuteEffective(utf8.encode(path));

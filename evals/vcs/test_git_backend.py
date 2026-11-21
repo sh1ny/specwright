@@ -95,6 +95,40 @@ class TestGitBackend(VcsTestCase):
         self.assertTrue((self.repo / "unrelated.txt").exists())
         self.assertIn("unrelated.txt", self.git(self.repo, "status", "--porcelain").stdout)
 
+    def test_git_commit_with_a_crlf_message_file_under_default_cleanup(self):
+        self.git(self.repo, "checkout", "-b", "feat/crlf")
+        (self.repo / "crlf.txt").write_text("named\n", encoding="utf-8")
+        msg = self.root / "crlf-message.txt"
+        msg.write_bytes(b"docs(x): subject\r\n\r\nBody line\r\n")  # bytes: no newline translation
+        self.assertEqual(self.git(self.repo, "config", "--get", "commit.cleanup").returncode, 1, "no commit.cleanup set")
+
+        result, _ = self.invoke("commit", "--branch", "feat/crlf", "--message-file", msg, "--", "crlf.txt", expected=0)
+
+        self.assertEqual(result["ok"], True, result)
+        stored = self.raw_message(self.repo, "HEAD")
+        self.assertNotIn(b"\r", stored)
+        self.assertEqual(stored.rstrip(b"\n"), b"docs(x): subject\n\nBody line")
+
+    def test_commit_outputs_unchanged(self):
+        # a message with no CR, long, named by an absolute path: the document, the stop and the exit are as before
+        self.git(self.repo, "checkout", "-b", "feat/same")
+        (self.repo / "a.txt").write_text("a\n", encoding="utf-8")
+        msg = self.root / "long-message.txt"
+        text = "feat(same): subject\n\n" + "".join("Body line %d of a long message.\n" % n for n in range(1000))
+        msg.write_bytes(text.encode("utf-8"))
+        old = self.git(self.repo, "rev-parse", "HEAD").stdout.strip()
+
+        result, _ = self.invoke("commit", "--branch", "feat/same", "--message-file", msg, "--", "a.txt", expected=0)
+
+        new = self.git(self.repo, "rev-parse", "HEAD").stdout.strip()
+        self.assertEqual(result, {"ok": True, "backend": "git", "branch": "feat/same", "commit": new})
+        self.assertEqual(self.raw_message(self.repo, new).rstrip(b"\n"), text.rstrip("\n").encode("utf-8"))
+        self.assertEqual(self.git(self.repo, "rev-parse", new + "^").stdout.strip(), old)
+        # the same message with nothing left to commit: the stop and its exit
+        again, _ = self.invoke("commit", "--branch", "feat/same", "--message-file", msg, "--", "a.txt", expected=1)
+        self.assertEqual(again["error"], "git_commit_failed")
+        self.assertEqual(self.git(self.repo, "rev-parse", "HEAD").stdout.strip(), new)
+
     def test_git_push_command_exact_no_deadline(self):
         self.set_settings(self.repo, "main_branch: main\ngithub:\n  login: invalid-account\n")
         origin = self.root / "github.com" / "origin.git"

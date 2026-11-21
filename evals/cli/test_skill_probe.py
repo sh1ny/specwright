@@ -35,19 +35,25 @@ import swharness  # noqa: E402
 
 SKILL = ROOT / "skills" / "specwright-pr" / "SKILL.md"
 OLDER = "0.37.0"
+PREVIOUS = "0.38.1"  # a 0.38.x release: it reports interface 2, the one before the skills' interface 3
 LOG = "SW_PROBE_LOG"
 
-# The 0.37.0 stand-in: interface 1; it answers `version --json` and refuses every other call, logging each call it gets.
+# An older release's stand-in: it answers `version --json` with its own version and interface and refuses every other
+# call, logging each call it gets.
 OLDER_SW = '''import json, os, sys
 args = sys.argv[1:]
 with open(os.environ[%r], "a") as log:
     log.write(" ".join(args) + "\\n")
 if args == ["version", "--json"]:
-    print(json.dumps({"version": %r, "interface": 1}))
+    print(json.dumps({"version": %r, "interface": %d}))
     sys.exit(0)
 sys.stderr.write("sw: unknown option: %%s\\n" %% (args[:1] or [""])[0])
 sys.exit(64)
-''' % (LOG, OLDER)
+'''
+
+
+def older_source(version, interface):
+    return OLDER_SW % (LOG, version, interface)
 
 
 def required_interface():
@@ -67,16 +73,18 @@ class SkillProbe(unittest.TestCase):
         self.version = swcall.version()
         self.assertNotEqual(self.version, OLDER, "the tree is past 0.37.0 (the cutover bumps VERSION): the two binaries "
                                                   "need two version directories")
-        self.older_sw = self.install(OLDER, None)
-        self.newer_sw = self.install(self.version, self.built)
+        self.assertNotEqual(self.version, PREVIOUS, "the tree is past 0.38.x: the stand-in needs its own version directory")
+        self.older_sw = self.install(OLDER, older_source(OLDER, 1))
+        self.previous_sw = self.install(PREVIOUS, older_source(PREVIOUS, 2))
+        self.newer_sw = self.install(self.version, Path(self.built))
 
     def install(self, version, binary):
-        """`<home>/.specwright/bin/<version>/sw[.exe]`: the built sw, or the 0.37.0 stand-in when `binary` is None."""
+        """`<home>/.specwright/bin/<version>/sw[.exe]`: the built sw (a path), or a stand-in (its Python source)."""
         directory = self.home / ".specwright" / "bin" / version
         directory.mkdir(parents=True)
         name = "sw.exe" if os.name == "nt" else "sw"
-        if binary is None:
-            made = Path(fakeexe.write_python_fake(directory / "sw", OLDER_SW))  # `sw.exe` on Windows
+        if not isinstance(binary, Path):
+            made = Path(fakeexe.write_python_fake(directory / "sw", binary))  # `sw.exe` on Windows
             self.assertEqual(made.name, name)
             return made
         target = directory / name
@@ -116,10 +124,15 @@ class SkillProbe(unittest.TestCase):
         return self.log.read_text(encoding="utf-8").splitlines() if self.log.exists() else []
 
     def test_older_project_with_newer_skills_stops(self):
-        older = self.project("older", OLDER)
-        self.assertFalse(self.probe(older), "interface 1 does not satisfy the skills' interface")
-        self.assertEqual(self.older_calls(), ["version --json"],
-                         "the probe is the only call that reaches the interface-1 binary; the skill runs nothing after it")
+        for name, version, interface in (("older", OLDER, 1), ("previous", PREVIOUS, 2)):
+            with self.subTest(project=version):
+                if self.log.exists():
+                    self.log.unlink()
+                project = self.project(name, version)
+                self.assertFalse(self.probe(project), "interface %d does not satisfy the skills' interface" % interface)
+                self.assertEqual(self.older_calls(), ["version --json"],
+                                 "the probe is the only call that reaches the interface-%d binary; the skill runs nothing "
+                                 "after it" % interface)
 
     def test_project_on_the_built_version_passes_its_probe(self):
         newer = self.project("newer", self.version)

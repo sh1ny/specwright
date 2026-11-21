@@ -1,6 +1,6 @@
 # 0040. Skills call the project's `sw` directly
 
-- Status: accepted
+- Status: accepted; its interface-2 pin is amended to 3 by 0042, and its entry check for `sw finish undo-archive-plan` by 0043
 - Date: 2026-11-19
 - Supersedes: 0028 (ported scripts are shims that resolve the project's `sw`) and 0029 (the identity fence hands its arguments over in a private file); replaces the MSYS-paths clause of 0034
 - Adds to: 0027 (one native binary, exact version, no fallback) and 0031 (direct native calls, `--project`)

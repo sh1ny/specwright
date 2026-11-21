@@ -155,7 +155,10 @@ class TestPlanGit(tp.Base, PlanAsserts):
         fx.archive(self.work, "add-x", commit_it=True)
         self.git("checkout", "-q", "main")
         fx.edit(self.work, "README.md", "demo", "demo edited")
-        self.assertEqual(self.assertPlans(self.plan(branch=BRANCH), 1)["error"], "dirty_tree")
+        doc = self.assertPlans(self.plan(branch=BRANCH), 1)
+        self.assertEqual(doc["error"], "dirty_tree")
+        self.assertEqual(doc["files"], ["README.md"])
+        self.assertEqual(doc["message"], tp.DIRTY_PREFIX + "M README.md")
 
     @unittest.skipUnless(sys.platform.startswith("linux"), "platform: macOS and Windows file systems refuse a name with invalid UTF-8 bytes")
     def test_uncommitted_archive_with_invalid_utf8_file_name(self):

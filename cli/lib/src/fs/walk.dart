@@ -83,15 +83,20 @@ int _compareBytes(List<int> a, List<int> b) {
 /// is left empty and the walk goes on. The listing is a snapshot: a name that
 /// vanishes after it is skipped, except that a U+FFFD name which vanishes
 /// before its check cannot be told from a non-UTF-8 one and throws.
+///
+/// With [strictListing] a directory that cannot be listed is not left empty:
+/// the [FileSystemException] is thrown, so a caller that must see every entry
+/// (the undo planner) stops instead of planning over a partial view.
 List<WalkDirectory> walkTree(
   String root, {
   WalkPolicy policy = WalkPolicy.vcs,
   String prefix = '',
+  bool strictListing = false,
 }) {
   final top = Directory(root);
   if (!top.existsSync()) return [];
   final walk = <WalkDirectory>[];
-  _visit(top, '', policy, prefix, walk);
+  _visit(top, '', policy, prefix, walk, strictListing);
   return walk;
 }
 
@@ -129,6 +134,7 @@ void _visit(
   WalkPolicy policy,
   String prefix,
   List<WalkDirectory> walk,
+  bool strictListing,
 ) {
   final node = WalkDirectory(rel);
   walk.add(node);
@@ -136,6 +142,7 @@ void _visit(
   try {
     listed = dir.listSync(followLinks: false);
   } on FileSystemException {
+    if (strictListing) rethrow;
     return;
   }
   final entries = [
@@ -190,6 +197,13 @@ void _visit(
   }
   for (final sub in subdirectories) {
     final name = p.basename(sub.path);
-    _visit(sub, rel.isEmpty ? name : '$rel/$name', policy, prefix, walk);
+    _visit(
+      sub,
+      rel.isEmpty ? name : '$rel/$name',
+      policy,
+      prefix,
+      walk,
+      strictListing,
+    );
   }
 }

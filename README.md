@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <img alt="version" src="https://img.shields.io/badge/version-0.38.0-blue">
+  <img alt="version" src="https://img.shields.io/badge/version-0.39.0-blue">
   <img alt="OpenSpec" src="https://img.shields.io/badge/OpenSpec-1.16.0-8A2BE2">
   <img alt="agents" src="https://img.shields.io/badge/agents-Claude%20Code%20%7C%20Codex%20%7C%20OMP-555">
   <a href="./LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-green"></a>
@@ -84,6 +84,9 @@ Step 1 - Check prerequisites
 - PR workflow (`specwright-pr`): run `gh --version` and check
   it is 2.48 or later. If not, record `gh 2.48+` for Step 8 and continue:
   it does not block the install or the version stamp.
+- Undo (`specwright-finish`): a Git undo that resumes the archive branch
+  needs Git 2.40 or later. An older Git does not block the install or the
+  version stamp; only that undo refuses, saying so.
 - Run `openspec list --json` in the code checkout and read `root`.
   - `"root": null`: if the error names this project's `openspec/config.yaml`
     (it starts with `Declared in` or `Invalid store declaration in`), show

@@ -132,8 +132,9 @@ String _text(List<int> bytes) => utf8.decode(bytes, allowMalformed: true);
 /// whose own check still passes, was there).
 ///
 /// The caller has checked [part] (its SHA-256 [partSha] against the release,
-/// then [checkBinary]) and owns every part file it made: a stop leaves them
-/// for its cleanup. The notice, when [noticePart] is given, goes first: it is
+/// then [checkBinary]) and owns every part file it made: a stop, a failed
+/// rename included, leaves them for its cleanup, and this function deletes
+/// none. The notice, when [noticePart] is given, goes first: it is
 /// renamed to [noticeFinal] unless that already holds [noticeSha] (a
 /// concurrent run placed it), and a failure there is `notice_write_failed`
 /// with the binary untouched (ADR 0032). A binary is replaced only by a rename
@@ -152,6 +153,16 @@ String _text(List<int> bytes) => utf8.decode(bytes, allowMalformed: true);
 /// first copies the part to the final path (as another run would) and then
 /// makes the rename fail. The copy is not a counted operation: it stands for
 /// another process.
+///
+/// Constraint C14 of fix-sw-port-gaps: a destination that cannot be read
+/// counts as unconfirmed (`sw_in_use`) only on the recovery after a failed
+/// rename, where a read error on the final file means this run cannot show
+/// that someone else placed the release's binary. The first check before the
+/// rename keeps its behaviour, so a read error there still propagates, and the
+/// catch never moves into the shared check (`sameAndRunnable` below), where an
+/// initial read error would permit a replacement. [destinationHash] (default
+/// [fileSha]) reads the final file's hash and is the seam that lets a test make
+/// that read fail; [files] does not mediate it.
 Future<String> placeChecked({
   required UpdateFileOps files,
   required String part,
@@ -168,6 +179,7 @@ Future<String> placeChecked({
   String? renameHook,
   String? noticeRenameHook,
   void Function(int code)? exitProcess,
+  String Function(String path)? destinationHash,
 }) async {
   if (_sameFile(part, running ?? Platform.resolvedExecutable)) {
     throw UpdateStop(
@@ -186,14 +198,21 @@ Future<String> placeChecked({
       noticeRenameHook,
     );
   }
-  Future<bool> sameAndRunnable() async =>
-      File(finalPath).existsSync() &&
-      fileSha(finalPath) == partSha &&
-      (await checkBinary(
-        finalPath,
-        version: version,
-        expectedInterface: expectedInterface,
-      )).ok;
+  final hashOf = destinationHash ?? fileSha;
+  Future<bool> sameAndRunnable({bool recovery = false}) async {
+    try {
+      return File(finalPath).existsSync() &&
+          hashOf(finalPath) == partSha &&
+          (await checkBinary(
+            finalPath,
+            version: version,
+            expectedInterface: expectedInterface,
+          )).ok;
+    } on FileSystemException {
+      if (recovery) return false;
+      rethrow;
+    }
+  }
 
   var action = 'installed';
   if (File(finalPath).existsSync()) {
@@ -214,8 +233,7 @@ Future<String> placeChecked({
     }
     files.rename(part, finalPath);
   } on FileSystemException {
-    files.remove(part);
-    if (await sameAndRunnable()) return 'kept';
+    if (await sameAndRunnable(recovery: true)) return 'kept';
     throw UpdateStop(
       'sw_in_use',
       '${_posix(finalPath)} cannot be replaced by the checked $asset of '

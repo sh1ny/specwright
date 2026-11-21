@@ -10,7 +10,24 @@ import '../vcs/stop.dart';
 
 /// What a subcommand handler gets: the parsed request.
 class VcsContext {
-  VcsContext(this.request, {this.sw});
+  VcsContext(
+    this.request, {
+    this.sw,
+    this.readOnlyStatus = false,
+    this.strictTarget = false,
+  });
+
+  /// Set only by the undo planner's state read: with `vcs: gitbutler` a failed
+  /// read of `gitbutler.project.targetRef` is a `vcs_error` and only an unset
+  /// or blank one is `not_managed`. Every other command's probe is unchanged.
+  final bool strictTarget;
+
+  /// Set only by the undo planner's state read (C10): on Git the state's
+  /// `git status` runs with `GIT_OPTIONAL_LOCKS=0` and `-c core.fsmonitor=false`
+  /// and its output is drained and not decoded, so the read-only planner never
+  /// rewrites the index and an unrelated non-UTF-8 name never stops it.
+  /// Standalone `sw vcs state` leaves it unset and is unchanged.
+  final bool readOnlyStatus;
 
   /// The `sw` that `plan` prints; null is the running binary. Tests only.
   final String? sw;
@@ -44,7 +61,13 @@ Future<VcsSession> openSession(VcsContext ctx) async {
   final repo = await resolvePath(request.repo);
   final code = await resolvePath(request.code);
   final scripts = VcsScripts();
-  final info = await probe(scripts, repo, code, request.role);
+  final info = await probe(
+    scripts,
+    repo,
+    code,
+    request.role,
+    strictTarget: ctx.strictTarget,
+  );
   final main = request.main;
   if (main != null && main.isNotEmpty) info.main = main;
   return VcsSession(ctx, repo, code, info, scripts);

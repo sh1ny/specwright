@@ -89,7 +89,7 @@ class TestInstallSw(unittest.TestCase):
         before_build = sorted(p.name for p in BUILD_DIR.iterdir()) if BUILD_DIR.is_dir() else []
         done = self.task("--interface-from", pin.as_posix())
         self.assertNotEqual(done.returncode, 0, done.stdout + done.stderr)
-        self.assertIn("interface 2", done.stderr)
+        self.assertIn("interface 3", done.stderr)
         self.assertIn("require interface 1", done.stderr)
         self.assertIn("nothing was placed", done.stderr)
         self.assertEqual(snapshot(self.home), before_home)

@@ -1,13 +1,14 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:specwright_cli/src/pr/context.dart' show PrContext;
-import 'package:specwright_cli/src/pr/gh.dart' show GhResult;
+import 'package:specwright_cli/src/pr/context.dart' show PrContext, PrExit;
+import 'package:specwright_cli/src/pr/gh.dart' show GhResult, runGh;
 import 'package:specwright_cli/src/process/limit_line.dart' show BoundedLimit;
 import 'package:specwright_cli/src/pr/queries.dart';
 import 'package:specwright_cli/src/pr/snapshot.dart';
 import 'package:test/test.dart';
 
+import '../line_support.dart';
 import 'pr_support.dart';
 
 final oid = 'a' * 40;
@@ -64,7 +65,7 @@ void main() {
         'rate' => answer('HTTP/2.0 200 OK\r\nDate: $date\r\n\r\n{}'),
         'activity' => answer('$pushed\n'),
         'snapshot' => answer('$material\n'),
-        'logs' => answer('log line\n'),
+        'logs' => answer('', merged: 'log line\n'),
         _ => throw StateError('unexpected gh call $args'),
       };
     };
@@ -159,7 +160,6 @@ void main() {
         '--repo',
         '--reviewer-config',
         '--full',
-        '--timeout',
         '--until',
         '--interval',
       ]) {
@@ -171,6 +171,94 @@ void main() {
           1,
           reason: '$key with an empty value',
         );
+      }
+      expect(f.ghCalls, isEmpty);
+    });
+
+    test('--timeout with no value is a usage stop', () async {
+      expect(await snapshot(['--timeout']), 2);
+      expect(f.ghCalls, isEmpty);
+    });
+
+    test('a non-decimal --timeout is a usage error', () async {
+      for (final bad in [
+        'abc',
+        'soon',
+        '',
+        '+5',
+        '-3',
+        '0x10',
+        '1.5',
+        ' 5',
+        '5 ',
+        '\u0663',
+      ]) {
+        f.err.clear();
+        f.out.clear();
+        expect(
+          await snapshot([
+            '7',
+            '--wait',
+            '--until',
+            'attention',
+            '--timeout',
+            bad,
+          ]),
+          2,
+          reason: "'$bad'",
+        );
+        expect(
+          f.stderr,
+          "pr-snapshot: --timeout needs whole seconds, got '$bad'\n",
+          reason: "'$bad'",
+        );
+        expect(f.stdout, isEmpty, reason: "'$bad'");
+      }
+      expect(f.ghCalls, isEmpty);
+      expect(f.sleeps, isEmpty);
+    });
+
+    test('a --timeout with a line break is one stderr line', () async {
+      expect(await snapshot(['7', '--wait', '--timeout', '1\n2']), 2);
+      expect(
+        f.stderr,
+        "pr-snapshot: --timeout needs whole seconds, got '1\\n2'\n",
+      );
+      expect(
+        f.stderr.split('\n'),
+        hasLength(2),
+        reason: 'one line and the end',
+      );
+      expect(f.stdout, isEmpty);
+      f.err.clear();
+      expect(await snapshot(['7', '--wait', '--timeout', '1\r\n']), 2);
+      expect(
+        f.stderr,
+        "pr-snapshot: --timeout needs whole seconds, got '1\\r\\n'\n",
+      );
+      expect(f.ghCalls, isEmpty);
+    });
+
+    test('an out-of-range --timeout is a usage error', () async {
+      for (final big in ['9223372036854775808', '99999999999999999999']) {
+        f.err.clear();
+        expect(
+          await snapshot([
+            '7',
+            '--wait',
+            '--until',
+            'attention',
+            '--timeout',
+            big,
+          ]),
+          2,
+          reason: big,
+        );
+        expect(
+          f.stderr,
+          "pr-snapshot: --timeout needs whole seconds, got '$big'\n",
+        );
+        expect(f.stdout, isEmpty);
       }
       expect(f.ghCalls, isEmpty);
     });
@@ -650,14 +738,103 @@ void main() {
       expect(wakes().single, startsWith('{"wake":"incomplete","waited":0,'));
     });
 
-    test(
-      'a timeout that is not a whole number ends the wait at once',
-      () async {
-        expect(await snapshot(['--wait', '--timeout', 'soon']), 0);
-        expect(f.sleeps, isEmpty);
-        expect(wakes().single, startsWith('{"wake":"timeout","waited":0,'));
-      },
-    );
+    test('--timeout 08 wakes at 8 seconds', () async {
+      expect(
+        await snapshot([
+          '7',
+          '--wait',
+          '--until',
+          'attention',
+          '--timeout',
+          '08',
+          '--interval',
+          '2',
+        ]),
+        0,
+      );
+      expect(f.sleeps, [2, 2, 2, 2], reason: 'polls at 2, 4, 6 and 8 seconds');
+      expect(wakes().single, startsWith('{"wake":"timeout","waited":8,'));
+      expect(f.stderr, isEmpty);
+    });
+
+    test('2147483648 and 2^63-1 run the first poll', () async {
+      for (final big in ['2147483648', '9223372036854775807']) {
+        f.out.clear();
+        f.err.clear();
+        f.sleeps.clear();
+        f.ghCalls.clear();
+        f.clock = 0;
+        evaluated = 0;
+        results = [snapJson(sig: 's1'), snapJson(sig: 's2')];
+        expect(
+          await snapshot([
+            '7',
+            '--wait',
+            '--until',
+            'attention',
+            '--timeout',
+            big,
+            '--interval',
+            '2',
+          ]),
+          0,
+          reason: big,
+        );
+        expect(f.stderr, isEmpty, reason: big);
+        expect(kinds(), contains('snapshot'), reason: big);
+        expect(f.sleeps, [2], reason: big);
+        expect(wakes().single, startsWith('{"wake":"changed",'), reason: big);
+      }
+    });
+
+    test('no sleep passes one day, and none is zero or negative', () async {
+      const max = '9223372036854775807';
+      f.onSleep = (_) {
+        if (f.sleeps.length == 3) throw PrExit(9);
+      };
+      expect(
+        await snapshot([
+          '7',
+          '--wait',
+          '--until',
+          'attention',
+          '--timeout',
+          max,
+          '--interval',
+          max,
+        ]),
+        9,
+      );
+      expect(f.sleeps, [86400, 86400, 86400]);
+      expect(f.sleeps.every((n) => n > 0 && n <= 86400), isTrue);
+    });
+
+    test('a capped sleep never polls before the interval is up', () async {
+      final polledAt = <int>[];
+      answers({
+        'snapshot': (_) {
+          polledAt.add(f.clock);
+          return answer('$material\n');
+        },
+      });
+      expect(
+        await snapshot([
+          '7',
+          '--wait',
+          '--until',
+          'attention',
+          '--timeout',
+          '600000',
+          '--interval',
+          '259200',
+        ]),
+        0,
+      );
+      expect(polledAt, [0, 259200, 518400, 600000]);
+      expect(f.sleeps.every((n) => n > 0 && n <= 86400), isTrue);
+      expect(f.sleeps.fold<int>(0, (a, b) => a + b), 600000);
+      expect(wakes().single, startsWith('{"wake":"timeout","waited":600000,'));
+    });
 
     test(
       'every poll\'s calls carry one deadline, and --logs calls do not',
@@ -1005,13 +1182,40 @@ void main() {
     );
   });
 
+  group('the material file', () {
+    test('an unwritable material file is named on stderr', () async {
+      final bad = Directory('${f.tempDir.path}/material-dir')..createSync();
+      String? reason;
+      try {
+        File(bad.path).writeAsBytesSync([0]);
+      } on FileSystemException catch (e) {
+        reason = e.osError?.message;
+      }
+      expect(reason, isNotNull, reason: 'the OS refuses a directory as a file');
+      f.fixedTemp = bad.path;
+      expect(await snapshot(['7', '--repo', 'o/n']), 1);
+      expect(
+        f.stderr,
+        'pr-snapshot: cannot write the material file ${bad.path}: $reason\n',
+      );
+      expect(f.boundedCalls, isEmpty, reason: 'no evaluator launch');
+      expect(f.stdout, isEmpty);
+    });
+
+    test('a written material file prints nothing', () async {
+      expect(await snapshot(['7', '--repo', 'o/n']), 0);
+      expect(f.stderr, isEmpty);
+      expect(f.boundedCalls, hasLength(1));
+    });
+  });
+
   group('--logs', () {
     test(
       'appends the failed log of each failing run, the last 80 lines',
       () async {
         results = [snapJson(failRuns: '11,22')];
         final long = [for (var i = 1; i <= 100; i++) 'line $i'].join('\n');
-        answers({'logs': (args) => answer('$long\n')});
+        answers({'logs': (args) => answer('', merged: '$long\n')});
         expect(await snapshot(['--logs']), 0);
         final out = f.stdout;
         expect(out, contains('\n===== failed log: run 11 =====\n'));
@@ -1029,9 +1233,50 @@ void main() {
 
     test('a failed log does not fail the snapshot', () async {
       results = [snapJson(failRuns: '11')];
-      answers({'logs': (_) => answer('partial\n', exit: 1, stderr: 'oops\n')});
+      answers({'logs': (_) => answer('', exit: 1, merged: 'partial\noops\n')});
       expect(await snapshot(['--logs']), 0);
       expect(f.stdout, endsWith('partial\noops\n'));
+    });
+
+    test('the log tail keeps a stderr line in the middle', () async {
+      results = [snapJson(failRuns: '11')];
+      // 50 stdout lines, one stderr line, 50 more stdout lines, in arrival order
+      final merged = [
+        for (var i = 1; i <= 50; i++) 'out $i',
+        'err middle',
+        for (var i = 51; i <= 100; i++) 'out $i',
+      ].join('\n');
+      answers({'logs': (_) => answer('', merged: '$merged\n')});
+      expect(await snapshot(['--logs']), 0);
+      final tail = f.stdout
+          .split('\n')
+          .skipWhile((l) => !l.startsWith('====='))
+          .skip(1)
+          .where((l) => l.isNotEmpty)
+          .toList();
+      expect(tail, hasLength(80));
+      expect(tail[29], 'err middle', reason: 'line 30 of the tail');
+      expect(tail.first, 'out 22');
+      expect(tail.last, 'out 100');
+    });
+
+    test('a call with no merged output shows its start-failure text', () async {
+      results = [snapJson(failRuns: '11')];
+      answers({
+        'logs': (_) => answer(
+          '',
+          exit: 127,
+          stderr: 'bounded: cannot start gh: gh: command not found\n',
+        ),
+      });
+      expect(await snapshot(['--logs']), 0);
+      expect(
+        f.stdout,
+        endsWith(
+          '===== failed log: run 11 =====\n'
+          'bounded: cannot start gh: gh: command not found\n',
+        ),
+      );
     });
 
     test('a limit prints the limit line in the log, names it on stderr and exits 1 after the snapshot', () async {
@@ -1055,5 +1300,76 @@ void main() {
       );
       expect(f.stderr, 'bounded: deadline_exceeded: gh run view 11\n');
     });
+  });
+
+  // D5 / C1: the GraphQL line, through the real bounded gh. A snapshot whose
+  // resolved line fits, but not once the helper's own prefix is added, fails
+  // the poll with the fixed diagnostic instead of running.
+  group('the GraphQL line (D5)', () {
+    const helper = [r'C:\sw\sw.exe', '__exec'];
+
+    test(
+      'windows: a GraphQL line over the limit only behind the helper',
+      () async {
+        final bin = Directory('${f.tempDir.path}\\bin')..createSync();
+        final path = '${bin.path}\\gh.exe';
+        File(path).writeAsBytesSync([0]);
+        final env = withEnv({
+          'SPECWRIGHT_STATE_DIR': state.path,
+          'HOME': state.path,
+          'PATH': bin.path,
+          'PATHEXT': '.EXE;.CMD',
+        });
+
+        // Runs the snapshot with the owner [owner] and the real gh for the
+        // GraphQL query; [recorded] gets that query's arguments.
+        Future<int> run(String owner, {List<String>? recorded}) {
+          final ctx = PrContext(
+            writeOut: f.out.addAll,
+            writeErr: f.err.addAll,
+            environment: env,
+            helperCommand: helper,
+            cwd: f.tempDir.path,
+            sleep: (_) async {},
+            bounded: (command, {environment}) async => f.onBounded!(command),
+            gh: (args, {environment, paged = false}) async {
+              if (kindOf(args) != 'snapshot') return f.onGh!(args);
+              if (recorded != null) {
+                recorded.addAll(args);
+                return answer('$material\n');
+              }
+              return runGh(
+                f.tempDir.path,
+                args,
+                environment: environment,
+                paged: paged,
+                helperCommand: helper,
+              );
+            },
+          );
+          return runSnapshot(ctx, ['7', '--repo=$owner/n']);
+        }
+
+        final probe = <String>[];
+        expect(await run('o', recorded: probe), 0);
+        final short = lineUnits([path, ...probe]);
+        final owner = 'o' * (1 + 32766 - short);
+        f.out.clear();
+        f.err.clear();
+        final args = [...probe]
+          ..[probe.indexWhere((a) => a.startsWith('owner='))] = 'owner=$owner';
+        expect(lineUnits([path, ...args]), 32766, reason: 'calibration');
+
+        expect(await run(owner), 1);
+        expect(
+          f.stderr,
+          contains(
+            'bounded: cannot start gh: cannot start the helper: '
+            'its command line is too long\n',
+          ),
+        );
+      },
+      skip: Platform.isWindows ? null : 'Windows only',
+    );
   });
 }

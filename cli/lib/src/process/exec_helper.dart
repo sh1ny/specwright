@@ -67,6 +67,10 @@ Future<void> _hold(String? path) async {
 /// `sw __exec --cmdline -- <application> <command line>` (Windows only) starts
 /// the application with that exact command line through `CreateProcessW`: Dart
 /// would escape the quotes of a `cmd.exe /s /c "<line>"` (D8).
+///
+/// Constraint C23: the bounded helper takes the target command in its argv; a
+/// line too long for it is refused (`planBoundedLaunch`), never moved onto the
+/// control pipe, which would change the helper's IPC contract (ADR 0027).
 Future<int> runExecHelper(
   List<String> args, {
   HelloSource hello = noHello,

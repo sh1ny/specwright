@@ -2,7 +2,6 @@ import 'dart:convert';
 import 'dart:io';
 
 import '../commands/vcs.dart';
-import '../native/libc.dart' as libc;
 import 'codec.dart';
 import 'document.dart';
 import 'git_backend.dart' show requireBranch;
@@ -30,21 +29,13 @@ const String _autocrlfHint =
 Future<Map<String, Object?>> gitbutlerStateDocument(VcsSession s) =>
     GitButler(s).state();
 
-/// `vcs.sh`'s `run_gitbutler_operation`. [windows] overrides the OS for the
-/// commit's command-line size check, [argMax] replaces its `sysconf` read, [environment] is the full environment
+/// `vcs.sh`'s `run_gitbutler_operation`. [environment] is the full environment
 /// `but` runs in (the parent's when null).
 Future<Map<String, Object?>> runGitbutlerOperation(
   VcsSession s,
   String command, {
-  bool? windows,
   Map<String, String>? environment,
-  int? Function()? argMax,
-}) => GitButler(
-  s,
-  windows: windows,
-  environment: environment,
-  argMax: argMax,
-).operation(command);
+}) => GitButler(s, environment: environment).operation(command);
 
 /// Python truthiness of a decoded JSON value.
 bool _truthy(Object? v) =>
@@ -103,25 +94,57 @@ final _driveLetter = RegExp(r'^[A-Za-z]:');
 final _hexCommit = RegExp(r'^[0-9a-fA-F]{7,40}$');
 final _pushRejected = RegExp(r'\[rejected\]|non-fast-forward|fetch first');
 
-/// The argument form `process_arguments` gives a Windows command line.
-String _quoteArg(String arg) {
-  var a = arg.replaceAllMapped(
-    RegExp(r'(\\*)"'),
-    (m) => '${'\\' * (2 * m[1]!.length + 1)}"',
-  );
-  a = a.replaceAllMapped(RegExp(r'(\\+)$'), (m) => m[1]! * 2);
-  return '"$a"';
+/// `gitbutler_path` for a work tree at [root]: the spelling `sw vcs commit`
+/// names [raw] with (repo-relative, `/` separators, no `./`; a directory ends
+/// in `/`). A glob character or a path outside the repository is `bad_path`.
+/// The undo planner calls it to find a path the commit would refuse or
+/// respell (C30).
+String gitbutlerCommitPath(String raw, String root) {
+  final text = raw.replaceAll(r'\', '/');
+  if (_globChars.hasMatch(text)) {
+    throw VcsStop(
+      'bad_path',
+      '$raw contains glob characters; name the file or its directory',
+      extra: {'path': raw},
+    );
+  }
+  final norm = _normpath(text);
+  if (text.isEmpty ||
+      norm == '.' ||
+      norm.startsWith('/') ||
+      norm == '..' ||
+      norm.startsWith('../') ||
+      _driveLetter.hasMatch(norm) ||
+      norm.split('/').contains('.git')) {
+    throw VcsStop(
+      'bad_path',
+      '$raw is not a path inside the repository',
+      extra: {'path': raw},
+    );
+  }
+  var isDir = text.endsWith('/');
+  if (!isDir) {
+    try {
+      isDir = Directory('$root/$text').existsSync();
+    } on Object {
+      isDir = false;
+    }
+  }
+  return isDir ? '$norm/' : norm;
 }
 
+/// [GitButler.foreignAssignments] for the undo planner and its destination
+/// check.
+Future<List<(String, String)>> gitbutlerForeignAssignments(
+  VcsSession s,
+  String branch,
+) => GitButler(s).foreignAssignments(branch);
+
 class GitButler {
-  GitButler(this.s, {this.windows, this.environment, this.argMax});
+  GitButler(this.s, {this.environment});
 
   final VcsSession s;
-  final bool? windows;
   final Map<String, String>? environment;
-
-  /// Replaces the `sysconf(_SC_ARG_MAX)` read of the command-line size check.
-  final int? Function()? argMax;
 
   String get root => s.info.repo;
   VcsScripts get scripts => s.scripts;
@@ -129,13 +152,22 @@ class GitButler {
   Future<TextResult> _git(List<String> args) => git(scripts, root, args);
 
   /// `vcs.sh`'s `but_run`: stdout of `but <args>`; with [cap], once more than
-  /// that many bytes were read the child is killed and the run stops.
-  Future<String> butRun(List<String> args, {int? cap}) async {
+  /// that many bytes were read the child is killed and the run stops. With
+  /// [tooLong], a command line the launch refuses as too long is that stop
+  /// ([runToolCapped]).
+  ///
+  /// Constraint C18: `-F` keeps a commit's message out of argv and out of
+  /// `sw`'s argv-derived fallback diagnostic (`but <args> failed`) only; text
+  /// `but` prints itself, on stderr or stdout, is relayed in `but_error`
+  /// unredacted. This is a deliberate gap.
+  Future<String> butRun(List<String> args, {int? cap, VcsStop? tooLong}) async {
     final r = await runToolCapped(
       root,
       ['but', ...args],
       cap: cap ?? 0x7fffffffffffffff,
       environment: environment,
+      tooLong: tooLong,
+      lengthRefusals: tooLong != null,
     );
     if (r.outputTooLarge) {
       throw VcsStop(
@@ -435,73 +467,57 @@ class GitButler {
 
   /// `gitbutler_path`: repo-relative, `/` separators, no `./`; a directory
   /// ends in `/`. Globs and escapes stop.
-  String gitbutlerPath(String raw) {
-    final text = raw.replaceAll(r'\', '/');
-    if (_globChars.hasMatch(text)) {
-      throw VcsStop(
-        'bad_path',
-        '$raw contains glob characters; name the file or its directory',
-        extra: {'path': raw},
-      );
-    }
-    final norm = _normpath(text);
-    if (text.isEmpty ||
-        norm == '.' ||
-        norm.startsWith('/') ||
-        norm == '..' ||
-        norm.startsWith('../') ||
-        _driveLetter.hasMatch(norm) ||
-        norm.split('/').contains('.git')) {
-      throw VcsStop(
-        'bad_path',
-        '$raw is not a path inside the repository',
-        extra: {'path': raw},
-      );
-    }
-    final isDir = text.endsWith('/') || _isDirectory('$root/$text');
-    return isDir ? '$norm/' : norm;
+  String gitbutlerPath(String raw) => gitbutlerCommitPath(raw, root);
+
+  /// Every path assigned to an applied branch other than [branch], with that
+  /// branch's name, exactly as `but status --json` spells it: no `\` to `/`
+  /// rewrite (the public state's `other_branch_paths` rewrites one and keeps
+  /// the first stack per path), and one entry for every stack that holds the
+  /// path. The evidence the named-path commit guard inspects, read for the
+  /// undo's destination check; the state document is unchanged.
+  Future<List<(String, String)>> foreignAssignments(String branch) async {
+    final status = await butStatus();
+    return [
+      for (final stack in _list(status['stacks']))
+        if (!_stackNames(stack).contains(branch))
+          for (final entry in _list(_map(stack)['assignedChanges']))
+            (
+              _rawChangeFile(entry),
+              _stackNames(stack)
+                  .firstWhere((n) => n.isNotEmpty, orElse: () => ''),
+            ),
+    ];
   }
 
-  bool _isDirectory(String path) {
-    try {
-      return Directory(path).existsSync();
-    } on Object {
-      return false;
-    }
-  }
-
-  /// `jj_commit_argv_check`: the command-line size bound `commit` shares with
-  /// Git and jj.
-  Future<void> _argvCheck(List<String> filesets, String message) async {
-    final argv = ['jj', 'commit', ...filesets, '-m', message];
-    int size;
-    int limit;
-    if (windows ?? Platform.isWindows) {
-      size = utf8.encode(argv.map(_quoteArg).join(' ')).length;
-      limit = 32000;
-    } else {
-      final arg = (argMax ?? libc.argMax)();
-      var env = 0;
-      Platform.environment.forEach((k, v) {
-        env += utf8.encode(k).length + utf8.encode(v).length + 2;
-      });
-      limit = arg == null ? 100000 : arg - env - 4096;
-      size = 0;
-      for (final a in argv) {
-        size += utf8.encode(a).length + 1;
-      }
-    }
-    if (size > limit) {
-      throw VcsStop(
-        'too_many_paths',
-        'named paths and message exceed the command-line limit; name a '
-            'containing directory instead',
-      );
-    }
+  String _rawChangeFile(Object? entry) {
+    final e = _map(entry);
+    final file = _str(e['filePath']);
+    return file.isNotEmpty ? file : _str(e['path']);
   }
 
   /// `gitbutler_commit`: `but commit -b <branch> -F <file> --json <paths>` for
-  /// the named paths only, then Git reads verify it.
+  /// the named paths only, then Git reads verify it. The message file is
+  /// resolved once, against the directory `sw` runs in, and `sw` reads and
+  /// `but` opens that one absolute path.
+  ///
+  /// Constraint C11: `sw` passes the message file to `but commit -F` unchanged
+  /// and makes no promise about the line endings `but` stores; the read-back
+  /// folds CRLF and a lone CR to LF on both sides. `sw` reads the file, then
+  /// `but` opens it again: the caller must keep the file unchanged through the
+  /// commit, since a change between the two reads commits the later text, and
+  /// the read-back's `commit_mismatch` comes after the branch moved and does
+  /// not roll it back. This is a deliberate gap.
+  ///
+  /// Constraint C12: the message goes by file (`but commit -F`), never as
+  /// `-m <text>`: on the command line it would be visible in other processes'
+  /// argument listings and could pass the OS argument limits, which differ by
+  /// OS and page size. This is a rejected alternative.
+  ///
+  /// Constraint C16: the size guard is the launch's own refusal, never a
+  /// separate estimate or preflight: on Windows the launcher's typed length
+  /// refusals, on POSIX the start's `E2BIG`, each caught around the real `but
+  /// commit` launch, and only length refusals map to `too_many_paths`. This is
+  /// an invariant.
   Future<Map<String, Object?>> commit() async {
     final branch = requireBranch(s);
     final messageFile = s.request.messageFile ?? '';
@@ -561,9 +577,11 @@ class GitButler {
         'no changes to commit in the named paths',
       );
     }
-    await _argvCheck(given, messageFile);
     // Strict UTF-8, as vcs.sh read it: an invalid byte stops before `but commit`.
-    final message = utf8.decode(File(messageFile).readAsBytesSync());
+    final messagePath = File(messageFile).absolute.path;
+    final message = _foldLineEndings(
+      utf8.decode(File(messagePath).readAsBytesSync()),
+    );
     final applied = [for (final st in stacks) ..._stackNames(st)];
     final before = <String, String>{
       for (final name in applied) name: await _tipOf(name),
@@ -573,10 +591,10 @@ class GitButler {
       '-b',
       branch,
       '-F',
-      messageFile,
+      messagePath,
       '--json',
       ...given,
-    ]);
+    ], tooLong: _tooManyPaths());
     final newTip = await _tipOf(branch);
     final old = before[branch]!;
     final problems = <String>[];
@@ -655,6 +673,17 @@ class GitButler {
       'files': committed,
     };
   }
+
+  /// The stop of a commit line the launch refuses as too long.
+  VcsStop _tooManyPaths() => VcsStop(
+    'too_many_paths',
+    'named paths and message exceed the command-line limit; name a '
+        'containing directory instead',
+  );
+
+  /// CRLF and a lone CR read as LF, as `runText` reads the stored body.
+  String _foldLineEndings(String t) =>
+      t.replaceAll('\r\n', '\n').replaceAll('\r', '\n');
 
   String _rstripNl(String t) {
     var end = t.length;

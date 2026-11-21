@@ -169,6 +169,21 @@ class ProjectChoiceTests(ProjectVersionCase):
         done = self.sw_run("vcs", "state", "--repo", store, "--role", "store", "--code", code, cwd=store)
         self.assertEqual(done.returncode, 0, (done.stdout, done.stderr))
 
+    @unittest.skipIf(os.name == "nt", "platform: `link/..` names the directory above the link's target only on POSIX")
+    def test_project_through_link_and_dotdot_is_physical(self):
+        """`--project /A/link/..` with `link` pointing into B/subdir: the check reads B's VERSION (the only match), not
+        A's, and the command acts on the repository its own options name."""
+        a = self.project("a", "99.0.0")
+        b = self.project("b")
+        (b / "subdir").mkdir()
+        os.symlink(b / "subdir", a / "link")
+        c = self.project("c", "99.0.0")
+        done = self.sw_run("--project", f"{a}/link/..", "vcs", "state", "--repo", c, "--role", "code", cwd=c)
+        self.assertEqual(done.returncode, 0, (done.stdout, done.stderr))
+        document = json.loads(done.stdout)
+        self.assertTrue(document["ok"], document)
+        self.assertEqual(document["head"], self.git(c, "rev-parse", "HEAD").strip())
+
     def test_two_leading_project_options_is_usage(self):
         code = self.project("code")
         done = self.sw_run("--project", code, "--project", code, "vcs", "state", cwd=code)

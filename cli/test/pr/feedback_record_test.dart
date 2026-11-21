@@ -709,6 +709,228 @@ void main() {
     );
     expect(seen, [defaultMaxBytes]);
   });
+  group('Windows record replacement retries a transient refusal', () {
+    late List<String> events;
+    late List<Duration> pauses;
+    late ScriptedFiles files;
+    FeedbackRecordStore storeFor({
+      bool windows = true,
+      void Function()? onPause,
+    }) => FeedbackRecordStore(
+      tmp.path,
+      files: files,
+      windows: windows,
+      pause: (d) {
+        pauses.add(d);
+        events.add('pause');
+        onPause?.call();
+      },
+    );
+    setUp(() {
+      events = [];
+      pauses = [];
+      files = ScriptedFiles(events);
+    });
+    List<int> bytes() => File(path).readAsBytesSync();
+
+    test(
+      'a refusal that persists reports the first error after 6 attempts',
+      () {
+        final store = storeFor();
+        store.writeNew(path, {'version': 2, 'owner': 'before'});
+        final before = bytes();
+        events.clear();
+        files.replaceScript = (n, source) =>
+            throw FileSystemException('refusal $n');
+        expect(
+          () => store.replaceRecord(path, {'version': 2, 'owner': 'after'}),
+          throwsA(
+            isA<FileSystemException>().having(
+              (e) => e.message,
+              'message',
+              'refusal 1',
+            ),
+          ),
+        );
+        expect(files.replaceAttempts, 6);
+        expect(pauses, List.filled(5, const Duration(milliseconds: 20)));
+        expect(bytes(), before);
+        expect(events.last, 'delete');
+        expect(
+          events.lastIndexOf('replace'),
+          lessThan(events.lastIndexOf('delete')),
+        );
+        expect(tmp.listSync().where((f) => f.path.contains('.tmp-')), isEmpty);
+      },
+    );
+
+    test('a refusal that clears within the window writes the record', () {
+      final store = storeFor();
+      store.writeNew(path, {'version': 2, 'owner': 'before'});
+      files.replaceScript = (n, source) {
+        if (n < 3) throw FileSystemException('refusal $n');
+      };
+      store.replaceRecord(path, {'version': 2, 'owner': 'after'});
+      expect(files.replaceAttempts, 3);
+      expect(pauses, hasLength(2));
+      expect((store.load(path) as Map)['owner'], 'after');
+      expect(tmp.listSync().where((f) => f.path.contains('.tmp-')), isEmpty);
+    });
+
+    test('a source removed during a pause stops without another replace', () {
+      String? temp;
+      final store = storeFor(onPause: () => File(temp!).deleteSync());
+      store.writeNew(path, {'version': 2, 'owner': 'before'});
+      files.replaceScript = (n, source) {
+        temp = source;
+        throw FileSystemException('refusal $n');
+      };
+      expect(
+        () => store.replaceRecord(path, {'version': 2, 'owner': 'after'}),
+        throwsA(
+          isA<FileSystemException>().having(
+            (e) => e.message,
+            'message',
+            'refusal 1',
+          ),
+        ),
+      );
+      expect(files.replaceAttempts, 1);
+      expect(pauses, hasLength(1));
+      expect((store.load(path) as Map)['owner'], 'before');
+    });
+
+    test('a failed temporary cleanup never replaces the first error', () {
+      final store = storeFor();
+      store.writeNew(path, {'version': 2, 'owner': 'before'});
+      files.replaceScript = (n, source) =>
+          throw FileSystemException('refusal $n');
+      files.deleteError = FileSystemException('cleanup denied');
+      expect(
+        () => store.replaceRecord(path, {'version': 2, 'owner': 'after'}),
+        throwsA(
+          isA<FileSystemException>().having(
+            (e) => e.message,
+            'message',
+            'refusal 1',
+          ),
+        ),
+      );
+      expect(files.replaceAttempts, 6);
+    });
+
+    test('a source gone after the first failed attempt is not retried', () {
+      final store = storeFor();
+      store.writeNew(path, {'version': 2, 'owner': 'before'});
+      files.replaceScript = (n, source) {
+        File(source).deleteSync();
+        throw FileSystemException('refusal $n');
+      };
+      expect(
+        () => store.replaceRecord(path, {'version': 2, 'owner': 'after'}),
+        throwsA(
+          isA<FileSystemException>().having(
+            (e) => e.message,
+            'message',
+            'refusal 1',
+          ),
+        ),
+      );
+      expect(files.replaceAttempts, 1);
+    });
+
+    test('other platforms report the error at once with no pause', () {
+      final store = storeFor(windows: false);
+      store.writeNew(path, {'version': 2, 'owner': 'before'});
+      files.replaceScript = (n, source) =>
+          throw FileSystemException('refusal $n');
+      expect(
+        () => store.replaceRecord(path, {'version': 2, 'owner': 'after'}),
+        throwsA(isA<FileSystemException>()),
+      );
+      expect(files.replaceAttempts, 1);
+      expect(pauses, isEmpty);
+    });
+
+    test('the lock create makes one attempt', () async {
+      final store = storeFor();
+      files.lockError = RecordAlreadyExists('$path.lock');
+      await expectLater(
+        store.withLock(path, () => 1),
+        throwsA(isA<PairStop>().having((e) => e.error, 'error', 'record_busy')),
+      );
+      expect(files.lockAttempts, 1);
+      expect(pauses, isEmpty);
+    });
+
+    test('publication makes one attempt for its link and its create', () {
+      final store = storeFor();
+      files.linkError = FileSystemException('link refused');
+      files.createError = FileSystemException('create refused');
+      expect(
+        () => store.writeNew(path, {'version': 2}),
+        throwsA(isA<FileSystemException>()),
+      );
+      expect(files.linkAttempts, 1);
+      expect(files.destinationCreates, 1);
+      expect(pauses, isEmpty);
+    });
+  });
+}
+
+/// A [FaultFiles] whose replace, lock, link and create follow a script, and
+/// which logs the order of replace and delete calls.
+class ScriptedFiles extends FaultFiles {
+  ScriptedFiles(this.events);
+  final List<String> events;
+  void Function(int attempt, String source)? replaceScript;
+  Object? deleteError, lockError, linkError, createError;
+  int replaceAttempts = 0, lockAttempts = 0, linkAttempts = 0;
+  int destinationCreates = 0;
+  @override
+  void replace(String a, String b) {
+    events.add('replace');
+    replaceAttempts++;
+    final script = replaceScript;
+    if (script == null) return super.replace(a, b);
+    script(replaceAttempts, a);
+    actual.replace(a, b);
+  }
+
+  @override
+  void delete(String p) {
+    events.add('delete');
+    final error = deleteError;
+    if (error != null) throw error;
+    actual.delete(p);
+  }
+
+  @override
+  void acquireLock(String p) {
+    lockAttempts++;
+    final error = lockError;
+    if (error != null) throw error;
+    actual.acquireLock(p);
+  }
+
+  @override
+  void link(String a, String b) {
+    linkAttempts++;
+    final error = linkError;
+    if (error != null) throw error;
+    actual.link(a, b);
+  }
+
+  @override
+  RecordOutput createExclusive(String p) {
+    final error = createError;
+    // Temporary files are named .tmp-*; a destination create is the other one.
+    if (error != null && !File(p).uri.pathSegments.last.startsWith('.tmp-')) {
+      destinationCreates++;
+      throw error;
+    }
+    return super.createExclusive(p);
+  }
 }
 
 /// A record file that holds [size] bytes and records the limit each read asks for.

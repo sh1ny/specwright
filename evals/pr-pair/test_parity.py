@@ -249,6 +249,24 @@ class SnapshotParity(PrParity):
         self.assertEqual(new["stdout"], b"")
         self.assertEqual(new["calls"], [])
 
+    def test_fixed_cases_are_listed_differences(self):
+        """Listed differences (fix-sw-port-gaps D9): the cases whose output a fix to `--timeout` changes. No frozen record is
+        edited or regenerated. The recorded cases never pass a `--timeout`, so none of them differs; each listed case is run
+        on sw alone, and its new outcome is asserted here, beside what sw did with it before the fix (the comment)."""
+        shown = "pr-snapshot: --timeout needs whole seconds, got '%s'" + chr(10)
+        fixed = [  # (the value, what sw did with it before the fix)
+            ("abc", "woke `timeout` at once, exit 0"),
+            ("", "stopped on the empty value, exit 1"),
+            ("-3", "read a number below zero: woke `timeout` at once, exit 0"),
+            ("+5", "read as 5, exit 0"),
+            ("9223372036854775808", "read as no number: woke `timeout` at once, exit 0"),
+        ]
+        for value, frozen in fixed:
+            with self.subTest(timeout=value, frozen=frozen):
+                new = self.one(SNAPSHOT, (self.PR, "--repo", self.SLUG, "--wait", "--timeout", value), "me", None)
+                self.assertEqual((new["code"], new["stdout"], new["stderr"].decode("utf-8")), (2, b"", shown % value))
+                self.assertEqual(new["calls"], [], "no gh call")
+
     def test_snapshot_gh_failure(self):
         self.mutate(lambda st: st.update({"fail": [{"match": "graphql", "exit": 1, "stderr": "boom"}]}))
         new, old = self.snapshot_pair()
@@ -449,9 +467,9 @@ class AsParity(tas.AsShCase, ParityAsserts):
             "jj other subcommand": ([], ("jj", "log")),
             "jj --config": ([], ("jj", "git", "push", "--config", "x=y")),
         }
-        for name, (git_steps, command) in cases.items():
+        for ordinal, (name, (git_steps, command)) in enumerate(cases.items()):
             with self.subTest(name):
-                work = self.repo(f"w-{len(name)}-{abs(hash(name)) % 1000}")
+                work = self.repo(f"w-{ordinal}")
                 self.git(work, "remote", "set-url", "origin", "https://github.com/o/r.git")
                 self.git(work, "config", "http.proxy", self.base.rstrip("/"))
                 vcs_test_support.stamp_version(work)

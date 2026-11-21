@@ -108,8 +108,62 @@ class ReviewConfig {
 
 /// Runs one review operation; every external command uses the shared native
 /// launcher and process-tree implementation.
-Future<Map<String, Object?>> runReviewOperation({required List<String> argv}) =>
-    _ReviewOperations().dispatch(argv);
+///
+/// [environment] and [helperCommand] are what the external commands run with
+/// (`_environment` and `sw __exec` by default); tests inject them.
+Future<Map<String, Object?>> runReviewOperation({
+  required List<String> argv,
+  Map<String, String>? environment,
+  List<String>? helperCommand,
+  CommandResolver? resolve,
+}) async {
+  final savedEnvironment = _environmentOverride;
+  final savedHelper = _helperOverride;
+  final savedResolve = _resolveOverride;
+  _environmentOverride = environment ?? savedEnvironment;
+  _helperOverride = helperCommand ?? savedHelper;
+  _resolveOverride = resolve ?? savedResolve;
+  try {
+    return await _ReviewOperations().dispatch(argv);
+  } finally {
+    _environmentOverride = savedEnvironment;
+    _helperOverride = savedHelper;
+    _resolveOverride = savedResolve;
+  }
+}
+
+/// Finds a command: `resolveCommand`, or a test's stand-in (a path too long
+/// to exist on disk).
+typedef CommandResolver = String? Function(
+  String name,
+  Map<String, String> environment, {
+  String? workingDirectory,
+});
+
+CommandResolver? _resolveOverride;
+
+String? _resolve(
+  String name,
+  Map<String, String> environment, {
+  String? workingDirectory,
+}) => (_resolveOverride ?? resolveCommand)(
+  name,
+  environment,
+  workingDirectory: workingDirectory,
+);
+
+Map<String, String>? _environmentOverride;
+List<String>? _helperOverride;
+
+/// The environment the review's external commands run with.
+Map<String, String> get _environment =>
+    _environmentOverride ?? Platform.environment;
+
+/// Whether an old-check refusal is a length refusal: the only kind route
+/// selection skips a route for (C13).
+bool _isLengthRefusal(Object e) =>
+    (e is Unrepresentable && e.what == 'command line') ||
+    (e is UnsafeBatchArgument && e.reason == 'line too long');
 
 class _ReviewOperations {
   final _NativeGit git = _NativeGit();
@@ -200,11 +254,19 @@ class _ReviewOperations {
         skipped.add({'route': route, 'reason': 'current runtime'});
         continue;
       }
-      final probe = await _probe(route);
+      final probe = await _probe(route, selection: true);
       var reason = probe.reason;
       if (reason == null && route == 'omp') {
         reason = _ompFloorReason(probe.version);
-        reason ??= await _resolveOmpModel(probe.executable!, cfg.model('omp')!);
+        try {
+          reason ??= await _resolveOmpModel(
+            probe.executable!,
+            cfg.model('omp')!,
+          );
+        } on Object catch (e) {
+          if (!_isLengthRefusal(e)) rethrow;
+          reason = 'unrepresentable command line: ${probe.executable}';
+        }
       }
       if (reason != null) {
         skipped.add({'route': route, 'reason': reason});
@@ -357,7 +419,7 @@ class _ReviewOperations {
     final settings = await _settings(args.values['settings']);
     final cfg = ReviewConfig(settings.review);
 
-    final exe = resolveCommand(route, Platform.environment);
+    final exe = _resolve(route, _environment);
     if (exe == null) {
       throw ReviewStop('not_installed', '$route is not installed');
     }
@@ -422,7 +484,7 @@ class _ReviewOperations {
       final allowedDirs = storeArg == null
           ? const <String>[]
           : <String>[p.absolute(storeArg)];
-      final environment = Platform.environment;
+      final environment = _environment;
       final windows =
           (environment['REVIEW_RUN_TEST_OS_NAME'] ??
               (Platform.isWindows ? 'nt' : 'posix')) ==
@@ -1871,10 +1933,10 @@ Future<_NativeRun> _runNative(
   required RunLimits limits,
   Future<void> Function(List<int>)? stdoutSink,
 }) async {
-  final environment = Platform.environment;
+  final environment = _environment;
   final name = command.first;
   checkLaunchInput(command, cwd: cwd, environment: environment);
-  final path = resolveCommand(name, environment, workingDirectory: cwd);
+  final path = _resolve(name, environment, workingDirectory: cwd);
   if (path == null) {
     return _NativeRun(
       BoundedResult(startError: '$name: command not found'),
@@ -1882,7 +1944,13 @@ Future<_NativeRun> _runNative(
       null,
     );
   }
-  final plan = planLaunch(path, command, environment);
+  final launchPlan = planBoundedLaunch(
+    path,
+    command,
+    environment,
+    effectiveHelperCommand(_helperOverride),
+  );
+  final plan = launchPlan.plan;
   String? groupReason;
   var stdinBytes = plan.stdinBytes;
   if (input != null && input.isNotEmpty) {
@@ -1891,6 +1959,9 @@ Future<_NativeRun> _runNative(
   final result = await BoundedRun(
     command: plan.command,
     rawLine: plan.rawLine,
+    helperArgv: launchPlan.helperArgv,
+    lineTooLong: launchPlan.lineTooLong,
+    helperCommand: _helperOverride,
     stdinBytes: stdinBytes,
     limits: limits,
     treeFor: () => platformTree(environment),
@@ -1946,20 +2017,49 @@ void _need(Map<String, String> args, List<String> names) {
 }
 
 class _Probe {
-  const _Probe(this.executable, this.version, this.reason);
+  const _Probe(
+    this.executable,
+    this.version,
+    this.reason, {
+    this.lengthRefused = false,
+  });
   final String? executable;
   final String? version;
   final String? reason;
+
+  /// An old check refused the probe's line for its length (C13): selection
+  /// skips the route with [reason], `unrepresentable command line: <path>`.
+  final bool lengthRefused;
 }
 
-Future<_Probe> _probe(String route, {String? executable}) async {
-  final exe = executable ?? resolveCommand(route, Platform.environment);
+Future<_Probe> _probe(
+  String route, {
+  String? executable,
+  bool selection = false,
+}) async {
+  final exe = executable ?? _resolve(route, _environment);
   if (exe == null) return const _Probe(null, null, 'not installed');
-  final run = await _runNative(
-    [exe, '--version'],
-    cwd: Directory.current.path,
-    limits: const RunLimits(deadline: _probeTimeout, maxBytes: _maxProbeStream),
-  );
+  final _NativeRun run;
+  try {
+    run = await _runNative(
+      [exe, '--version'],
+      cwd: Directory.current.path,
+      limits: const RunLimits(
+        deadline: _probeTimeout,
+        maxBytes: _maxProbeStream,
+      ),
+    );
+  } on Object catch (e) {
+    // Route selection falls through on an old-check length refusal; an
+    // explicit run, and any other refusal, keep today's mapping.
+    if (!selection || !_isLengthRefusal(e)) rethrow;
+    return _Probe(
+      null,
+      null,
+      'unrepresentable command line: $exe',
+      lengthRefused: true,
+    );
+  }
   if (run.limit == BoundedLimit.responseTooLarge) {
     return _Probe(
       null,
@@ -2486,7 +2586,7 @@ bool _truthy(Object? value) => switch (value) {
 };
 
 String _stateDirectory() {
-  final env = Platform.environment;
+  final env = _environment;
   final configured = env['SPECWRIGHT_STATE_DIR'];
   if (configured != null && configured.isNotEmpty) return configured;
   final home = Platform.isWindows

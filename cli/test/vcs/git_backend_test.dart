@@ -1,15 +1,23 @@
+import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:specwright_cli/src/commands/vcs.dart';
+import 'package:specwright_cli/src/fence/fenced_text.dart';
+import 'package:specwright_cli/src/pr/gh.dart' show GhResult;
+import 'package:specwright_cli/src/process/resolve.dart';
 import 'package:specwright_cli/src/vcs/args.dart';
+import 'package:specwright_cli/src/vcs/codec.dart';
 import 'package:specwright_cli/src/vcs/git_backend.dart';
 import 'package:specwright_cli/src/vcs/git_common.dart';
 import 'package:specwright_cli/src/vcs/probe.dart';
 import 'package:specwright_cli/src/vcs/scripts.dart';
 import 'package:specwright_cli/src/vcs/stop.dart';
+import 'package:specwright_cli/src/vcs/tool_runner.dart' show ToolResult;
 import 'package:test/test.dart';
 
 import 'bash_support.dart';
+import '../line_support.dart';
 import 'fake_fence.dart';
 
 void main() {
@@ -67,6 +75,8 @@ void main() {
     bool remoteBranch = false,
     List<String> paths = const [],
     bool jjPresent = false,
+    VcsScripts? scripts,
+    String main = 'main',
   }) {
     final repo = posix(repoDir.path);
     final request = VcsRequest(
@@ -88,8 +98,8 @@ void main() {
       VcsContext(request),
       repo,
       repo,
-      ProbeInfo('git', 'main', repo, infoLogin, jjPresent: jjPresent),
-      VcsScripts(fence: fakeFence(scriptsDir)),
+      ProbeInfo('git', main, repo, infoLogin, jjPresent: jjPresent),
+      scripts ?? VcsScripts(fence: fakeFence(scriptsDir)),
     );
   }
 
@@ -122,6 +132,228 @@ void main() {
     final f = File('${tmp.path}/msg.txt')..writeAsStringSync(text);
     return posix(f.path);
   }
+
+  group('parseZRecords', () {
+    Uint8List z(List<String> fields, {bool end = true}) => Uint8List.fromList([
+      for (var i = 0; i < fields.length; i++) ...[
+        ...utf8.encode(fields[i]),
+        if (end || i < fields.length - 1) 0,
+      ],
+    ]);
+
+    test('frames and pairs the raw records and changes no byte', () {
+      final parsed = parseZRecords(
+        z([' M a\\b.md', 'R  new.md', 'old.md', '?? x y.md ']),
+      );
+      expect(parsed.complete, isTrue);
+      expect(parsed.records.map((r) => r.decode().status), [' M', 'R ', '??']);
+      expect(parsed.records.map((r) => r.decode().path), [
+        r'a\b.md',
+        'new.md',
+        'x y.md ',
+      ]);
+      expect(parsed.records[1].decode().source, 'old.md');
+      expect(parsed.records[0].decode().source, isNull);
+      // the first record keeps its first character
+      expect(utf8.decode(parsed.records[0].path), r'a\b.md');
+    });
+
+    test('a copy takes its source too, whichever column holds the C', () {
+      final parsed = parseZRecords(z(['C  b.md', 'a.md', ' C c.md', 'd.md']));
+      expect(parsed.records.map((r) => r.decode().source), ['a.md', 'd.md']);
+    });
+
+    test('an empty listing is complete and holds no record', () {
+      final parsed = parseZRecords(Uint8List(0));
+      expect(parsed.complete, isTrue);
+      expect(parsed.records, isEmpty);
+    });
+
+    test('a final field with no NUL is not complete', () {
+      expect(
+        parseZRecords(z([' M a.md', ' M b.md'], end: false)).complete,
+        isFalse,
+      );
+    });
+
+    test('a rename cut before its source path is not complete', () {
+      expect(parseZRecords(z(['R  new.md'])).complete, isFalse);
+    });
+
+    test('a record shorter than a status and a path is not complete', () {
+      expect(parseZRecords(z(['ab'])).complete, isFalse);
+    });
+
+    test('a name that is not UTF-8 is read only when it is decoded', () {
+      final bytes = Uint8List.fromList([
+        ...utf8.encode('?? bad'),
+        0xff,
+        0,
+        ...utf8.encode(' M ok.md'),
+        0,
+      ]);
+      final parsed = parseZRecords(bytes);
+      expect(parsed.complete, isTrue);
+      expect(parsed.records[1].decode().path, 'ok.md');
+      expect(
+        () => parsed.records[0].decode(),
+        throwsA(
+          isA<NotUtf8>().having((e) => e.message, 'message', contains(r'\xFF')),
+        ),
+      );
+    });
+  });
+
+  group('readInventory (C50)', () {
+    ToolResult run(
+      List<int> stdout, {
+      int code = 0,
+      List<int> stderr = const [],
+      Object? streamError,
+    }) => ToolResult(
+      code,
+      Uint8List.fromList(stdout),
+      Uint8List.fromList(stderr),
+      streamError: streamError,
+    );
+
+    List<int> joined(List<String> fields, int terminator) => [
+      for (final f in fields) ...[...utf8.encode(f), terminator],
+    ];
+
+    VcsStop failure(void Function() read) {
+      try {
+        read();
+      } on VcsStop catch (stop) {
+        return stop;
+      }
+      fail('the read was not refused');
+    }
+
+    test('NUL with one field: a whole listing passes, a cut one fails', () {
+      final whole = readInventory(
+        run(joined(['a.md', 'b.md'], 0)),
+        'git ls-files',
+      );
+      expect(whole.map((r) => utf8.decode(r.single)), ['a.md', 'b.md']);
+      final cut = joined(['a.md', 'b.md'], 0)..removeLast();
+      final stop = failure(() => readInventory(run(cut), 'git ls-files'));
+      expect(stop.error, 'vcs_error');
+      expect(stop.message, contains('git ls-files'));
+    });
+
+    test('NUL with two fields: a status and a path are one record', () {
+      final pairs = readInventory(
+        run(joined(['M', 'a.md', 'A', 'b.md'], 0)),
+        'git diff-tree',
+        fields: 2,
+      );
+      expect(pairs.length, 2);
+      expect(utf8.decode(pairs[1][1]), 'b.md');
+      final stop = failure(
+        () => readInventory(
+          run(joined(['M', 'a.md', 'A'], 0)),
+          'git diff-tree',
+          fields: 2,
+        ),
+      );
+      expect(stop.error, 'vcs_error');
+      expect(stop.message, contains('cut'));
+    });
+
+    test('LF: a whole listing passes, one cut before its terminator fails', () {
+      final lines = readInventory(
+        run(joined(['abc', 'def'], 0x0a)),
+        'git rev-list',
+        framing: Framing.lf,
+      );
+      expect(lines.map((r) => utf8.decode(r.single)), ['abc', 'def']);
+      final cut = joined(['abc', 'def'], 0x0a)..removeLast();
+      final stop = failure(
+        () => readInventory(run(cut), 'git rev-list', framing: Framing.lf),
+      );
+      expect(stop.error, 'vcs_error');
+    });
+
+    test('zero bytes with exit 0 is a complete, empty listing', () {
+      expect(readInventory(run([]), 'git ls-files'), isEmpty);
+      expect(
+        readInventory(run([]), 'git rev-list', framing: Framing.lf),
+        isEmpty,
+      );
+    });
+
+    test('a non-zero exit names the command and git stderr', () {
+      final stop = failure(
+        () => readInventory(
+          run([], code: 128, stderr: utf8.encode('fatal: not a repo\n')),
+          'git status',
+        ),
+      );
+      expect(stop.error, 'vcs_error');
+      expect(stop.code, 1);
+      expect(stop.message, 'git status failed: fatal: not a repo');
+    });
+
+    test('a non-zero exit with empty stderr names the exit status', () {
+      final stop = failure(() => readInventory(run([], code: 3), 'git status'));
+      expect(stop.message, 'git status failed with exit status 3');
+    });
+
+    test('stderr is cut to 4 KiB in the message', () {
+      final stop = failure(
+        () => readInventory(
+          run([], code: 1, stderr: List.filled(10000, 0x78)),
+          'git status',
+        ),
+      );
+      expect(stop.message.length, lessThan(4096 + 100));
+      expect(stop.message, contains('x' * 4096));
+      expect(stop.message, isNot(contains('x' * 4097)));
+    });
+
+    test('any stderr byte at exit 0 fails the read', () {
+      final stop = failure(
+        () => readInventory(
+          run(
+            joined(['a.md'], 0),
+            stderr: utf8.encode('warning: could not open directory\n'),
+          ),
+          'git ls-files',
+        ),
+      );
+      expect(stop.error, 'vcs_error');
+      expect(stop.message, contains('could not open directory'));
+    });
+
+    test('a stream error at exit 0 fails the read, whole records or not', () {
+      final stop = failure(
+        () => readInventory(
+          run(joined(['a.md'], 0), streamError: 'pipe broke'),
+          'git ls-files',
+        ),
+      );
+      expect(stop.error, 'vcs_error');
+      expect(stop.message, contains('pipe broke'));
+    });
+
+    test(
+      'readPorcelain: a rename cut before its source fails, a whole one passes',
+      () {
+        final good = readPorcelain(
+          run(joined(['R  new.md', 'old.md', '?? x.md'], 0)),
+          'git status',
+        );
+        expect(good.length, 2);
+        expect(good.first.decode().source, 'old.md');
+        final stop = failure(
+          () => readPorcelain(run(joined(['R  new.md'], 0)), 'git status'),
+        );
+        expect(stop.error, 'vcs_error');
+        expect(stop.message, contains('git status'));
+      },
+    );
+  });
 
   group('parsePorcelain', () {
     test('plain entries, with a backslash made a slash', () {
@@ -653,5 +885,181 @@ void main() {
       },
       skip: skip,
     );
+  });
+
+  // D5 / C1: a git line of exactly 32,767 units is refused before the start,
+  // as `not_utf8`, rather than failing inside CreateProcessW.
+  group('the Windows line limit (D5)', () {
+    String? nativeGit() {
+      if (!Platform.isWindows) return null;
+      final path = resolveCommand('git', Platform.environment);
+      if (path == null || !path.toLowerCase().endsWith('.exe')) return null;
+      return path;
+    }
+
+    final windowsSkip = nativeGit() == null
+        ? 'needs a native git.exe on Windows'
+        : false;
+
+    /// The stop a failed [body] ends as: a [VcsStop] as thrown, or an
+    /// [Unrepresentable] mapped the way every vcs command maps it.
+    Future<VcsStop> refusalOf(Future<Object?> Function() body) async {
+      try {
+        await body();
+      } on Object catch (e) {
+        final stop = e is VcsStop ? e : VcsStop.refusal(e);
+        if (stop != null) return stop;
+        rethrow;
+      }
+      fail('expected a refusal');
+    }
+
+    test('windows: a git commit line of 32,767 units is not_utf8', () async {
+      final git = nativeGit()!;
+      final msg = messageFile();
+      gitIn(['checkout', '-q', '-b', 'feature']);
+      // 450 real files with a space in the name: each is quoted on the line
+      // (two more units) and none is counted by the 32,000-byte estimator.
+      // The padding is spread evenly so no name nears the 255-unit file limit.
+      List<String> named(int extra) => [
+        for (var i = 0; i < 450; i++)
+          '${'n' * (55 + extra ~/ 450 + (i < extra % 450 ? 1 : 0))} '
+              '${i.toString().padLeft(4, '0')}',
+      ];
+      final fixed = ['commit', '-F', msg, '--'];
+      final extra = 32767 - lineUnits([git, ...fixed, ...named(0)]);
+      expect(extra, inInclusiveRange(0, 450 * 150));
+      final paths = named(extra);
+      for (final name in paths) {
+        write(name, 'x\n');
+      }
+      expect(lineUnits([git, ...fixed, ...paths]), 32767);
+      final estimate =
+          paths.fold<int>(0, (n, p) => n + utf8.encode(p).length + 1) +
+          utf8.encode(msg).length;
+      expect(estimate, lessThan(32000), reason: 'below the byte estimator');
+
+      final stop = await refusalOf(
+        () => op(
+          'commit',
+          session(
+            command: 'commit',
+            branch: 'feature',
+            messageFile: msg,
+            paths: paths,
+          ),
+        ),
+      );
+      expectStop(stop, 'not_utf8');
+    }, skip: windowsSkip);
+
+    test('windows: a merge line of 32,767 units is not_utf8', () async {
+      final git = nativeGit()!;
+      gitIn(['branch', 'feature']);
+      final prefix = '${posix(tmp.path)}/';
+      final fixed = ['merge', '--no-ff', 'feature', '-F'];
+      final fill = 32767 - lineUnits([git, ...fixed, '${prefix}x']) + 1;
+      final msg = '$prefix${'m' * fill}';
+      expect(lineUnits([git, ...fixed, msg]), 32767);
+      final stop = await refusalOf(
+        () => op(
+          'merge',
+          session(command: 'merge', branch: 'feature', messageFile: msg),
+        ),
+      );
+      expectStop(stop, 'not_utf8');
+    }, skip: windowsSkip);
+
+    test(
+      'windows: fetch-main line of 32,767 units is git_network_error',
+      () async {
+        final git = nativeGit()!;
+        gitIn(['remote', 'add', 'origin', 'https://github.com/o/n.git']);
+        final fixed = [git, 'fetch', 'origin'];
+        final name = 'b' * (32767 - lineUnits([...fixed, 'b']) + 1);
+        expect(lineUnits([...fixed, name]), 32767);
+        // the real fence with its gh lookups answered; the git it starts is the
+        // real resolved git.exe, whose line the plan refuses before any start
+        Future<GhResult> gh(List<String> args, Map<String, String> env) async =>
+            GhResult(
+              exitCode: 0,
+              stdout: utf8.encode(
+                args.contains('--help')
+                    ? '--user'
+                    : args.first == 'auth'
+                    ? 'tok\n'
+                    : 'me\n',
+              ),
+              stderr: Uint8List(0),
+            );
+        Future<ToolResult> outsideWorkTree(
+          List<String> command,
+          Map<String, String> env,
+        ) async => ToolResult(0, utf8.encode('false\n'), Uint8List(0));
+        final scripts = VcsScripts(
+          fence: (repo, argv) => fencedText(
+            repo,
+            argv,
+            environment: withEnv(const {}),
+            gh: gh,
+            git: outsideWorkTree,
+          ),
+        );
+        final stop = await refusalOf(
+          () => op(
+            'fetch-main',
+            session(
+              command: 'fetch-main',
+              infoLogin: 'me',
+              main: name,
+              scripts: scripts,
+            ),
+          ),
+        );
+        expectStop(stop, 'git_network_error', code: 3);
+      },
+      skip: windowsSkip,
+    );
+
+    // The commit's `git add` runs through the real git.exe, the commit through
+    // a git.cmd shim: the interpreter comes from a SYSTEMROOT so long that the
+    // raw `cmd.exe /d /s /c "..."` line is over the limit while the batch
+    // payload is short. Nothing starts, and the stop keeps `git_commit_failed`.
+    test('windows: git.exe then git.cmd raw line over the limit', () async {
+      gitIn(['checkout', '-q', '-b', 'feature']);
+      write('f.txt', 'x\n');
+      final shims = Directory('${tmp.path}/shims')..createSync();
+      File('${shims.path}/git.cmd').writeAsStringSync('@echo off\r\n');
+      final cmdEnv = withEnv({
+        'PATH': shims.path,
+        'PATHEXT': '.CMD;.EXE',
+        'COMSPEC': '${tmp.path}/no-such-cmd.exe',
+        'SYSTEMROOT': r'C:\' + 'r' * 32700,
+      });
+      final scripts = VcsScripts(
+        fence: fakeFence(scriptsDir),
+        environmentFor: (command) => command[1] == 'commit' ? cmdEnv : null,
+      );
+      final stop = await refusalOf(
+        () => op(
+          'commit',
+          session(
+            command: 'commit',
+            branch: 'feature',
+            messageFile: messageFile(),
+            paths: ['f.txt'],
+            scripts: scripts,
+          ),
+        ),
+      );
+      expectStop(
+        stop,
+        'git_commit_failed',
+        messageHas:
+            'cannot start git: cannot start the helper: '
+            'its command line is too long',
+      );
+      expect(sh(repoDir.path, ['status', '--porcelain']), 'A  f.txt');
+    }, skip: Platform.isWindows ? false : 'Windows only');
   });
 }

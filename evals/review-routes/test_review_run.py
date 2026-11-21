@@ -1668,5 +1668,150 @@ class RecordGateTests(Base):
         self.assertEqual(self.rounds()["rounds"], 0)
 
 
+def units(argv):
+    """UTF-16 units of the Windows command line for [argv] (CreateProcessW rules), without the terminating NUL."""
+    return len(subprocess.list2cmdline(list(argv)))
+
+
+@unittest.skipUnless(os.name == "nt", "platform: the Windows command-line limit")
+class WindowsLineTests(Base):
+    """fix-sw-port-gaps D5 / C1: a started Windows line holds at most 32,766 units (CreateProcessW takes 32,767 with its NUL),
+    and the helper's own line is checked before the helper starts."""
+
+    def setUp(self):
+        super().setUp()
+        self.sw = swcall.argv([])[0]
+
+    def reviewer_exe(self, name):
+        return str(self.bin / f"{name}.exe")
+
+    def calibrate_model(self, route, target):
+        """A model name that makes the resolved [route] line exactly [target] units."""
+        self.install(route)
+        self.claude_result()
+        self.set_settings(f"review:\n  models:\n    {route}: \"mm\"\n")
+        self.preship(route)
+        argv = self.runs(route)[0]["argv"]
+        base = units([self.reviewer_exe(route), *argv])
+        self.assertEqual(argv[argv.index("--model") + 1], "mm")
+        model = "m" * (2 + target - base)
+        self.assertEqual(units([self.reviewer_exe(route), *[model if a == "mm" else a for a in argv]]), target)
+        (self.tmp / f"{route}.log").unlink()
+        return model
+
+    def test_reviewer_line_over_the_limit_behind_the_helper(self):
+        # the resolved line fits (32,766 units), the helper's own line does not
+        model = self.calibrate_model("claude", 32766)
+        self.set_settings(f"review:\n  models:\n    claude: \"{model}\"\n")
+        out = self.preship("claude", expect=3)
+        self.assertEqual(out["error"], "reviewer_failed")
+        self.assertEqual(out["exit_code"], 127)
+        self.assertEqual(out["receipt"]["route"], "claude")
+        self.assertEqual(self.runs("claude"), [])
+
+    def test_reviewer_line_of_32767_units(self):
+        model = self.calibrate_model("claude", 32767)
+        self.set_settings(f"review:\n  models:\n    claude: \"{model}\"\n")
+        out = self.preship("claude", expect=3)
+        self.assertEqual(out["error"], "reviewer_failed")
+        self.assertEqual(out["exit_code"], 127)
+        self.assertEqual(self.runs("claude"), [], "neither the invocation nor its helper starts")
+
+    def test_nul_in_reviewer_argument_is_not_utf8(self):
+        self.install("claude")
+        self.claude_result()
+        self.set_settings('review:\n  models:\n    claude: "a\\0b"\n')
+        out = self.preship("claude", expect=1)
+        self.assertEqual(out["error"], "not_utf8")
+        self.assertEqual(self.runs("claude"), [])
+
+    # ---- the review's own Git reads -------------------------------------------------------------------------------
+    def git_exe(self):
+        path = shutil.which("git", path=self.env()["PATH"])
+        if path is None or not path.lower().endswith(".exe"):
+            self.skipTest("needs a native git.exe")
+        return path
+
+    def run_with_base(self, base, expect):
+        # The long name comes from the settings file (`main_branch`), which sw reads: sw's own command line, built by the
+        # test, stays short, and only the Git line sw builds is long. `rounds` resolves that name with `git show-ref`.
+        self.set_settings(f'main_branch: "{base}"\n')
+        return self.script("rounds", "--change", CHANGE, "--settings", self.settings, expect=expect)
+
+    def base_for(self, ref_prefix, target, extra=()):
+        """A base name that makes `git show-ref --verify --quiet <ref_prefix><base>` exactly [target] units."""
+        git = self.git_exe()
+        tail = ["show-ref", "--verify", "--quiet"]
+        base = units([git, *tail, ref_prefix + "b"])
+        name = "b" * (1 + target - base)
+        self.assertEqual(units([git, *tail, ref_prefix + name]), target)
+        return name, git
+
+    def test_remote_base_probe_behind_the_helper_is_no_base(self):
+        self.install("claude")
+        self.claude_result()
+        git = self.git_exe()
+        tail = ["show-ref", "--verify", "--quiet"]
+        # the local probe fits through the helper exactly; the remote one is nine units longer and fits only on its own
+        prefix = units([self.sw, "__exec", "--", git, *tail, "refs/heads/b"]) - units([git, *tail, "refs/heads/b"])
+        local = 32766 - prefix
+        name = "b" * (1 + local - units([git, *tail, "refs/heads/b"]))
+        self.assertEqual(units([self.sw, "__exec", "--", git, *tail, "refs/heads/" + name]), 32766)
+        self.assertLessEqual(units([git, *tail, "refs/remotes/origin/" + name]), 32766)
+        out = self.run_with_base(name, expect=1)
+        self.assertEqual(out["error"], "no_base")
+
+    def test_git_read_over_the_limit_is_not_utf8(self):
+        self.install("claude")
+        self.claude_result()
+        name, _ = self.base_for("refs/heads/", 32768)
+        out = self.run_with_base(name, expect=1)
+        self.assertEqual(out["error"], "not_utf8")
+
+    def test_git_read_of_32767_units_is_a_failed_start(self):
+        self.install("claude")
+        self.claude_result()
+        # the remote probe line is 32,767 units; the local one is nine shorter but too long behind the helper, so both
+        # probes are failed starts and the base is not found
+        name, _ = self.base_for("refs/remotes/origin/", 32767)
+        out = self.run_with_base(name, expect=1)
+        self.assertEqual(out["error"], "no_base")
+
+    def test_git_cmd_raw_line_over_the_limit_is_not_a_repo(self):
+        # `git` resolves to a short git.cmd whose raw `cmd.exe /d /s /c "..."` line is over the limit: COMSPEC names no
+        # file, so the interpreter is under SYSTEMROOT, and a long one makes only the raw line too long. The read is a
+        # failed start, as before, so the first `git rev-parse` ends as `not-a-repo`.
+        self.install("claude")
+        self.claude_result()
+        shims = self.tmp / "shims"
+        shims.mkdir()
+        (shims / "git.cmd").write_text("@echo off\r\n", encoding="utf-8", newline="")
+        base = self.env()["PATH"]
+        self.extra_env.update({"PATH": str(shims) + os.pathsep + base, "PATHEXT": ".COM;.EXE;.BAT;.CMD",
+                               "COMSPEC": str(self.tmp / "no-such-cmd.exe"), "SYSTEMROOT": "C:\\" + "r" * 32698})
+        out = self.preship("claude", expect=1)
+        self.assertEqual(out["error"], "not-a-repo")
+
+    # ---- route probes ---------------------------------------------------------------------------------------------
+    def test_omp_models_find_failure_reports_only_the_exit_status(self):
+        # a failing `omp models find` with stderr: the reason names the exit status and not the stderr text
+        self.install("omp", "claude")
+        self.set_settings("review:\n  order: [omp, claude]\n  models:\n    omp: \"openai-codex/gpt-6.1-sol\"\n")
+        self.extra_env["FAKE_OMP_FIND_EXIT"] = "3"
+        out = self.select("codex")
+        skipped = {item["route"]: item["reason"] for item in out["skipped"]}
+        self.assertEqual(skipped["omp"], "probe failed: omp models find exited 3")
+
+    def test_unsafe_character_in_a_batch_probe_stays_internal_error(self):
+        # `provider/a%b` reaches `omp models find a%b`: omp.cmd refuses `%` as an unsafe batch argument, which is an
+        # internal_error, and the next route is never probed
+        self.install("codex")
+        (self.bin / "omp.cmd").write_text("@echo off\r\nif \"%~1\"==\"--version\" echo omp/99.0.0\r\n", encoding="utf-8", newline="")
+        self.set_settings("review:\n  order: [omp, codex]\n  models:\n    omp: \"provider/a%b\"\n")
+        out = self.select("claude", expect=1)
+        self.assertEqual(out["error"], "internal_error")
+        self.assertEqual(self.calls("codex"), [])
+
+
 if __name__ == "__main__":
     unittest.main()

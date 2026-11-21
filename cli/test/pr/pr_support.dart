@@ -6,19 +6,23 @@ import 'package:specwright_cli/src/process/limit_line.dart' show BoundedLimit;
 import 'package:specwright_cli/src/pr/gh.dart';
 import 'package:specwright_cli/src/vcs/codec.dart';
 
-/// A gh answer: exit 0 and [stdout] by default.
+/// A gh answer: exit 0 and [stdout] by default. [merged] is the combined
+/// output of a call that ran in merged mode (the `--log-failed` call): its
+/// stdout and stderr stay empty, as `runGh` returns them.
 GhResult answer(
   String stdout, {
   int exit = 0,
   String stderr = '',
   String? limitLine,
   BoundedLimit? limit,
+  String? merged,
 }) => GhResult(
   exitCode: exit,
   stdout: utf8.encode(stdout),
   stderr: utf8.encode(stderr),
   limitLine: limitLine,
   limit: limit,
+  merged: merged == null ? null : utf8.encode(merged),
 );
 
 /// What the commands ran against, with every call recorded: the answers come from [onGh], the temp files from

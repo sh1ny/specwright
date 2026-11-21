@@ -1,10 +1,16 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:specwright_cli/src/process/resolve.dart';
 import 'package:specwright_cli/src/review/routes.dart';
+import 'package:specwright_cli/src/process/launch.dart' show Unrepresentable;
+import 'package:specwright_cli/src/review/run.dart';
 import 'package:specwright_cli/src/review/stop.dart';
 import 'package:specwright_cli/src/settings/rules.dart';
 import 'package:test/test.dart';
+
+import '../helper_support.dart';
+import '../line_support.dart';
 
 Matcher stopped(String error, String key) => isA<ReviewStop>()
     .having((e) => e.error, 'error', error)
@@ -488,6 +494,177 @@ void main() {
         isNull,
       );
     });
+  });
+
+  // D5 / C1: a route probe that cannot start skips the route; it is not an
+  // `internal_error`. `runReviewOperation` takes the environment and helper
+  // the probes run with (they are `Platform.environment` and `sw` itself today).
+  group('route probes on Windows (D5)', () {
+    final windowsOnly = Platform.isWindows ? null : 'Windows only';
+    late Directory built;
+    late List<String> helper;
+
+    // the short `--version` probes start for real, so the helper is `sw`
+    setUpAll(() async {
+      if (!Platform.isWindows) return;
+      built = Directory.systemTemp.createTempSync('sw-routes-helper-');
+      helper = await buildHelper(built);
+    });
+    tearDownAll(() {
+      if (Platform.isWindows) built.deleteSync(recursive: true);
+    });
+
+    Future<Map<String, Object?>> select(Map<String, String> env, String model) {
+      final settings = File('${work.path}\\specwright.yaml')
+        ..writeAsStringSync(
+          'review:\n  order: [omp, codex]\n  models:\n    omp: "$model"\n',
+        );
+      return runReviewOperation(
+        argv: ['select', '--runtime', 'claude', '--settings', settings.path],
+        environment: withEnv(env),
+        helperCommand: helper,
+      );
+    }
+
+    Map<String, String?> reasons(Map<String, Object?> out) => {
+      for (final item in out['skipped']! as List<Object?>)
+        (item! as Map)['route'] as String: (item as Map)['reason'] as String?,
+    };
+
+    test('windows: omp.cmd probe over the batch cap skips the route', () async {
+      final bin = Directory('${work.path}\\bin')..createSync();
+      File('${bin.path}\\omp.cmd').writeAsStringSync(
+        '@echo off\r\nif "%~1"=="--version" echo omp/99.0.0\r\n',
+      );
+      final out = await select({
+        'PATH': bin.path,
+        'PATHEXT': '.CMD;.EXE',
+      }, 'provider/${'x' * 9000}');
+      expect(
+        reasons(out)['omp'],
+        'unrepresentable command line: ${bin.path}\\omp.cmd',
+      );
+      expect(out['route'], 'subagent');
+    }, skip: windowsOnly);
+
+    test(
+      'windows: models find over the limit falls through',
+      () async {
+        final bin = Directory('${work.path}\\bin')..createSync();
+        // a native omp that answers `--version` and nothing else
+        final source = File('${work.path}\\omp.dart')
+          ..writeAsStringSync("void main() { print('omp/99.0.0'); }\n");
+        final compiled = await Process.run(Platform.resolvedExecutable, [
+          'compile',
+          'exe',
+          '-o',
+          '${bin.path}\\omp.exe',
+          source.path,
+        ]);
+        expect(compiled.exitCode, 0, reason: '${compiled.stderr}');
+        final env = {'PATH': bin.path, 'PATHEXT': '.EXE;.CMD'};
+        final exe = '${bin.path}\\omp.exe';
+
+        // over the limit as given: the older check names the resolved path
+        var out = await select(env, 'provider/${'x' * 33000}');
+        expect(reasons(out)['omp'], 'unrepresentable command line: $exe');
+        expect(out['route'], 'subagent');
+
+        // a resolved line of exactly 32,767 units: only the check this change
+        // adds refuses it, and the reason is the failed-probe one of before
+        final fill =
+            32767 - lineUnits([exe, 'models', 'find', 'x', '--json']) + 1;
+        out = await select(env, 'provider/${'x' * fill}');
+        expect(reasons(out)['omp'], 'probe failed: omp models find exited 127');
+        expect(out['route'], 'subagent');
+      },
+      skip: windowsOnly,
+      timeout: const Timeout(Duration(minutes: 3)),
+    );
+  });
+
+  // D5 / C13: an explicit `--route omp` run keeps today's mapping. An old-check
+  // refusal of the `--version` probe line stops the run as `Unrepresentable`
+  // (`not_utf8` at the command); a line only a new check refuses is a failed
+  // start, a null version and `omp_too_old`. A path long enough to reach the
+  // limit cannot exist on disk, so the resolver is injected: nothing starts.
+  group('explicit omp run, version probe on Windows (D5)', () {
+    final windowsOnly = Platform.isWindows ? null : 'Windows only';
+
+    Future<Map<String, Object?>> runOmp(
+      String ompPath,
+      Map<String, String> env,
+    ) {
+      final settings = File('${work.path}\\specwright.yaml')
+        ..writeAsStringSync('');
+      final promptFile = File('${work.path}\\design.md')
+        ..writeAsStringSync('review the design\n');
+      return runReviewOperation(
+        argv: [
+          'run',
+          '--kind',
+          'design',
+          '--route',
+          'omp',
+          '--out',
+          '${work.path}\\review.md',
+          '--change',
+          'demo-change',
+          '--prompt-file',
+          promptFile.path,
+          '--settings',
+          settings.path,
+        ],
+        environment: withEnv(env),
+        helperCommand: const [r'C:\sw\sw.exe', '__exec'],
+        resolve: (name, environment, {workingDirectory}) => name == 'omp'
+            ? ompPath
+            : resolveCommand(
+                name,
+                environment,
+                workingDirectory: workingDirectory,
+              ),
+      );
+    }
+
+    String pathOfProbeLine(int units) {
+      final path = r'C:\' + 'p' * (units - 10 - 3);
+      expect(lineUnits([path, '--version']), units);
+      return path;
+    }
+
+    test('test_omp_version_probe_over_the_limit_is_not_utf8', () async {
+      await expectLater(
+        runOmp(pathOfProbeLine(32768), const {}),
+        throwsA(
+          isA<Unrepresentable>().having((e) => e.what, 'what', 'command line'),
+        ),
+      );
+    }, skip: windowsOnly);
+
+    test('test_omp_version_probe_of_32767_units_is_omp_too_old', () async {
+      await expectLater(
+        runOmp(pathOfProbeLine(32767), const {}),
+        throwsA(
+          isA<ReviewStop>().having((e) => e.error, 'error', 'omp_too_old'),
+        ),
+      );
+    }, skip: windowsOnly);
+
+    test('test_omp_cmd_version_probe_raw_line_is_omp_too_old', () async {
+      // COMSPEC names nothing, so the interpreter is under SYSTEMROOT; the
+      // short batch payload fits and only the raw line is over the limit
+      final env = {
+        'COMSPEC': '${work.path}\\no-such-cmd.exe',
+        'SYSTEMROOT': r'C:\' + 'r' * 32700,
+      };
+      await expectLater(
+        runOmp(r'C:\shim\omp.cmd', env),
+        throwsA(
+          isA<ReviewStop>().having((e) => e.error, 'error', 'omp_too_old'),
+        ),
+      );
+    }, skip: windowsOnly);
   });
 }
 

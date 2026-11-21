@@ -114,6 +114,9 @@ bool _ciPending(Map<String, Object?> doc) {
 
 bool _incomplete(Map<String, Object?> doc) => doc['complete'] == false;
 
+/// The longest single sleep of the wait loop.
+const int _oneDaySeconds = 86400;
+
 class _Snapshot {
   _Snapshot(this.ctx);
 
@@ -123,7 +126,7 @@ class _Snapshot {
   String full = '';
   bool logs = false;
   bool wait = false;
-  String timeout = '1800';
+  int timeout = 1800;
   String interval = '300';
   String rcfg = '';
   bool rcfgSet = false;
@@ -206,8 +209,19 @@ class _Snapshot {
     if (given('full') != null) {
       full = need(given('full'), 2, '--full needs a node id', 93);
     }
-    if (given('timeout') != null) {
-      timeout = need(given('timeout'), 2, '--timeout needs seconds', 95);
+    final timeoutText = given('timeout');
+    if (timeoutText != null) {
+      // D7: ASCII digits only, and a value that fits a signed 64-bit integer; the text is shown on one line
+      final seconds = RegExp(r'^[0-9]+$').hasMatch(timeoutText)
+          ? int.tryParse(timeoutText)
+          : null;
+      if (seconds == null) {
+        final shown = timeoutText
+            .replaceAll('\r', r'\r')
+            .replaceAll('\n', r'\n');
+        stop("pr-snapshot: --timeout needs whole seconds, got '$shown'", 2);
+      }
+      timeout = seconds;
     }
     if (given('until') != null) {
       until = need(given('until'), 2, '--until needs a mode (attention)', 96);
@@ -329,10 +343,11 @@ class _Snapshot {
       for (final id in _failRunIds(snapDoc)) {
         ctx.out('\n===== failed log: run $id =====\n');
         final r = await ctx.gh(['run', 'view', id, '-R', repo, '--log-failed']);
-        // `2>&1 | tail -n 80`: what the call printed, stdout then stderr, or the limit line the helper printed
+        // `2>&1 | tail -n 80`: what the call printed, both streams in arrival order, or the limit line the helper
+        // printed. A call that never started has no merged output: its start-failure text is its stderr (D4).
         final bytes = r.limitLine != null
             ? utf8.encode(r.limitLine!)
-            : [...r.stdout, ...r.stderr];
+            : (r.merged ?? r.stderr);
         ctx.writeOut(tailLines(bytes, 80));
         if (r.exitCode == 124 || r.exitCode == 125) {
           final label = r.exitCode == 124
@@ -508,7 +523,12 @@ class _Snapshot {
   Future<_Result> evaluate(String out, Map<String, Object?> material) async {
     try {
       File(matFile!).writeAsBytesSync(utf8.encode('$out\n'));
-    } on FileSystemException {
+    } on FileSystemException catch (e) {
+      // D9: name the file and the operating system's reason, where this failed in silence
+      final reason = e.osError?.message ?? e.message;
+      ctx.err(
+        'pr-snapshot: cannot write the material file $matFile: $reason\n',
+      );
       return _Result(1);
     }
     final r = await ctx.bounded([
@@ -657,11 +677,18 @@ class _Snapshot {
     if (base != null && _incomplete(base)) wake = 'incomplete';
     while (wake == 'timeout') {
       final elapsed = ctx.elapsedSeconds() - start;
-      final limit = int.tryParse(timeout);
-      if (limit == null || elapsed >= limit) break;
+      final limit = timeout;
+      if (elapsed >= limit) break;
       final every = int.tryParse(interval) ?? limit;
       final nap = every <= limit - elapsed ? every : limit - elapsed;
-      await ctx.sleep(nap);
+      // Each sleep is at most one day, so `Duration(seconds: n)` never overflows; the clock is read again after each
+      // one, so a capped sleep never lets a poll run before the interval is up.
+      final due = elapsed + nap;
+      for (;;) {
+        final left = due - (ctx.elapsedSeconds() - start);
+        if (left <= 0) break;
+        await ctx.sleep(left < _oneDaySeconds ? left : _oneDaySeconds);
+      }
       if (!stillOwner()) takeOver();
       // keep the last good snapshot; a failed poll never replaces it
       final next = await poll();

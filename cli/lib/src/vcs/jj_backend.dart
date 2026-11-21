@@ -703,6 +703,9 @@ Future<String> jjFindMerge(
 
 /// Reads the `--message-file` as strict UTF-8 with its newlines untouched; a
 /// missing file is the `internal_error` Python's `open` gave.
+///
+/// Constraint C8: this read stays byte-faithful, because `jjMerge` uses it too;
+/// only the commit path normalises CRLF, on its result. This is an invariant.
 String _readMessage(String path) {
   final List<int> bytes;
   try {
@@ -1011,7 +1014,8 @@ Future<Map<String, Object?>> runJjOperation(
         for (final p in request.paths) jjPath(p, windows: windows),
       ];
       final filesets = [for (final p in paths) filesetText(p)];
-      final message = _readMessage(messageFile);
+      // only the commit path folds CRLF to LF; a lone CR stays (C8)
+      final message = _readMessage(messageFile).replaceAll('\r\n', '\n');
       await jjCommitArgvCheck(
         s,
         filesets,

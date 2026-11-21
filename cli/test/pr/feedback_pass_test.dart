@@ -30,6 +30,30 @@ class LockCleanupFailure implements RecordFiles {
       actual.replace(source, destination);
 }
 
+/// Refuses every replace and logs the temp delete and the lock release.
+class RefusedReplace extends LockCleanupFailure {
+  RefusedReplace(this.events);
+  final List<String> events;
+  int replaces = 0;
+  @override
+  void replace(String source, String destination) {
+    replaces++;
+    throw FileSystemException('refusal $replaces');
+  }
+
+  @override
+  void delete(String path) {
+    events.add('delete');
+    actual.delete(path);
+  }
+
+  @override
+  void releaseLock(String path) {
+    events.add('release');
+    actual.releaseLock(path);
+  }
+}
+
 class UnexpectedReplacement extends FeedbackRecordStore {
   UnexpectedReplacement(super.directory, {super.files});
   @override
@@ -210,6 +234,65 @@ Future<void> main() async {
       expect(FeedbackRecordStore(tmp.path).leftLocks, isEmpty);
     });
   }
+  test('adopt holds its lock through every replace and the cleanup', () async {
+    final tmp = Directory.systemTemp.createTempSync('sw-feedback-pass-');
+    addTearDown(() => tmp.deleteSync(recursive: true));
+    final events = <String>[];
+    final files = RefusedReplace(events);
+    final competing = <Future<void>>[];
+    late String path;
+    final records = FeedbackRecordStore(
+      tmp.path,
+      files: files,
+      windows: true,
+      pause: (_) {
+        events.add('pause');
+        competing.add(FeedbackRecordStore(tmp.path).withLock(path, () => null));
+      },
+    );
+    path = records.recordPath('o/r', 'change');
+    records.writeNew(path, {
+      'version': 2,
+      'owner': {'id': 'old', 'at': '2026-01-01T00:00:00Z'},
+    });
+    events.clear();
+    final pass = FeedbackPass(
+      Workflow(PrContext(writeOut: (_) {}, writeErr: (_) {})),
+      records: records,
+    );
+    await expectLater(
+      pass.run([
+        'adopt',
+        '--code',
+        tmp.path,
+        '--code-repo',
+        'o/r',
+        '--change',
+        'change',
+        '--owner',
+        'new',
+        '--from',
+        'old',
+      ]),
+      throwsA(
+        isA<FileSystemException>().having(
+          (e) => e.message,
+          'message',
+          'refusal 1',
+        ),
+      ),
+    );
+    expect(files.replaces, 6);
+    expect(competing, hasLength(5));
+    for (final call in competing) {
+      await expectLater(
+        call,
+        throwsA(isA<PairStop>().having((e) => e.error, 'error', 'record_busy')),
+      );
+    }
+    expect(events.indexOf('delete'), greaterThan(events.lastIndexOf('pause')));
+    expect(events.indexOf('release'), greaterThan(events.indexOf('delete')));
+  });
   test('oversized intent round is invalid_intent', () async {
     // an integer past 64 bits reads as a double, so the exact-integer check refuses it
     final tmp = Directory.systemTemp.createTempSync('sw-feedback-pass-');

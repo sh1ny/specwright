@@ -100,7 +100,10 @@ Future<int> runCli(
   }
   if (args.isNotEmpty &&
       projectCommands.contains(args.first) &&
-      !(args.first == 'pr' && args.length > 1 && args[1] == 'reviewers')) {
+      !(args.first == 'pr' && args.length > 1 && args[1] == 'reviewers') &&
+      // ADR 0043: the planner runs this form's check itself, on the checkout
+      // it plans against
+      !(args.first == 'finish' && isUndoArchivePlanCall(args.sublist(1)))) {
     final mismatch = versionMismatch(choice.dir);
     if (mismatch != null) {
       writeDocument(mismatch);
@@ -152,6 +155,7 @@ Future<int> runCli(
       args.sublist(1),
       writeOut: outBytes ?? io.stdout.add,
       planner: undoPlanner,
+      project: choice.project,
     );
   }
   if (args.isNotEmpty && args.first == 'release') {

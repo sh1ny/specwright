@@ -1164,6 +1164,12 @@ const launchAllowlist = Allowlist(
       'runTool': Call(2, _tool),
       'runGh': Call(1, _tool),
     },
+    // the index-flag and untracked-file scans read `git ls-files -z` as it
+    // arrives and end the child at the first flagged entry or the twentieth
+    // path (C45), which the buffered runner cannot
+    'finish/git_guard.dart': {
+      'Process.start': Call(1, _tool, function: '_scanListing'),
+    },
     'finish/undo_plan.dart': {'runTool': Call(1, _tool)},
     'finish/undo_step.dart': {'runTool': Call(1, _tool)},
     'pr/context.dart': {
@@ -1181,13 +1187,16 @@ const launchAllowlist = Allowlist(
       'runBoundedCommand': Call(1, _tool),
       'WorkflowTransport.runner': Call(1, _tool),
     },
+    // D5: the helper's argv comes from `planBoundedLaunch`; `BoundedRun`
+    // starts it through the `ProcessStarter` it is given, whose default is the
+    // one `Process.start` below.
     'process/bounded_run.dart': {
-      'Process.start': Call(1, _helper, function: 'run'),
+      'Process.start': Call(1, _helper, function: 'startHelperProcess'),
     },
     'process/launch.dart': {
       // external tools start directly, without a shell; a batch file goes
       // through the bounded helper
-      'Process.start': Call(1, _tool, function: '_native'),
+      'Process.start': Call(1, _tool, function: '_startTool'),
       'BoundedRun': Call(1, _tool),
     },
     'process/exec_helper.dart': {
@@ -1225,6 +1234,8 @@ const launchAllowlist = Allowlist(
     'process/windows_tree.dart': {
       'Process.start': Call(1, _tool, function: 'killTree'),
     },
+    // `git status --porcelain -z`, drained to a no-op sink
+    'vcs/git_backend.dart': {'launch': Call(1, _tool)},
     'vcs/git_common.dart': {'runText': Call(1, _tool)},
     'vcs/gitbutler_backend.dart': {
       'runTool': Call(1, _tool),

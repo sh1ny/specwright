@@ -44,15 +44,28 @@ Map<String, String> _parseOptions(List<String> argv) {
   };
 }
 
+/// Whether [args] (what follows `finish`) lead with an optional `--dir <d>` and
+/// then `undo-archive-plan`: the one finish form whose version check the
+/// planner runs itself (ADR 0043). Every other form, including a malformed
+/// leading part, keeps the CLI's entry check.
+bool isUndoArchivePlanCall(List<String> args) {
+  final rest = args.isNotEmpty && args.first == '--dir' && args.length >= 2
+      ? args.sublist(2)
+      : args;
+  return rest.isNotEmpty && rest.first == 'undo-archive-plan';
+}
+
 /// `sw finish [--dir <d>] undo-archive-plan <options>`, or `sw finish undo-step`.
 /// A leading `--dir <d>` is read first, then the subcommand
 /// `undo-archive-plan` and its options, and [planner] (default
-/// [undoArchivePlan]) builds the document. Returns the exit code: 0, a stop's
+/// [undoArchivePlan]) builds the document. [project] is the call's leading
+/// `--project`, which the planner's version check honours. Returns the exit code: 0, a stop's
 /// (1 or 2), or 1 for an unexpected failure (`internal_error`).
 Future<int> runFinishCommand(
   List<String> args, {
   required void Function(List<int> bytes) writeOut,
   UndoPlanner? planner,
+  String? project,
 }) async {
   if (args.isNotEmpty && args.first == 'undo-step') {
     return runUndoStep(args.sublist(1), writeOut: writeOut);
@@ -80,6 +93,7 @@ Future<int> runFinishCommand(
       branch: options['branch'],
       type: options['type'],
       code: options['code'],
+      project: project,
     );
     document = await (planner ?? undoArchivePlan)(request, FinishContext());
   } on VcsStop catch (stop) {

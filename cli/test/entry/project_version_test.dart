@@ -90,6 +90,60 @@ void main() {
     });
   });
 
+  group('the project root is found from the physical path', () {
+    /// A checkout `b` (with .git) and a link `a/link` to its `sub`, or null
+    /// where links cannot be made.
+    ({String real, String link})? linked() {
+      final b = Directory('${project.path}/b/sub')..createSync(recursive: true);
+      Directory('${project.path}/b/.git').createSync();
+      Directory('${project.path}/a').createSync();
+      try {
+        Link('${project.path}/a/link').createSync(b.path);
+      } on FileSystemException {
+        return null;
+      }
+      return (
+        real: Directory('${project.path}/b').resolveSymbolicLinksSync(),
+        link: '${project.path}/a/link',
+      );
+    }
+
+    test('a start that is a link resolves to the checkout it points into', () {
+      final l = linked();
+      if (l == null) {
+        markTestSkipped('no symbolic links here');
+        return;
+      }
+      expect(projectRoot(l.link), l.real);
+    });
+
+    test('a link followed by .. is resolved before the walk (POSIX)', () {
+      final l = linked();
+      if (l == null || Platform.isWindows) {
+        markTestSkipped('needs POSIX symbolic links');
+        return;
+      }
+      // lexically `a/link/..` is `a`, which holds no .git; physically it is
+      // `b`, the directory above the link's target `b/sub`
+      expect(projectRoot('${l.link}/..'), l.real);
+    });
+
+    test('a start that does not exist keeps its lexical form', () {
+      // nothing at `no/`, so no link is resolved: the walk is lexical and
+      // finds the temporary checkout by the spelling it was given
+      expect(projectRoot('${project.path}/no/such/../dir'), project.path);
+    });
+  });
+
+  group('a VERSION that is not a regular file', () {
+    test('a directory is refused as not a regular file, not a version', () {
+      Directory('${project.path}/openspec/.specwright/VERSION').createSync();
+      final doc = check()!;
+      expect(doc['error'], 'sw_mismatch');
+      expect(doc['message'], contains('not a regular file'));
+    });
+  });
+
   group('chooseProject', () {
     test('an own argument that names no directory chooses nothing', () {
       final missing = '${Directory.systemTemp.path}/sw-no-such-dir-x/y';
@@ -194,6 +248,44 @@ void main() {
         expect(code, 2, reason: '$args');
         expect(out, isEmpty);
         expect(err, contains('--project needs a value'));
+      }
+    });
+
+    test('undo-archive-plan skips the entry check: its own options come '
+        'first', () async {
+      writeVersion('9.9.9\n');
+      for (final args in [
+        ['--project', project.path, 'finish', 'undo-archive-plan'],
+        [
+          '--project',
+          project.path,
+          'finish',
+          '--dir',
+          project.path,
+          'undo-archive-plan',
+          '--bogus',
+          '1',
+        ],
+      ]) {
+        final (code, out, _) = await run(args);
+        expect(code, 2, reason: '$args $out');
+        expect((jsonDecode(out) as Map)['error'], 'usage');
+      }
+    });
+
+    test('every other finish form keeps the entry check', () async {
+      writeVersion('9.9.9\n');
+      for (final args in [
+        ['--project', project.path, 'finish', 'bogus'],
+        ['--project', project.path, 'finish', '--dir', project.path],
+        ['--project', project.path, 'finish', '--dir'],
+        ['--project', project.path, 'finish', 'undo-step', 'check', 'index'],
+        // a malformed leading part: a word before the subcommand
+        ['--project', project.path, 'finish', 'x', 'undo-archive-plan'],
+      ]) {
+        final (code, out, _) = await run(args);
+        expect(code, 1, reason: '$args $out');
+        expect((jsonDecode(out) as Map)['error'], 'sw_mismatch');
       }
     });
 

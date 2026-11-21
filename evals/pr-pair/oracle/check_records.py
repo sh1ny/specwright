@@ -10,6 +10,9 @@ reads files only and starts nothing. It fails, printing every problem, unless:
   2. the three sets agree: the same file names per case, and equal records after the capture's normalization;
   3. each feedback record kept as bytes and each frozen-reader fixture is UTF-8 with LF line ends and a version-2 record. These
      carry generated fields (owner id, times, checkout), so they are checked for form and not compared across OSes.
+
+No frozen record under evals/pr-pair/oracle/records/ is edited or regenerated. A case that a fix changes becomes a listed
+difference with its own outcome test, so the comparison evidence survives.
 """
 import json
 import re

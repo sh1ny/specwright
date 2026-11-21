@@ -5,6 +5,7 @@ Run: python -m unittest test_undo_jj   (from evals/finish)
 """
 import importlib.util
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -14,6 +15,8 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
 sys.path.insert(0, str(ROOT / "evals" / "vcs"))
+sys.path.insert(0, str(ROOT / "evals"))
+import fakeexe  # noqa: E402
 import jjenv  # noqa: E402
 import vcs_test_support  # noqa: E402
 
@@ -83,6 +86,30 @@ class JjBase(unittest.TestCase):
         files = {k: v for k, v in fx.snapshot(self.work).items() if not k.startswith(".jj/")}
         return {"files": files, "log": self.jjc("log", "--no-graph", "-r", "all()", "-T",
                                                                   'commit_id ++ " " ++ bookmarks ++ "\\n"')}
+
+    def files(self):
+        """Every file outside .git and .jj, read without running jj."""
+        return {k: v for k, v in fx.snapshot(self.work).items() if not k.startswith(".jj/")}
+
+    def ops(self):
+        """The operation log's descriptions, newest first, read with --ignore-working-copy so reading adds none."""
+        out = self.jjc("op", "log", "--ignore-working-copy", "--no-graph", "-T", 'description.first_line() ++ "\\n"')
+        return [line for line in out.splitlines() if line]
+
+    def only_sync_ops(self, before):
+        """The operations added since `before` are all jj's own snapshot or Git import; returns them."""
+        after = self.ops()
+        new = after[:len(after) - len(before)]
+        self.assertEqual(after[len(after) - len(before):], before, "an earlier operation changed")
+        for op in new:
+            self.assertTrue(op.startswith(("snapshot working copy", "import git refs")), new)
+        return new
+
+    def git_c(self, *args, cwd=None):
+        r = subprocess.run([jjenv.real_git(), *args], cwd=str(cwd or self.work), env=self.env, capture_output=True,
+                           text=True)
+        self.assertEqual(r.returncode, 0, "git %s: %s%s" % (" ".join(args), r.stdout, r.stderr))
+        return r.stdout.strip()
 
 
 class TestUndoPlanJj(JjBase):
@@ -163,6 +190,9 @@ class TestUndoPlanJj(JjBase):
         self.assertEqual(doc["error"], "dirty_tree", raw)
         self.assertIn("README.md", doc["message"])
         self.assertIn("working copy", doc["message"])
+        # the jj resume stop keeps its message and its files (change-finish: other dirty stops keep their messages)
+        self.assertEqual(doc["message"], f"The working copy @ is not empty, so it cannot move onto {BRANCH} with jj new: README.md")
+        self.assertEqual(doc["files"], ["README.md"])
         self.assertNotIn("steps", doc)
         self.assertEqual(self.snapshot(), before)
 
@@ -181,6 +211,144 @@ class TestUndoPlanJj(JjBase):
         r = self.run_steps(steps)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertEqual(self.jjc("log", "--no-graph", "-r", "@-", "-T", "description.first_line()"), SUBJECT)
+
+    # ---- group 13: the planner reads what jj itself records (C42) and checks the settings first ------------------------
+    def test_jj_plan_changes_no_file(self):
+        self.archived_branch()
+        before_ops, before_files, refs = self.ops(), self.files(), self.git_c("for-each-ref")
+        code, doc, raw = self.plan()
+        self.assertEqual(code, 0, raw)
+        self.assertEqual(self.files(), before_files)
+        self.only_sync_ops(before_ops)
+        self.assertEqual(self.git_c("for-each-ref"), refs)
+
+    def test_a_jj_plan_with_an_unsnapshotted_edit(self):
+        self.archived_branch()
+        self.jjc("status")  # jj records the baseline; the edit below comes after it
+        fx.write(self.work, "README.md", "edited after the last snapshot\n")
+        before_ops, before_files = self.ops(), self.files()
+        code, doc, raw = self.plan()
+        self.assertEqual(code, 0, raw)
+        self.assertEqual(self.files(), before_files)
+        new = self.only_sync_ops(before_ops)
+        self.assertTrue(any(op.startswith("snapshot working copy") for op in new), new)
+
+    def push_branch(self):
+        """feat/add-x on the origin, and the local bookmark tracking it."""
+        self.git_c("push", "-q", "origin", "refs/heads/%s:refs/heads/%s" % (BRANCH, BRANCH))
+        self.jjc("bookmark", "track", BRANCH, "--remote", "origin")
+
+    def remote_commit(self, text):
+        """Another clone commits `text` on feat/add-x and pushes it; returns the new remote tip."""
+        other = self.tmp / "other"
+        if not other.exists():
+            self.git_c("clone", "-q", str(self.scratch.origin), str(other), cwd=self.tmp)
+            for key, value in (("user.name", "T"), ("user.email", "t@example.com"), ("commit.gpgsign", "false")):
+                self.git_c("config", key, value, cwd=other)
+            self.git_c("checkout", "-q", BRANCH, cwd=other)
+        (other / "remote.txt").write_text(text, encoding="utf-8")
+        self.git_c("add", "remote.txt", cwd=other)
+        self.git_c("commit", "-q", "-m", "remote work", cwd=other)
+        self.git_c("push", "-q", "origin", "HEAD:refs/heads/" + BRANCH, cwd=other)
+        return self.git_c("rev-parse", "HEAD", cwd=other)
+
+    def test_a_jj_plan_with_a_pending_git_ref_import(self):
+        a = self.archived_branch()
+        self.push_branch()
+        self.jjc("new", "main")  # the resume starts from main
+        moved = self.remote_commit("remote one\n")
+        self.git_c("fetch", "-q", "origin")  # a plain `git fetch`, which jj has not imported
+        self.assertEqual(self.git_c("rev-parse", "refs/remotes/origin/" + BRANCH), moved)
+        self.assertEqual(self.git_c("rev-parse", "refs/heads/" + BRANCH), a, "jj imported before the plan")
+        before_ops, before_files = self.ops(), self.files()
+        code, doc, raw = self.plan()
+        self.assertEqual(code, 0, raw)
+        self.assertEqual(self.files(), before_files)
+        new = self.only_sync_ops(before_ops)
+        self.assertTrue(any(op.startswith("import git refs") for op in new), new)
+        self.assertEqual(self.git_c("rev-parse", "refs/heads/" + BRANCH), moved, "the tracked bookmark did not follow")
+
+    def test_a_conflicted_resume_bookmark_is_ambiguous_branch(self):
+        a = self.archived_branch()
+        self.push_branch()
+        remote = self.remote_commit("remote one\n")
+        # the local bookmark moves on its own, so the import finds both sides changed
+        self.jjc("new", BRANCH)
+        fx.write(self.work, "local.txt", "local\n")
+        self.jjc("commit", "-m", "local work")
+        self.jjc("bookmark", "set", BRANCH, "-r", "@-")
+        self.jjc("new", "main")
+        local = self.git_c("rev-parse", "refs/heads/" + BRANCH)
+        self.git_c("fetch", "-q", "origin")
+        self.assertEqual(len({a, local, remote}), 3, "the fixture needs a local and a remote move from the same tip")
+        before_ops, before_files = self.ops(), self.files()
+        code, doc, raw = self.plan()
+        self.assertEqual(code, 1, raw)
+        self.assertEqual(doc["error"], "ambiguous_branch", raw)
+        self.assertNotIn("steps", doc)
+        self.assertEqual(self.files(), before_files)
+        self.only_sync_ops(before_ops)
+
+    def test_an_unbookmarked_child_of_the_archive_tip(self):
+        a = self.archived_branch()
+        self.jjc("new", BRANCH)
+        fx.write(self.work, "child.txt", "child\n")
+        self.jjc("commit", "-m", "work after the archive")  # @- is a child of the archive tip with no bookmark; @ is empty
+        self.assertEqual(self.jjc("log", "--no-graph", "-r", "@-", "-T", "bookmarks"), "")
+        code, doc, raw = self.plan()
+        self.assertEqual(code, 0, raw)
+        argvs = [s["argv"] for s in doc["steps"]]
+        guard = [n for n, argv in enumerate(argvs) if argv[-3:] == ["", "--backend", "jj"]]
+        self.assertTrue(guard, "no pre-move check expects an empty source branch: %s" % argvs)
+        clean = next(n for n, argv in enumerate(argvs) if "clean" in argv and "--jj" in argv)
+        move = argvs.index(["jj", "new", BRANCH])
+        self.assertLess(guard[0], clean)
+        self.assertLess(clean, move)
+        r = self.run_steps(doc["steps"])
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(self.jjc("log", "--no-graph", "-r", BRANCH, "-T", "description.first_line()"), SUBJECT)
+        self.assertEqual(self.jjc("log", "--no-graph", "-r", BRANCH + "-", "-T", "commit_id"), a)
+
+    def test_a_jj_store_resume_whose_backend_changed_after_planning(self):
+        self.archived_branch()
+        self.jjc("new", "main")
+        self.jjc("bookmark", "create", "feat/other", "-r", "@-")
+        code, doc, raw = self.plan()
+        self.assertEqual(code, 0, raw)
+        shim_dir, log = self.tmp / "jjshim", self.tmp / "jj-calls.txt"
+        shim_dir.mkdir()
+        shim = fakeexe.write_fake(shim_dir / "jj", '#!/bin/sh\necho "$@" >> "$SW_JJ_LOG"\nexec "$SW_REAL_JJ" "$@"\n', exe=True)
+        env = {**self.env, "PATH": str(shim_dir) + os.pathsep + self.env.get("PATH", os.environ.get("PATH", "")),
+               "SW_JJ_LOG": str(log), "SW_REAL_JJ": str(self.jj)}
+        fx.write(self.work, f"{P}/specwright.yaml", "vcs: git\n")  # the settings change is itself an unsnapshotted edit
+        before = self.files()
+        r = fx.run_steps(self.tmp, doc["steps"], env=env)  # PATH finds the shim: jj.exe on Windows, the script elsewhere
+        self.assertNotEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("git_env", r.stdout + r.stderr)
+        self.assertEqual(len(r.ran), 1, "a step after the branch check ran")
+        self.assertEqual(log.read_text(encoding="utf-8") if log.exists() else "", "", "a jj command ran")
+        self.assertEqual(self.files(), before)
+
+    def test_a_jj_bulk_undo_whose_commit_fileset_is_too_long(self):
+        names = ["c%03d-%s" % (i, "x" * 70) for i in range(300)]
+        for name in names:
+            fx.make_change(self.work, name, "DEFERRED", None, commit_it=False)
+        self.jjc("commit", "-m", "docs: planning artifacts")
+        fx.archive(self.work, names, commit_it=False)
+        self.jjc("commit", "-m", "chore: archive changes")
+        self.jjc("bookmark", "create", BRANCH, "-r", "@-")
+        tip = self.git_c("rev-parse", "refs/heads/" + BRANCH)
+        before_ops, before_files = self.ops(), self.files()
+        code, doc, raw = self.finish("undo-archive-plan", "--change", names[0], "--archived-name", f"{fx.DATE}-{names[0]}",
+                                     "--prefix", P, "--main", "main", "--branch", BRANCH)
+        self.assertEqual(code, 1, raw[:600])
+        self.assertEqual(doc["error"], "plan_too_large", raw[:600])
+        # the line that overflows is the commit's fileset, not the `check clean --jj` line a chunked plan no longer builds
+        self.assertIn("jj commit", doc["message"], raw[:600])
+        self.assertNotIn("steps", doc)
+        self.assertEqual(self.files(), before_files)
+        self.assertEqual(self.git_c("rev-parse", "refs/heads/" + BRANCH), tip)
+        self.only_sync_ops(before_ops)
 
 
 if __name__ == "__main__":

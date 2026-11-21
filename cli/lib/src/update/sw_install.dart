@@ -55,14 +55,26 @@ String swHome(Map<String, String> env) {
 /// from `<download>/cli/THIRD_PARTY_NOTICES.txt`, and does everything else the
 /// same; FILE itself is never renamed.
 ///
+/// Constraint C15 of fix-sw-port-gaps: this function alone deletes the
+/// install's release parts, partial downloads and `.stage` directory, once,
+/// after the download or rename outcome is settled, and a deletion that fails
+/// is swallowed (`removeQuietly`) so it never replaces the install's own
+/// result. The downloader and `placeChecked` never delete a path the installer
+/// owns.
+///
 /// [environment] is where `SPECWRIGHT_HOME`, the proxy variables, the network
 /// bounds, `SPECWRIGHT_TEST_HOST` and the kill seam are read from (default:
 /// the process environment). [clientFactory] builds the download client.
+/// [fileOps] (default: the counting wrapper of [environment]) does the copies,
+/// renames and removals, and [destinationHash] reads the hash of the final file
+/// in `placeChecked`'s checks; both are for tests.
 Future<Map<String, Object?>> swInstall(
   UpdateOptions options, {
   Map<String, String>? environment,
   HttpClient Function()? clientFactory,
   void Function(int code)? exitProcess,
+  UpdateFileOps? fileOps,
+  String Function(String path)? destinationHash,
 }) async {
   final env = environment ?? Platform.environment;
   final build = options.build;
@@ -105,7 +117,7 @@ Future<Map<String, Object?>> swInstall(
     );
   }
   final host = _host(env);
-  final files = UpdateFileOps(environment: env);
+  final files = fileOps ?? UpdateFileOps(environment: env);
   final home = swHome(env);
   final vdir = '$home/.specwright/bin/$version'.replaceAll(r'\', '/');
   final finalPath = '$vdir/${Platform.isWindows ? 'sw.exe' : 'sw'}';
@@ -121,6 +133,7 @@ Future<Map<String, Object?>> swInstall(
       ref: options.ref,
       env: env,
       exitProcess: exitProcess,
+      destinationHash: destinationHash,
     );
   }
 
@@ -150,7 +163,6 @@ Future<Map<String, Object?>> swInstall(
     dest: dest,
     name: name,
     tag: ref,
-    files: files,
     deadline: bounds.deadline,
     maxBytes: bounds.maxBytes,
     clientFactory: clientFactory,
@@ -243,13 +255,14 @@ Future<Map<String, Object?>> swInstall(
       renameHook: env['SPECWRIGHT_TEST_RENAME'],
       noticeRenameHook: env['SPECWRIGHT_TEST_NOTICE_RENAME'],
       exitProcess: exitProcess,
+      destinationHash: destinationHash,
     );
     return _installed(action, finalPath, asset, version, ref);
   } finally {
     for (final part in [binaryPart, sumsPart, noticePart]) {
       if (FileSystemEntity.typeSync(part, followLinks: false) !=
           FileSystemEntityType.notFound) {
-        files.remove(part);
+        files.removeQuietly(part);
       }
     }
   }
@@ -265,6 +278,7 @@ Future<Map<String, Object?>> _placeBuild({
   required String? ref,
   required Map<String, String> env,
   void Function(int code)? exitProcess,
+  String Function(String path)? destinationHash,
 }) async {
   final asset = p.basename(build);
   final noticeSource = '$tree/cli/$_noticeName';
@@ -313,10 +327,11 @@ Future<Map<String, Object?>> _placeBuild({
       renameHook: env['SPECWRIGHT_TEST_RENAME'],
       noticeRenameHook: env['SPECWRIGHT_TEST_NOTICE_RENAME'],
       exitProcess: exitProcess,
+      destinationHash: destinationHash,
     );
     return _installed(action, finalPath, asset, version, ref);
   } finally {
-    files.remove(stage);
+    files.removeQuietly(stage);
   }
 }
 
@@ -339,21 +354,32 @@ Map<String, Object?> _installed(
 
 /// A killed run's leftovers in [vdir]; a part younger than an hour belongs to
 /// a run still going (a run lasts minutes).
+///
+/// Constraint C9 of fix-sw-port-gaps: the sweep judges a part or `.stage`
+/// directory abandoned by its age alone, so a live run that is paused for more
+/// than an hour can lose its part to another install's sweep; nothing locks
+/// against it. The sweep is also best effort: a directory that cannot be
+/// listed skips it, and an entry that cannot be examined or deleted is left,
+/// without an error.
 void _cleanStale(UpdateFileOps files, String vdir) {
   final now = DateTime.now();
-  for (final entry in Directory(vdir).listSync(followLinks: false)) {
-    final name = p.basename(entry.path);
-    if (!name.startsWith('.sw-') ||
-        !(name.contains('.part') || name.endsWith('.stage'))) {
-      continue;
-    }
-    try {
-      if (now.difference(entry.statSync().modified) > _partAge) {
-        files.remove(entry.path);
+  try {
+    for (final entry in Directory(vdir).listSync(followLinks: false)) {
+      final name = p.basename(entry.path);
+      if (!name.startsWith('.sw-') ||
+          !(name.contains('.part') || name.endsWith('.stage'))) {
+        continue;
       }
-    } on FileSystemException {
-      // gone already, or not ours to remove
+      try {
+        if (now.difference(entry.statSync().modified) > _partAge) {
+          files.removeQuietly(entry.path);
+        }
+      } on FileSystemException {
+        // gone already, or not ours to examine
+      }
     }
+  } on FileSystemException {
+    // the directory can be written but not listed: no sweep this run
   }
 }
 

@@ -12,7 +12,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent.parent
 SKILL = ROOT / "skills" / "specwright-pr" / "SKILL.md"
 DART = ROOT / "cli" / "lib" / "src" / "commands" / "version.dart"
-INTERFACE = ["2"]
+INTERFACE = ["3"]
 
 
 class InterfacePin(unittest.TestCase):
@@ -23,9 +23,9 @@ class InterfacePin(unittest.TestCase):
         self.assertEqual(len(dart), 1, "interfaceVersion not found exactly once in %s" % DART)
         self.assertEqual(skill, dart, "the skill's interface and interfaceVersion differ")
 
-    def test_the_interface_is_2(self):
+    def test_the_interface_is_3(self):
         dart = re.findall(r"^const int interfaceVersion = (\d+);", DART.read_text(encoding="utf-8"), re.M)
-        self.assertEqual(dart, INTERFACE, "the binary's interface is 2 from the cutover on (design D5)")
+        self.assertEqual(dart, INTERFACE, "the binary's interface is 3 (design D10 of fix-sw-port-gaps)")
 
 
 if __name__ == "__main__":

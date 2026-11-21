@@ -213,6 +213,14 @@ class VcsTestCase(unittest.TestCase):
                                      **(env or {})}, capture_output=True, text=True)
         return result
 
+    def raw_message(self, repo, rev):
+        """The stored commit message of `rev` as the bytes Git holds: no text-mode newline translation, so a stored CR stays."""
+        result = subprocess.run([jjenv.real_git(), "log", "-1", "--format=%B", str(rev)], cwd=repo,
+                                env={**os.environ, "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": os.devnull},
+                                capture_output=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return result.stdout
+
     def invoke(self, command, *options, repo=None, role="code", code=None, env=None, expected=0, cwd=None, project=None):
         """Run one `sw vcs` subcommand; `cwd` is the directory it runs in (default: `repo`); `project` is the leading `--project`."""
         target = Path(repo or self.repo)

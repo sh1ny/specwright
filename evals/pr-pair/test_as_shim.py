@@ -145,6 +145,22 @@ class TestShim(ShimCase):
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(json.loads(out.read_text(encoding="utf-8")), [arg])
 
+    @unittest.skipUnless(os.name == "nt", "platform: Windows command lines")
+    def test_inherited_batch_line_over_the_limit_exits_2(self):
+        """fix-sw-port-gaps D5: an inherited-stdio batch launch whose raw `cmd.exe /d /s /c "..."` line is over 32,766 units is
+        refused by name before any start. COMSPEC names no file, so the interpreter is `<SYSTEMROOT>/System32/cmd.exe`, and a
+        32,700-character SYSTEMROOT puts the raw line over the limit while the batch payload stays short."""
+        marker = self.tmp / "longline.ran"
+        shim = self.tmp / "bin" / "longline.cmd"
+        shim.write_text(f'@echo off\r\necho ran> "{marker}"\r\n', encoding="utf-8", newline="")
+        root = "C:\\" + "r" * 32697
+        self.assertEqual(len(root), 32700)
+        r = self.as_sh(self.code, "sh1ny", "longline",
+                       env={"COMSPEC": str(self.tmp / "no-such-cmd.exe"), "SYSTEMROOT": root, "PATHEXT": ".COM;.EXE;.BAT;.CMD"})
+        self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+        self.assertRegex(r.stderr, r"as\.sh: unrepresentable command line: longline")
+        self.assertFalse(marker.exists(), "the batch file ran")
+
     @unittest.skipUnless(sys.platform.startswith("linux"), "platform: Linux file names hold any byte")
     def test_non_utf8_argument_is_refused(self):
         ran = self.tmp / "git.ran"
