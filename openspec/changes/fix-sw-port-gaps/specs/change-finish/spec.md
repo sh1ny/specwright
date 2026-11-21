@@ -245,7 +245,7 @@ The undo planner SHALL treat a path or setting as absent only on positive eviden
 - **THEN** the plan stops with `git_env` naming the partial clone before any blob read, makes no remote call and writes no object
 
 #### Scenario: Configuration that reroutes Git only on the archive branch
-- **WHEN** a Git undo resumes an archive branch on which conditional configuration routes the work tree or index elsewhere
+- **WHEN** a Git undo resumes an archive branch on which conditional configuration (an `includeIf "onbranch:..."` include) sets a setting the preflight refuses, such as `attr.tree`
 - **THEN** the preflight run after the checkout stops with `git_env` before any backup or undo index mutation, and nothing is committed
 
 #### Scenario: A resume from main passes both branch guards
