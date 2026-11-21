@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'git_common.dart' show orElse;
 import 'scripts.dart';
 import 'stop.dart';
 
@@ -82,8 +83,20 @@ Future<String> detectMain(String repo, String configured) async {
 
 /// `vcs.sh`'s `gitbutler_managed`: the target ref, or null when
 /// `.git/gitbutler/` or `gitbutler.project.targetRef` is missing.
-Future<String?> gitbutlerManaged(String root) async {
+///
+/// With [strict] (the undo planner's read when `vcs: gitbutler` is selected) a
+/// read that fails other than by Git reporting the setting unset (exit 1, no
+/// output) is a `vcs_error`, never an absent target; every other command's
+/// probe keeps today's reading of any failure as absent.
+Future<String?> gitbutlerManaged(String root, {bool strict = false}) async {
   final common = await runText(root, ['git', 'rev-parse', '--git-common-dir']);
+  if (strict && common.code != 0) {
+    throw VcsStop(
+      'vcs_error',
+      'cannot read the Git directory: '
+          '${orElse(common.stderr.trim(), 'git rev-parse exit ${common.code}')}',
+    );
+  }
   // D4: the common dir is a path; read strictly, a non-UTF-8 one is not_utf8
   // instead of a look-alike that hides the GitButler directory.
   final commonText = common.code == 0
@@ -99,6 +112,15 @@ Future<String?> gitbutlerManaged(String root) async {
     '--get',
     'gitbutler.project.targetRef',
   ]);
+  if (strict &&
+      target.code != 0 &&
+      !(target.code == 1 && target.stdout.isEmpty && target.stderr.isEmpty)) {
+    throw VcsStop(
+      'vcs_error',
+      'cannot read gitbutler.project.targetRef: '
+          '${orElse(target.stderr.trim(), 'git config exit ${target.code}')}',
+    );
+  }
   if (target.code != 0) return null;
   final ref = target.names('GitButler target ref').trim();
   return ref.isNotEmpty ? ref : null;
@@ -123,11 +145,12 @@ bool _older((int, int, int) v, (int, int, int) min) => v.$1 != min.$1
 Future<ProbeInfo> _probeGitbutler(
   String repo,
   String configuredMain,
-  VcsSettings settings,
-) async {
+  VcsSettings settings, {
+  bool strictTarget = false,
+}) async {
   final root = await gitRoot(repo);
   final main = await detectMain(root, configuredMain);
-  final target = await gitbutlerManaged(root);
+  final target = await gitbutlerManaged(root, strict: strictTarget);
   if (target == null) {
     throw VcsStop(
       'not_managed',
@@ -177,12 +200,17 @@ Future<ProbeInfo> _probeGitbutler(
 
 /// `vcs.sh`'s `probe(repo, code, role)`: the backend the settings choose,
 /// checked against the repository, with the stops `vcs.sh` gives.
+///
+/// With [strictTarget] (only the undo planner's state read) the GitButler
+/// target read stops with `vcs_error` when it fails, instead of reporting the
+/// repo unmanaged.
 Future<ProbeInfo> probe(
   VcsScripts scripts,
   String repo,
   String code,
-  String role,
-) async {
+  String role, {
+  bool strictTarget = false,
+}) async {
   final settings = await readSettings(
     scripts,
     code: code,
@@ -191,7 +219,12 @@ Future<ProbeInfo> probe(
   );
   final backend = settings.backend;
   if (backend == 'gitbutler') {
-    return _probeGitbutler(repo, settings.main, settings);
+    return _probeGitbutler(
+      repo,
+      settings.main,
+      settings,
+      strictTarget: strictTarget,
+    );
   }
   if (backend == 'jj') {
     final version = await runText(repo, ['jj', '--version']);

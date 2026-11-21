@@ -53,6 +53,7 @@ void main() {
   Future<(int, Map<String, Object?>?)> step(
     List<String> args, {
     UndoStateReader? reader,
+    UndoForeignReader? foreign,
     Map<String, String>? environment,
     String? at,
   }) async {
@@ -62,6 +63,7 @@ void main() {
       writeOut: out.addAll,
       cwd: at ?? repo,
       stateReader: reader,
+      foreignReader: foreign,
       environment: environment,
     );
     return (
@@ -327,6 +329,14 @@ void main() {
           return {'ok': true, 'backend': backend, 'branch': 'feat/x'};
         }
 
+        // jj needs the settings to still select it for both roles
+        if (backend == 'jj') {
+          for (final dir in [repo, '$repo/cd']) {
+            File('$dir/openspec/specwright.yaml')
+              ..createSync(recursive: true)
+              ..writeAsStringSync('vcs: jj\nplanning_store:\n  vcs: jj\n');
+          }
+        }
         // the planned branch passes; the old guard's text search could not
         // tell `feat/x` from a branch that only contains it
         await passes([
@@ -766,6 +776,26 @@ void main() {
       expect(doc['message'], contains('git'));
     });
 
+    test('branch on jj stops with git_env before any jj read when the settings '
+        'select another backend', () async {
+      File('$repo/openspec/specwright.yaml')
+        ..createSync(recursive: true)
+        ..writeAsStringSync('vcs: git\n');
+      var reads = 0;
+      final (code, doc) = await step(
+        ['check', 'branch', 'feat/x', '--backend', 'jj'],
+        reader: (top, code, branch) async {
+          reads++;
+          return {'ok': true, 'backend': 'jj', 'branch': 'feat/x'};
+        },
+      );
+      expect(code, 1, reason: '$doc');
+      expect(doc!['error'], 'git_env');
+      expect(doc['message'], contains('jj'));
+      expect(doc['message'], contains('git'));
+      expect(reads, 0);
+    });
+
     test('a store plan reads the store role from the code operand', () async {
       final code = Directory('${tmp.path}/code')..createSync();
       File('${code.path}/openspec/specwright.yaml')
@@ -919,6 +949,35 @@ void main() {
         'openspec/specs/a/spec.md',
         'openspec/specs/new/deep/spec.md',
       ]);
+    });
+
+    test('destinations --gitbutler refuses a foreign edit at a path '
+        'the undo writes, read again from but', () async {
+      final args = [
+        'check',
+        'destinations',
+        '--gitbutler',
+        'feat/x',
+        '--',
+        'openspec/specs/a/spec.md',
+      ];
+      final seen = <String>[];
+      final (ok, okDoc) = await step(
+        args,
+        foreign: (top, branch) async {
+          seen.add(branch);
+          return [('src/other.txt', 'other')];
+        },
+      );
+      expect(ok, 0, reason: '$okDoc');
+      expect(seen, ['feat/x']);
+      final (code, doc) = await step(
+        args,
+        foreign: (top, branch) async => [('openspec/specs/a/spec.md', 'other')],
+      );
+      expect(code, 1, reason: '$doc');
+      expect(doc!['error'], 'path_owned_elsewhere');
+      expect(doc['branch'], 'other');
     });
 
     test('destinations refuses a file where a directory is needed', () async {

@@ -10,10 +10,21 @@ import '../commit/task_cover.dart' show isPySpace, pyStrip;
 import '../entry/project_version.dart';
 import '../entry/regular_file.dart';
 import '../fs/walk.dart';
-import '../process/command_line.dart' show commandLineUnits;
+import '../process/command_line.dart'
+    show
+        UnsafeBatchArgument,
+        batchLineLimit,
+        commandLineUnits,
+        isBatchFile,
+        quoteBatchLine;
+import '../process/resolve.dart' show resolveCommand;
 import '../vcs/args.dart';
 import '../vcs/codec.dart';
+import '../vcs/document.dart' show decodeJson;
 import '../vcs/git_backend.dart';
+import '../vcs/gitbutler_backend.dart'
+    show gitbutlerCommitPath, gitbutlerForeignAssignments;
+import '../vcs/jj_backend.dart' show bookmarkTemplate, exactPattern;
 import '../vcs/stop.dart';
 import '../vcs/tool_runner.dart';
 import 'git_guard.dart';
@@ -61,7 +72,13 @@ class FinishContext {
     this.sw,
     this.runner,
     this.lineLimit,
+    this.foreignReader,
   });
+
+  /// Answers the read of every other applied GitButler branch's assigned paths
+  /// (path and branch) instead of `but`. Tests only.
+  final Future<List<(String, String)>> Function(String top, String branch)?
+  foreignReader;
 
   /// The most command-line units one printed step may take (null: the
   /// launcher's own limit for the host). Tests only.
@@ -107,7 +124,9 @@ typedef UndoPlanner = Future<Map<String, Object?>> Function(
 
 /// `undo-archive-plan` of `finish.sh`: the plan to undo the archive of a
 /// change, as one document (the caller prints it and exits 0) or a [VcsStop].
-/// It only reads the repository; the scripts it prints are for the user to run.
+/// The plan changes no file: it reads the repository (on jj its reads may
+/// record jj's own working-copy snapshot and Git ref import, as every jj
+/// command does); the scripts it prints are for the user to run.
 ///
 /// #232's non-resumable undo after a failed archive stays open by decision, for
 /// the same reason as the gate-unlock race (`gateUnlock`): each fix found so far
@@ -214,6 +233,23 @@ typedef UndoPlanner = Future<Map<String, Object?>> Function(
 /// walking every changed path's ancestors for `.git` markers before checkout,
 /// which adds a tree-wide scan to every resume for a layout Git itself does not
 /// support as nested.
+///
+/// C30: on GitButler only a committed archive's undo, which ends in a backend
+/// commit, refuses (`bad_path`) a path the GitButler path check would refuse or
+/// rewrite: a glob character, a path outside the repository, a backslash or
+/// `./` spelling, a directory named without its `/`. An uncommitted undo's
+/// commit-path validation is unchanged, since it makes no commit; the
+/// destination rule (C46) applies to both.
+///
+/// C42: on jj the planner's reads snapshot the working copy and, in a colocated
+/// store, import Git refs, as every jj command does, so a plain `git fetch`
+/// before planning can move a tracked bookmark or make one conflicted. The
+/// planner's state read keeps its arguments (no `--scope`), then reads the one
+/// requested bookmark by exact name and stops with `ambiguous_branch` when it
+/// is conflicted, before the archive branch's Git tip and history reads; a
+/// failed read is `vcs_error`, and a conflict on another bookmark does not stop
+/// the plan. Rejected: reading with `--ignore-working-copy`, which would plan
+/// from stale state and miss live edits.
 Future<Map<String, Object?>> undoArchivePlan(
   UndoRequest request,
   FinishContext ctx,
@@ -301,15 +337,16 @@ class _Planner {
   final bool windows;
   final Map<String, String> env;
 
-  Future<ToolResult> git(
+  /// Runs [command] in [cwd]: through the test runner when there is one, else
+  /// the process launcher.
+  Future<ToolResult> command(
     String cwd,
-    List<String> args, {
+    List<String> command, {
     Map<String, String>? environment,
     List<int>? input,
   }) async {
     try {
       final run = ctx.runner;
-      final command = ['git', ...gitSafety, ...args];
       final callEnv = environment ?? env;
       return run != null
           ? await run(cwd, command, callEnv)
@@ -317,6 +354,77 @@ class _Planner {
     } on Unrepresentable catch (e) {
       throw VcsStop.unrepresentable(e);
     }
+  }
+
+  Future<ToolResult> git(
+    String cwd,
+    List<String> args, {
+    Map<String, String>? environment,
+    List<int>? input,
+  }) => command(
+    cwd,
+    ['git', ...gitSafety, ...args],
+    environment: environment,
+    input: input,
+  );
+
+  /// The session of the last real state read, kept for the GitButler
+  /// assignment read; null when a test answered the state read.
+  VcsSession? _session;
+
+  /// C42: on jj the requested bookmark, read by exact name. A conflicted one
+  /// (a plain `git fetch` before planning can make a tracked bookmark
+  /// diverge, and the import every jj command runs records it) is
+  /// `ambiguous_branch`; a failed read is `vcs_error`. Another bookmark's
+  /// conflict, such as `team/<name>`, does not stop the plan.
+  Future<void> refuseConflictedBookmark(String top, String name) async {
+    final r = await command(top, [
+      'jj',
+      'bookmark',
+      'list',
+      exactPattern(name),
+      '-T',
+      bookmarkTemplate,
+    ]);
+    if (r.exitCode != 0 || r.streamError != null) {
+      throw failedRead(
+        'jj bookmark list',
+        exitCode: r.exitCode,
+        stderr: r.stderr,
+        streamError: r.streamError,
+      );
+    }
+    for (final line in const LineSplitter().convert(
+      decodeReplacing(r.stdout),
+    )) {
+      if (line.trim().isEmpty) continue;
+      final Object? item;
+      try {
+        item = decodeJson(line);
+      } on FormatException {
+        throw VcsStop('vcs_error', 'jj bookmark list returned invalid JSON');
+      }
+      if (item is Map && item['conflict'] == true) {
+        throw VcsStop(
+          'ambiguous_branch',
+          'the bookmark $name is conflicted (its local and remote sides both '
+              'moved); resolve it with jj, then plan again',
+        );
+      }
+    }
+  }
+
+  /// Every path assigned to another applied GitButler branch than [branch].
+  Future<List<(String, String)>> foreignAssignments(
+    String top,
+    String branch,
+  ) async {
+    final reader = ctx.foreignReader;
+    if (reader != null) return reader(top, branch);
+    final session = _session;
+    return session == null
+        ? const []
+        : gitbutlerForeignAssignments(session, branch);
   }
 
   /// The planner's own `git status` (C10): read-only, with
@@ -401,8 +509,9 @@ class _Planner {
       }
       final parsed = parseVcsArguments(['state', '--repo', top, ...role]);
       final session = await openSession(
-        VcsContext(parsed, readOnlyStatus: true),
+        VcsContext(parsed, readOnlyStatus: true, strictTarget: true),
       );
+      _session = session;
       return (await stateDocument(session)).cast();
     } on VcsStop catch (stop) {
       throw VcsStop(
@@ -885,10 +994,15 @@ class _Planner {
       }
     }
 
-    // C46: the one destination list, checked when planning (Git; the jj and
-    // GitButler checks are group 13's): collisions across the whole list, the
-    // path-type walk, and gitlinks above a destination in each tree the undo
-    // writes into
+    // every other applied GitButler branch's assigned paths, read once and
+    // losslessly (C46): the destination check refuses one the undo writes
+    var foreign = <(String, String)>[];
+    if (gb && given != null) foreign = await foreignAssignments(top, given);
+
+    // C46: the one destination list, checked when planning on every backend:
+    // collisions across the whole list, the path-type walk, gitlinks above a
+    // destination in each tree the undo writes into, and on GitButler an edit
+    // another applied branch has assigned to a path the undo writes
     Future<void> checkDestinations({
       required List<String> files,
       required List<String> dirs,
@@ -900,6 +1014,14 @@ class _Planner {
       final ancestors = ancestorDirectories(files, [...dirs, ...memberDirs]);
       for (final tree in trees) {
         await refuseGitlinkAncestors((args) => git(top, args), tree, ancestors);
+      }
+      if (gb) {
+        refuseForeignAssignments(
+          foreign,
+          branch: given ?? '',
+          files: files,
+          dirs: [...dirs, ...memberDirs],
+        );
       }
     }
 
@@ -1057,16 +1179,14 @@ class _Planner {
           );
         }
       }
-      if (!jj && !gb) {
-        await checkDestinations(
-          files: [...mainMod, ...mainNew],
-          dirs: [
-            for (final m in members) _joinAll([prefix, 'changes', m.name]),
-          ],
-          memberDirs: [for (final m in members) m.dir],
-          trees: [head],
-        );
-      }
+      await checkDestinations(
+        files: [...mainMod, ...mainNew],
+        dirs: [
+          for (final m in members) _joinAll([prefix, 'changes', m.name]),
+        ],
+        memberDirs: [for (final m in members) m.dir],
+        trees: [head],
+      );
       // carried edits: archive-copy files that differ from the change
       // directory at HEAD
       for (final m in members) {
@@ -1117,6 +1237,7 @@ class _Planner {
     } else {
       mode = 'committed';
       planBranch = branch;
+      if (jj) await refuseConflictedBookmark(top, branch);
       t = await branchTip((args) => git(top, args), 'refs/heads/$branch');
       var adds = <String>[];
       if (t.isNotEmpty) {
@@ -1422,16 +1543,14 @@ class _Planner {
           }
         }
       }
-      if (!jj && !gb) {
-        await checkDestinations(
-          files: [...mod, ...created, ...syncedByRerun],
-          dirs: [
-            for (final m in members) _joinAll([prefix, 'changes', m.name]),
-          ],
-          memberDirs: [for (final m in members) m.dir],
-          trees: [head, if (branch != cb) t],
-        );
-      }
+      await checkDestinations(
+        files: [...mod, ...created, ...syncedByRerun],
+        dirs: [
+          for (final m in members) _joinAll([prefix, 'changes', m.name]),
+        ],
+        memberDirs: [for (final m in members) m.dir],
+        trees: [head, if (branch != cb) t],
+      );
       if (_exists(backupDir)) {
         throw VcsStop(
           'backup_exists',
@@ -1615,11 +1734,15 @@ class _Planner {
     final commitSubject = fullSubject.length <= 1000
         ? fullSubject
         : '$typ($change): undo archive of $change (${namesAll.length} changes)';
+    // on GitButler each destination check also re-reads the other applied
+    // branches' assigned paths (C46)
+    final destFlags = gb ? ['--gitbutler', given!] : <String>[];
     void destinationSteps() {
       for (final m in members) {
         undo([
           'check',
           'destinations',
+          ...destFlags,
           '--member',
           m.dir,
           '--dir',
@@ -1627,7 +1750,7 @@ class _Planner {
         ]);
       }
       perPath(
-        undoArgv(['check', 'destinations', '--']),
+        undoArgv(['check', 'destinations', ...destFlags, '--']),
         sortedByCodePoint({...mainMod, ...mainNew}),
         step,
       );
@@ -1649,6 +1772,50 @@ class _Planner {
       ...mainNew,
     ];
     final committed = mode == 'committed';
+
+    // C30, on a committed GitButler undo only: the commit step names these
+    // paths to `sw vcs commit`, which refuses a glob or an outside path
+    // (`bad_path`) and respells a backslash, a `./` or a directory without its
+    // `/`; the undo would then commit a different set than the one planned. And
+    // `but commit` runs through `but.cmd` on Windows, whose batch line has its
+    // own 8,191 limit, so the line the commit starts is sized here too.
+    void checkButCommit(List<String> cpaths, String msgfile) {
+      for (final path in cpaths) {
+        final named = gitbutlerCommitPath(path, top);
+        if (named != path) {
+          throw VcsStop(
+            'bad_path',
+            '$path would be committed as $named; the undo names exactly the '
+                'paths it moves and writes, so it stops before it changes '
+                'anything',
+            extra: {'path': path},
+          );
+        }
+      }
+      if (!windows) return;
+      final launcher = resolveCommand('but', env, windows: true);
+      if (launcher == null || !isBatchFile(launcher)) return;
+      try {
+        quoteBatchLine(launcher, [
+          'commit',
+          '-b',
+          branch,
+          '-F',
+          msgfile,
+          '--json',
+          ...cpaths,
+        ]);
+      } on UnsafeBatchArgument catch (e) {
+        if (e.reason != 'line too long') return;
+        throw VcsStop(
+          'plan_too_large',
+          'The `but commit` line this undo starts through $launcher is over '
+              '$batchLineLimit characters, the limit of a batch file; nothing '
+              'was changed',
+        );
+      }
+    }
+
     List<String> gitArgv(List<String> rest) => ['git', ...gitSafety, ...rest];
     // the archive commit's parent, named by its OID in the emitted steps
     String parent = '';
@@ -1672,16 +1839,22 @@ class _Planner {
       // HEAD is the workspace commit: a touched path that differs from the
       // tip there is another applied branch's, and restoring the file would
       // undo that branch's committed change
-      undo([
-        'check',
-        'unchanged',
-        t,
-        '--message',
-        'another applied branch changes a path the undo restores',
-        '--',
-        ...touchedAll,
-      ]);
-      if (committed) undo(['check', 'clean', '--', ...touchedAll]);
+      perPath(
+        undoArgv([
+          'check',
+          'unchanged',
+          t,
+          '--message',
+          'another applied branch changes a path the undo restores',
+          '--',
+        ]),
+        touchedAll,
+        step,
+      );
+      if (committed) {
+        perPath(undoArgv(['check', 'clean', '--']), touchedAll, step);
+      }
+      destinationSteps();
       undo(['check', 'absent', backupDir]);
     } else if (jj) {
       // a revset symbol or string
@@ -1690,6 +1863,16 @@ class _Planner {
           : jjString(branch);
       fileset = [for (final f in touchedAll) 'root:${jjString(f)}'];
       if (committed && branch != cb) {
+        // the first guard: the settings and the role branch are what the plan
+        // was made under, before the working copy is read or moved
+        undo([
+          'check',
+          'branch',
+          cb,
+          '--backend',
+          'jj',
+          if (code != null && code.isNotEmpty) ...['--code', code],
+        ]);
         undo(['check', 'clean', '--jj']);
         undo(['check', 'tip', 'refs/heads/$branch', t]);
         step(['jj', 'new', rev]);
@@ -1703,7 +1886,10 @@ class _Planner {
         if (code != null && code.isNotEmpty) ...['--code', code],
       ]);
       undo(['check', 'tip', headref, t]);
-      if (committed) undo(['check', 'clean', '--jj', '--', ...fileset]);
+      if (committed) {
+        perPath(undoArgv(['check', 'clean', '--jj', '--']), fileset, step);
+      }
+      destinationSteps();
       undo(['check', 'absent', backupDir]);
     } else {
       final v = view!;
@@ -1832,13 +2018,11 @@ class _Planner {
       }
     }
     if (mainMod.isNotEmpty && jj) {
-      step([
-        'jj',
-        'restore',
-        '--from',
-        committed ? '$a-' : t,
-        for (final f in mainMod) 'root:${jjString(f)}',
-      ]);
+      perPath(
+        ['jj', 'restore', '--from', committed ? '$a-' : t],
+        [for (final f in mainMod) 'root:${jjString(f)}'],
+        step,
+      );
     } else if (mainMod.isNotEmpty && gb) {
       // a file write from a Git read: `git restore` would be a Git write to
       // the shared work tree
@@ -1885,6 +2069,7 @@ class _Planner {
         ...mainMod,
         ...mainNew,
       ];
+      checkButCommit(cpaths, msgfile);
       step(
         swArgv([
           'vcs',
@@ -2005,13 +2190,11 @@ class _Planner {
       names = rerun.map((m) => m.name).join(', ');
       // stop before any archive when the user made a new spec of the same name
       // C46: the rerun's destinations are checked again before it writes any
-      if (!jj && !gb) {
-        perPath(
-          undoArgv(['check', 'destinations', '--']),
-          sortedByCodePoint(syncedByRerun),
-          (argv) => afterSteps.add(mk(argv)),
-        );
-      }
+      perPath(
+        undoArgv(['check', 'destinations', ...destFlags, '--']),
+        sortedByCodePoint(syncedByRerun),
+        (argv) => afterSteps.add(mk(argv)),
+      );
       for (final f in redelete) {
         afterSteps.add(
           mk(

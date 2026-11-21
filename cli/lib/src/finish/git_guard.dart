@@ -580,6 +580,41 @@ void refuseCollidingPaths(Iterable<String> paths) {
   }
 }
 
+/// Refuses, with `path_owned_elsewhere`, a path another applied GitButler
+/// branch has an assigned, uncommitted edit at ([foreign]: path and branch,
+/// each path exactly as `but` spells it) that the undo would write: a path
+/// equal to one of [files] or equal to, or under, one of [dirs] (the archived
+/// member directories it moves and the directories it restores them to), case
+/// folded as [refuseCollidingPaths] folds. Nothing is rewritten, so a backslash
+/// in a name stays a backslash.
+void refuseForeignAssignments(
+  List<(String, String)> foreign, {
+  required String branch,
+  required List<String> files,
+  required List<String> dirs,
+}) {
+  for (final (path, owner) in foreign) {
+    final key = path.toLowerCase();
+    String? hit;
+    for (final f in files) {
+      if (f.toLowerCase() == key) hit = f;
+    }
+    for (final d in dirs) {
+      final dir = d.toLowerCase();
+      if (key == dir || key.startsWith('$dir/')) hit = d;
+    }
+    if (hit != null) {
+      throw VcsStop(
+        'path_owned_elsewhere',
+        '$path is assigned to branch $owner, not $branch, and the undo '
+            'writes $hit; unassign the edit or finish it on $owner first, '
+            'then plan again',
+        extra: {'path': path, 'branch': owner},
+      );
+    }
+  }
+}
+
 VcsStop _collision(String a, String b) => _unsupportedEntry(
   '$a and $b are the same path, or one lies under the other, once case is '
   'folded; the undo would write both, so it stops before it writes either',

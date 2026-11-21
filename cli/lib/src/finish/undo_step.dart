@@ -12,10 +12,18 @@ import '../vcs/args.dart';
 import '../vcs/codec.dart';
 import '../vcs/document.dart';
 import '../vcs/git_backend.dart';
+import '../vcs/gitbutler_backend.dart' show gitbutlerForeignAssignments;
 import '../vcs/stop.dart';
 import '../vcs/tool_runner.dart';
 import 'git_guard.dart';
 import 'settings_guard.dart';
+
+/// Answers the read of every other applied GitButler branch's assigned paths
+/// (path and branch) of a `check destinations --gitbutler` step. Tests only.
+typedef UndoForeignReader = Future<List<(String, String)>> Function(
+  String repo,
+  String branch,
+);
 
 /// Answers the state read of a `check branch` step instead of the in-process
 /// state operation, so that a test can check a jj or GitButler branch without
@@ -75,6 +83,7 @@ Future<int> runUndoStep(
   required void Function(List<int> bytes) writeOut,
   String? cwd,
   UndoStateReader? stateReader,
+  UndoForeignReader? foreignReader,
   void Function(String line)? writeErr,
   Map<String, String>? environment,
 }) async {
@@ -86,6 +95,7 @@ Future<int> runUndoStep(
       cwd ?? Directory.current.path,
       stateReader,
       environment,
+      foreignReader,
     ).run(args);
     return 0;
   } on VcsStop catch (stop) {
@@ -106,7 +116,9 @@ Future<int> runUndoStep(
 }
 
 class _UndoStep {
-  _UndoStep(this.cwd, this.stateReader, this.environment);
+  _UndoStep(this.cwd, this.stateReader, this.environment, [this.foreignReader]);
+
+  final UndoForeignReader? foreignReader;
 
   final String cwd;
   final UndoStateReader? stateReader;
@@ -263,6 +275,7 @@ class _UndoStep {
       } else if (const [
             '--backend',
             '--code',
+            '--gitbutler',
             '--message',
             '--git-dir',
             '--common-dir',
@@ -397,7 +410,13 @@ class _UndoStep {
         _checkAbsent(positional[0], options['--message']);
       case 'destinations':
         _count('check destinations', positional, 0);
-        await _checkDestinations(paths, dirs, members);
+        await _checkDestinations(
+          paths,
+          dirs,
+          members,
+          gitbutler: options['--gitbutler'],
+          code: options['--code'],
+        );
       case 'tracked':
         _count('check tracked', positional, 1);
         final loose = await untrackedUnder(
@@ -475,8 +494,10 @@ class _UndoStep {
   Future<void> _checkDestinations(
     List<String> files,
     List<String> dirs,
-    List<String> members,
-  ) async {
+    List<String> members, {
+    String? gitbutler,
+    String? code,
+  }) async {
     refuseCollidingPaths([...files, ...dirs, ...members]);
     walkDestinations(cwd, files: files, dirs: dirs, members: members);
     await refuseGitlinkAncestors(
@@ -484,6 +505,37 @@ class _UndoStep {
       'HEAD',
       ancestorDirectories(files, [...dirs, ...members]),
     );
+    if (gitbutler != null) {
+      // another applied branch's edit at a path the undo writes, read again
+      // now from `but`'s own spelling of it (C46)
+      final reader = foreignReader;
+      final List<(String, String)> foreign;
+      if (reader != null) {
+        foreign = await reader(cwd, gitbutler);
+      } else {
+        final role = code != null
+            ? ['--role', 'store', '--code', at(code)]
+            : ['--role', 'code'];
+        final parsed = parseVcsArguments([
+          'state',
+          '--repo',
+          cwd,
+          ...role,
+          '--branch',
+          gitbutler,
+        ]);
+        foreign = await gitbutlerForeignAssignments(
+          await openSession(VcsContext(parsed)),
+          gitbutler,
+        );
+      }
+      refuseForeignAssignments(
+        foreign,
+        branch: gitbutler,
+        files: files,
+        dirs: [...dirs, ...members],
+      );
+    }
   }
 
   /// `check inputs <member dir> <review blob|-> <tasks blob|->`: the restored
@@ -655,7 +707,7 @@ class _UndoStep {
 
   /// The settings must select Git for the role [code] picks (the store role
   /// with a code operand, else the code role); another backend is `git_env`.
-  void _requireGitRole(String? code) {
+  void _requireGitRole(String? code, [String want = 'git']) {
     final String chosen;
     try {
       final settings = loadSettings(
@@ -666,10 +718,10 @@ class _UndoStep {
     } on SettingsStop catch (e) {
       throw VcsStop(e.error, e.message, code: e.code);
     }
-    if (chosen != 'git') {
+    if (chosen != want) {
       throw VcsStop(
         'git_env',
-        'The plan checks the branch with git, but the settings select '
+        'The plan checks the branch with $want, but the settings select '
             '$chosen for this role; plan again',
       );
     }
@@ -696,6 +748,10 @@ class _UndoStep {
         throw VcsStop.notUtf8(e);
       }
     } else {
+      // the settings the plan was made under still select jj for the role,
+      // read before any jj command runs (a store backend changed after
+      // planning stops with no jj invocation)
+      if (backend == 'jj') _requireGitRole(code, 'jj');
       final repo = cwd;
       final branch = backend == 'gitbutler' ? expected : null;
       final reader = stateReader;

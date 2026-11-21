@@ -94,6 +94,52 @@ final _driveLetter = RegExp(r'^[A-Za-z]:');
 final _hexCommit = RegExp(r'^[0-9a-fA-F]{7,40}$');
 final _pushRejected = RegExp(r'\[rejected\]|non-fast-forward|fetch first');
 
+/// `gitbutler_path` for a work tree at [root]: the spelling `sw vcs commit`
+/// names [raw] with (repo-relative, `/` separators, no `./`; a directory ends
+/// in `/`). A glob character or a path outside the repository is `bad_path`.
+/// The undo planner calls it to find a path the commit would refuse or
+/// respell (C30).
+String gitbutlerCommitPath(String raw, String root) {
+  final text = raw.replaceAll(r'\', '/');
+  if (_globChars.hasMatch(text)) {
+    throw VcsStop(
+      'bad_path',
+      '$raw contains glob characters; name the file or its directory',
+      extra: {'path': raw},
+    );
+  }
+  final norm = _normpath(text);
+  if (text.isEmpty ||
+      norm == '.' ||
+      norm.startsWith('/') ||
+      norm == '..' ||
+      norm.startsWith('../') ||
+      _driveLetter.hasMatch(norm) ||
+      norm.split('/').contains('.git')) {
+    throw VcsStop(
+      'bad_path',
+      '$raw is not a path inside the repository',
+      extra: {'path': raw},
+    );
+  }
+  var isDir = text.endsWith('/');
+  if (!isDir) {
+    try {
+      isDir = Directory('$root/$text').existsSync();
+    } on Object {
+      isDir = false;
+    }
+  }
+  return isDir ? '$norm/' : norm;
+}
+
+/// [GitButler.foreignAssignments] for the undo planner and its destination
+/// check.
+Future<List<(String, String)>> gitbutlerForeignAssignments(
+  VcsSession s,
+  String branch,
+) => GitButler(s).foreignAssignments(branch);
+
 class GitButler {
   GitButler(this.s, {this.environment});
 
@@ -421,39 +467,32 @@ class GitButler {
 
   /// `gitbutler_path`: repo-relative, `/` separators, no `./`; a directory
   /// ends in `/`. Globs and escapes stop.
-  String gitbutlerPath(String raw) {
-    final text = raw.replaceAll(r'\', '/');
-    if (_globChars.hasMatch(text)) {
-      throw VcsStop(
-        'bad_path',
-        '$raw contains glob characters; name the file or its directory',
-        extra: {'path': raw},
-      );
-    }
-    final norm = _normpath(text);
-    if (text.isEmpty ||
-        norm == '.' ||
-        norm.startsWith('/') ||
-        norm == '..' ||
-        norm.startsWith('../') ||
-        _driveLetter.hasMatch(norm) ||
-        norm.split('/').contains('.git')) {
-      throw VcsStop(
-        'bad_path',
-        '$raw is not a path inside the repository',
-        extra: {'path': raw},
-      );
-    }
-    final isDir = text.endsWith('/') || _isDirectory('$root/$text');
-    return isDir ? '$norm/' : norm;
+  String gitbutlerPath(String raw) => gitbutlerCommitPath(raw, root);
+
+  /// Every path assigned to an applied branch other than [branch], with that
+  /// branch's name, exactly as `but status --json` spells it: no `\` to `/`
+  /// rewrite (the public state's `other_branch_paths` rewrites one and keeps
+  /// the first stack per path), and one entry for every stack that holds the
+  /// path. The evidence the named-path commit guard inspects, read for the
+  /// undo's destination check; the state document is unchanged.
+  Future<List<(String, String)>> foreignAssignments(String branch) async {
+    final status = await butStatus();
+    return [
+      for (final stack in _list(status['stacks']))
+        if (!_stackNames(stack).contains(branch))
+          for (final entry in _list(_map(stack)['assignedChanges']))
+            (
+              _rawChangeFile(entry),
+              _stackNames(stack)
+                  .firstWhere((n) => n.isNotEmpty, orElse: () => ''),
+            ),
+    ];
   }
 
-  bool _isDirectory(String path) {
-    try {
-      return Directory(path).existsSync();
-    } on Object {
-      return false;
-    }
+  String _rawChangeFile(Object? entry) {
+    final e = _map(entry);
+    final file = _str(e['filePath']);
+    return file.isNotEmpty ? file : _str(e['path']);
   }
 
   /// `gitbutler_commit`: `but commit -b <branch> -F <file> --json <paths>` for

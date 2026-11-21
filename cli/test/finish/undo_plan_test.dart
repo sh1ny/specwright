@@ -8,6 +8,8 @@ import 'package:specwright_cli/src/finish/undo_plan.dart';
 import 'package:specwright_cli/src/process/command_line.dart'
     show commandLineUnits;
 import 'package:specwright_cli/src/commands/version.dart' show buildVersion;
+import 'package:specwright_cli/src/vcs/jj_backend.dart'
+    show bookmarkTemplate, exactPattern;
 import 'package:specwright_cli/src/vcs/stop.dart';
 import 'package:specwright_cli/src/vcs/tool_runner.dart'
     show ToolResult, runTool;
@@ -608,6 +610,24 @@ void main() {
       expect(doc, contains('C41:'));
       expect(doc, contains('apply to Git resumes only'));
       expect(doc, contains('a stored symlink is read as its link text'));
+    });
+
+    test('undoArchivePlan carries C30, C42 and the no-file-change line', () {
+      final doc = docAbove(
+        'lib/src/finish/undo_plan.dart',
+        'Future<Map<String, Object?>> undoArchivePlan(',
+      );
+      expect(doc, contains('The plan changes no file'));
+      expect(
+        doc,
+        contains("jj's own working-copy snapshot and Git ref import"),
+      );
+      expect(doc, contains('C30:'));
+      expect(doc, contains('only a committed archive'));
+      expect(doc, contains('`bad_path`'));
+      expect(doc, contains('C42:'));
+      expect(doc, contains('`ambiguous_branch`'));
+      expect(doc, contains('Rejected: reading with `--ignore-working-copy`'));
     });
 
     test('rerun carries C33', () {
@@ -3538,9 +3558,194 @@ void main() {
         },
         skip: skip,
       );
+
+      /// The GitButler state read, with the assigned paths of other branches
+      /// answered by [foreign].
+      FinishContext gbForeign(
+        List<(String, String)> foreign, {
+        Map<String, String>? environment,
+        bool? windows,
+        Future<ToolResult> Function(String, List<String>, Map<String, String>)?
+        runner,
+      }) => FinishContext(
+        environment: environment,
+        windows: windows,
+        runner: runner,
+        foreignReader: (top, branch) async => foreign,
+        stateReader: (top, code, branch) async => {
+          'ok': true,
+          'backend': 'gitbutler',
+          'main': 'main',
+          'branch': 'feat/x',
+          'applied': true,
+          'dirty_paths': <String>[],
+        },
+      );
+
+      test(
+        'the destination check runs on GitButler, naming the branch',
+        () async {
+          final repo = branchRepo();
+          archive(repo, ['add-x'], commitIt: true);
+          final top = topOf(repo);
+          final doc = (await plan(
+            rq(repo, branch: 'feat/x'),
+            gbForeign([]),
+          )).doc;
+          expect(
+            argvsOf(doc['steps']),
+            containsAllInOrder([
+              undoStep(top, [
+                'check',
+                'destinations',
+                '--gitbutler',
+                'feat/x',
+                '--member',
+                ad,
+                '--dir',
+                'openspec/changes/add-x',
+              ]),
+              undoStep(top, [
+                'check',
+                'destinations',
+                '--gitbutler',
+                'feat/x',
+                '--',
+                specA,
+              ]),
+            ]),
+          );
+        },
+        skip: skip,
+      );
+
+      for (final (name, path) in [
+        ('a spec the undo writes', specA),
+        ('a file under a member directory', '$ad/design.md'),
+        ('a file under the restore directory', 'openspec/changes/add-x/n.md'),
+      ]) {
+        test(
+          "another applied branch's edit to $name is path_owned_elsewhere",
+          () async {
+            final repo = branchRepo();
+            archive(repo, ['add-x'], commitIt: true);
+            final r = await plan(
+              rq(repo, branch: 'feat/x'),
+              gbForeign([(path, 'other')]),
+            );
+            expect(r.code, 1, reason: '${r.doc}');
+            expect(r.doc['error'], 'path_owned_elsewhere');
+            expect(r.doc['path'], path);
+            expect(r.doc['branch'], 'other');
+          },
+          skip: skip,
+        );
+      }
+
+      test(
+        'an edit of another branch elsewhere does not stop the plan',
+        () async {
+          final repo = branchRepo();
+          archive(repo, ['add-x'], commitIt: true);
+          final r = await plan(
+            rq(repo, branch: 'feat/x'),
+            gbForeign([('src/unrelated.txt', 'other')]),
+          );
+          expect(r.code, 0, reason: '${r.doc}');
+        },
+        skip: skip,
+      );
+
+      test('a committed undo refuses a path its commit would refuse', () async {
+        final repo = branchRepo(deltas: {'a[1]': 'New thing'});
+        archive(repo, ['add-x'], commitIt: true);
+        final r = await plan(rq(repo, branch: 'feat/x'), gbForeign([]));
+        expect(r.code, 1, reason: '${r.doc}');
+        expect(r.doc['error'], 'bad_path');
+        expect(r.doc['path'], 'openspec/specs/a[1]/spec.md');
+      }, skip: skip);
+
+      test('an uncommitted undo has no commit, so no bad_path (C30)', () async {
+        final repo = branchRepo(deltas: {'a[1]': 'New thing'});
+        archive(repo, ['add-x']);
+        final r = await plan(rq(repo, branch: 'feat/x'), gbForeign([]));
+        expect(r.code, 0, reason: '${r.doc}');
+      }, skip: skip);
+
+      test(
+        'windows: but.cmd payload over 8,191 is plan_too_large',
+        () async {
+          final caps = {
+            for (var i = 0; i < 90; i++)
+              'c${i.toString().padLeft(3, '0')}${'q' * 100}': 'Thing $i',
+          };
+          final repo = branchRepo(deltas: caps);
+          archive(repo, ['add-x'], commitIt: true);
+          // a `but.cmd` is the only `but` on this PATH, so the planner sizes the
+          // line `but commit` runs as a batch line
+          final bin = Directory('${tmp.path}/bin')..createSync();
+          File('${bin.path}/but.cmd').writeAsStringSync('@echo off\n');
+          final r = await plan(
+            rq(repo, branch: 'feat/x'),
+            gbForeign(
+              [],
+              windows: true,
+              environment: {'PATH': '${bin.path}/', 'PATHEXT': '.CMD'},
+              runner: (cwd, command, env) => runTool(cwd, command),
+            ),
+          );
+          expect(r.code, 1, reason: '${r.doc}');
+          expect(r.doc['error'], 'plan_too_large');
+          expect(r.doc['message'], contains('8191'));
+          // the same undo with a `but.exe` has no batch line to size
+          File('${bin.path}/but.cmd').deleteSync();
+          final exe = await plan(
+            rq(repo, branch: 'feat/x'),
+            gbForeign(
+              [],
+              windows: true,
+              environment: {'PATH': '${bin.path}/', 'PATHEXT': '.CMD'},
+              runner: (cwd, command, env) => runTool(cwd, command),
+            ),
+          );
+          expect(exe.code, 0, reason: '${exe.doc}');
+        },
+        skip: Platform.isWindows
+            ? skip
+            : 'platform: a but.cmd batch line is Windows only',
+      );
     });
 
     group('jj', () {
+      /// A context whose state read is [read] and whose `jj` reads answer one
+      /// bookmark, conflicted or not; every other command runs for real.
+      FinishContext jjCtx(
+        Future<Map<String, Object?>> Function(String, String?, String?) read, {
+        bool conflict = false,
+        String bookmark = 'feat/x',
+        List<List<String>>? seen,
+        bool? windows,
+      }) => FinishContext(
+        windows: windows,
+        stateReader: read,
+        runner: (cwd, command, env) async {
+          if (command.first != 'jj') {
+            return runTool(cwd, command, environment: env);
+          }
+          seen?.add(command);
+          final line = jsonEncode({
+            'name': bookmark,
+            'conflict': conflict,
+            'target': [null],
+          });
+          return ToolResult(
+            0,
+            utf8.encode('$line${String.fromCharCode(10)}'),
+            Uint8List(0),
+          );
+        },
+      );
+
       Future<Map<String, Object?>> Function(String, String?, String?) reader({
         List<String> dirty = const [],
         List<Map<String, Object?>> entries = const [],
@@ -3558,7 +3763,7 @@ void main() {
       test('the branch guard is a check step on the planned branch', () async {
         final repo = branchRepo();
         archive(repo, ['add-x'], commitIt: true);
-        final doc = (await plan(rq(repo), readerCtx(reader()))).doc;
+        final doc = (await plan(rq(repo), jjCtx(reader()))).doc;
         expect(
           argvsOf(doc['steps']).first,
           undoStep(topOf(repo), [
@@ -3582,7 +3787,7 @@ void main() {
             for (final f in [ad, 'openspec/changes/add-x', specA]) 'root:"$f"',
           ];
           final fs = fileset.map(sq).join(' ');
-          final doc = (await plan(rq(repo), readerCtx(reader()))).doc;
+          final doc = (await plan(rq(repo), jjCtx(reader()))).doc;
           List<String> u(List<String> rest) => undoStep(top, rest);
           expect(
             argvsOf(doc['steps']),
@@ -3634,7 +3839,7 @@ void main() {
           String? seenCode;
           final doc = (await plan(
             rq(repo, code: 'codedir'),
-            readerCtx((top, code, branch) async {
+            jjCtx((top, code, branch) async {
               seenCode = code;
               return reader()(top, code, branch);
             }),
@@ -3671,7 +3876,7 @@ void main() {
           archive(repo, ['add-x'], commitIt: true);
           final doc = (await plan(
             rq(repo),
-            readerCtx(reader(dirty: ['$ad/design.md', 'other.txt'])),
+            jjCtx(reader(dirty: ['$ad/design.md', 'other.txt'])),
           )).doc;
           expect(doc['carried_edits'], ['$ad/design.md']);
           final warnings = (doc['warnings']! as List).cast<String>();
@@ -3694,7 +3899,7 @@ void main() {
         git(repo, ['checkout', '-q', 'main']);
         final dirty = await plan(
           rq(repo, branch: 'feat/x'),
-          readerCtx(reader(dirty: ['junk.txt'], current: 'main')),
+          jjCtx(reader(dirty: ['junk.txt'], current: 'main')),
         );
         expect(dirty.code, 1);
         expect(dirty.doc, {
@@ -3707,7 +3912,7 @@ void main() {
         });
         final clean = await plan(
           rq(repo, branch: 'feat/x'),
-          readerCtx(reader(current: 'main')),
+          jjCtx(reader(current: 'main')),
         );
         expect(clean.code, 0, reason: '${clean.doc}');
         final top = topOf(repo);
@@ -3715,6 +3920,9 @@ void main() {
         expect(
           steps,
           containsAllInOrder([
+            // the settings and the role branch are checked before anything
+            // reads or moves the working copy
+            undoStep(top, ['check', 'branch', 'main', '--backend', 'jj']),
             undoStep(top, ['check', 'clean', '--jj']),
             undoStep(top, [
               'check',
@@ -3734,7 +3942,7 @@ void main() {
           archive(repo, ['add-x']);
           final doc = (await plan(
             rq(repo),
-            readerCtx(
+            jjCtx(
               reader(
                 entries: [
                   {'status': 'A', 'path': '$ad/proposal.md'},
@@ -3759,12 +3967,91 @@ void main() {
         skip: skip,
       );
 
+      test('a conflicted requested bookmark is ambiguous_branch, read by '
+          'exact name', () async {
+        final repo = branchRepo();
+        archive(repo, ['add-x'], commitIt: true);
+        final seen = <List<String>>[];
+        final r = await plan(
+          rq(repo),
+          jjCtx(reader(), conflict: true, seen: seen),
+        );
+        expect(r.code, 1, reason: '${r.doc}');
+        expect(r.doc['error'], 'ambiguous_branch');
+        expect(seen.single, [
+          'jj',
+          'bookmark',
+          'list',
+          exactPattern('feat/x'),
+          '-T',
+          bookmarkTemplate,
+        ]);
+      }, skip: skip);
+
+      test('a failed bookmark read is vcs_error', () async {
+        final repo = branchRepo();
+        archive(repo, ['add-x'], commitIt: true);
+        final r = await plan(
+          rq(repo),
+          FinishContext(
+            stateReader: reader(),
+            runner: (cwd, command, env) async => command.first == 'jj'
+                ? ToolResult(1, Uint8List(0), utf8.encode('boom'))
+                : runTool(cwd, command, environment: env),
+          ),
+        );
+        expect(r.code, 1, reason: '${r.doc}');
+        expect(r.doc['error'], 'vcs_error');
+        expect(r.doc['message'], contains('boom'));
+      }, skip: skip);
+
+      test('the destination check runs on jj too', () async {
+        final repo = branchRepo();
+        archive(repo, ['add-x'], commitIt: true);
+        final top = topOf(repo);
+        final doc = (await plan(rq(repo), jjCtx(reader()))).doc;
+        final steps = argvsOf(doc['steps']);
+        expect(
+          steps,
+          containsAllInOrder([
+            undoStep(top, [
+              'check',
+              'destinations',
+              '--member',
+              ad,
+              '--dir',
+              'openspec/changes/add-x',
+            ]),
+            undoStep(top, ['check', 'destinations', '--', specA]),
+          ]),
+        );
+      }, skip: skip);
+
+      test(
+        'posix: a jj fileset over 32,766 UTF-8 bytes is plan_too_large',
+        () async {
+          // 150 two-byte letters per name: the fileset is well over the limit
+          // in bytes and well under it in characters
+          final caps = {
+            for (var i = 0; i < 150; i++)
+              'c${i.toString().padLeft(3, '0')}${'\u00e9' * 100}': 'Thing $i',
+          };
+          final repo = branchRepo(deltas: caps);
+          archive(repo, ['add-x'], commitIt: true);
+          final r = await plan(rq(repo), jjCtx(reader(), windows: false));
+          expect(r.code, 1, reason: '${r.doc}');
+          expect(r.doc['error'], 'plan_too_large');
+          expect(r.doc['message'], contains('jj commit'));
+        },
+        skip: skip,
+      );
+
       test('a bookmark that is not a revset symbol is quoted', () async {
         final repo = branchRepo(branch: 'feat/x+y');
         archive(repo, ['add-x'], commitIt: true);
         final doc = (await plan(
           rq(repo),
-          readerCtx(reader(current: 'feat/x+y')),
+          jjCtx(reader(current: 'feat/x+y')),
         )).doc;
         expect(
           argvsOf(doc['steps']),
