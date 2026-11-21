@@ -108,7 +108,7 @@ One row per delta-spec scenario. A blank Requirement or Test file cell repeats t
 |  | A tag that spells the full branch ref | `evals/finish/test_undo_plan.py` |  | red |
 |  | The archive branch deleted after planning | `evals/finish/test_undo_steps.py` |  | red |
 |  | A branch name that is not UTF-8 at the guard |  |  | red |
-|  | A task file hidden by an index flag | `evals/finish/test_undo_plan.py` |  | red |
+|  | A task file hidden by an index flag | `evals/finish/test_undo_plan.py` | test_a_task_file_hidden_by_an_index_flag_is_git_env | green |
 |  | A main spec with a hidden local edit |  |  | red |
 |  | An unrelated file with a hidden edit on resume |  |  | red |
 |  | Ignored content under the archive root |  |  | red |
