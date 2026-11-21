@@ -372,18 +372,18 @@ Verification: never run an eval suite locally. Locally run only the module being
 
 ## 7. Bounded download and best-effort install cleanup (D8)
 
-- [ ] 7.1 Write failing tests in `cli/test/update/download_test.dart` for the new rows of install-update "The sw download is bounded" (injected clock, timer factory and `PartWriter`; one stop slot, settle function, wire-byte budget, encoding check, bounded shutdown), and move `:112-126`, `:144-163` and `:231-284` to "no response byte written" instead of deletion. Verify they fail for the right reason.
-- [ ] 7.2 Redesign the download's stop as D8 states: open the part synchronously before the deadline starts, one stop slot, monotonic deadline at admission and settle, counted drain of redirect and error bodies, `Accept-Encoding: identity` with `autoUncompress = false`, the 200 encoding check, one memoized close with a 10-second grace. Verify: the 7.1 tests pass locally and their rows turn green.
-- [ ] 7.3 Write failing tests for the rows of "Part-file cleanup never replaces the install's result" and the changed rows of the macOS quarantine, placing and stop requirements: `cli/test/update/sw_install_test.dart` (a `fileOps` whose `remove` throws for one path; rename hooks; recovery-path hash; listing denied), `cli/test/update/place_test.dart` (`:262-270` now keeps the part), and `evals/update/test_sw_install.py` (missing-`SHA256SUMS` leftover; the concurrent cases at `:331-343` and `:659-672` assert the exact listing on POSIX only). Verify they fail for the right reason.
-- [ ] 7.4 Implement one owner per part (`swInstall`'s `finally` and the build's `.stage` `finally`, through `removeQuietly`), forward the command's `fileOps`, move the sweep's listing inside its catch, and treat a hash failure as unconfirmed on the failed-rename recovery only (`placeChecked` takes a destination-hash parameter). Verify: the 7.3 tests pass (Dart locally, evals in PR CI on three OSes) and their rows turn green.
-- [ ] 7.5 Re-run the green rows of `evals/update/test_sw_install.py` ("Download completes in time", "Quarantined download on macOS arm64", "Rerun with the binary already placed", "Interrupted before the rename", "A stale file at the final path", "Matching hash but not runnable", "Release assets not uploaded yet", "Checksum mismatch", "Wrong interface"). Verify: they pass in PR CI on three OSes.
-- [ ] 7.6 C9: doc comment of `_cleanStale` in `cli/lib/src/update/sw_install.dart`.
-- [ ] 7.7 C14: doc comment of `placeChecked` in `cli/lib/src/update/place.dart`.
-- [ ] 7.8 C15: doc comment of `swInstall` in `cli/lib/src/update/sw_install.dart`.
-- [ ] 7.9 C17: doc comment of `discard` in `cli/tool/build.dart`.
-- [ ] 7.10 C20: doc comment of `_copyFile` in `cli/lib/src/update/download.dart`.
-- [ ] 7.11 C21: doc comment of `downloadReleaseFile` in `cli/lib/src/update/download.dart`.
-- [ ] 7.12 C27: doc comment of `downloadReleaseFile` in `cli/lib/src/update/download.dart`.
+- [x] 7.1 Write failing tests in `cli/test/update/download_test.dart` for the new rows of install-update "The sw download is bounded" (injected clock, timer factory and `PartWriter`; one stop slot, settle function, wire-byte budget, encoding check, bounded shutdown), and move `:112-126`, `:144-163` and `:231-284` to "no response byte written" instead of deletion. Verify they fail for the right reason.
+- [x] 7.2 Redesign the download's stop as D8 states: open the part synchronously before the deadline starts, one stop slot, monotonic deadline at admission and settle, counted drain of redirect and error bodies, `Accept-Encoding: identity` with `autoUncompress = false`, the 200 encoding check, one memoized close with a 10-second grace. Verify: the 7.1 tests pass locally and their rows turn green.
+- [x] 7.3 Write failing tests for the rows of "Part-file cleanup never replaces the install's result" and the changed rows of the macOS quarantine, placing and stop requirements: `cli/test/update/sw_install_test.dart` (a `fileOps` whose `remove` throws for one path; rename hooks; recovery-path hash; listing denied), `cli/test/update/place_test.dart` (`:262-270` now keeps the part), and `evals/update/test_sw_install.py` (missing-`SHA256SUMS` leftover; the concurrent cases at `:331-343` and `:659-672` assert the exact listing on POSIX only). Verify they fail for the right reason.
+- [x] 7.4 Implement one owner per part (`swInstall`'s `finally` and the build's `.stage` `finally`, through `removeQuietly`), forward the command's `fileOps`, move the sweep's listing inside its catch, and treat a hash failure as unconfirmed on the failed-rename recovery only (`placeChecked` takes a destination-hash parameter). Verify: the 7.3 tests pass (Dart locally, evals in PR CI on three OSes) and their rows turn green.
+- [x] 7.5 Re-run the green rows of `evals/update/test_sw_install.py` ("Download completes in time", "Quarantined download on macOS arm64", "Rerun with the binary already placed", "Interrupted before the rename", "A stale file at the final path", "Matching hash but not runnable", "Release assets not uploaded yet", "Checksum mismatch", "Wrong interface"). Verify: they pass in PR CI on three OSes.
+- [x] 7.6 C9: doc comment of `_cleanStale` in `cli/lib/src/update/sw_install.dart`.
+- [x] 7.7 C14: doc comment of `placeChecked` in `cli/lib/src/update/place.dart`.
+- [x] 7.8 C15: doc comment of `swInstall` in `cli/lib/src/update/sw_install.dart`.
+- [x] 7.9 C17: doc comment of `discard` in `cli/tool/build.dart`.
+- [x] 7.10 C20: doc comment of `_copyFile` in `cli/lib/src/update/download.dart`.
+- [x] 7.11 C21: doc comment of `downloadReleaseFile` in `cli/lib/src/update/download.dart`.
+- [x] 7.12 C27: doc comment of `downloadReleaseFile` in `cli/lib/src/update/download.dart`.
 
 ## 8. Undo planner: whole records, complete reads and exit codes (D2)
 

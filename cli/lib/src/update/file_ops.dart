@@ -111,6 +111,17 @@ class UpdateFileOps {
     }
   }
 
+  /// [remove] for a leftover nobody needs: a failure to delete it (a file
+  /// another process holds, a directory that cannot be listed) is swallowed,
+  /// and the leftover is swept later. The caller's own result stands.
+  void removeQuietly(String path) {
+    try {
+      remove(path);
+    } on FileSystemException {
+      // best effort; the one-hour sweep of a later install takes it
+    }
+  }
+
   /// Logs [text] as the next operation; false when the seam ended the run
   /// here (only with an [exitProcess] that returns), so the caller skips it.
   bool _before(String text) {

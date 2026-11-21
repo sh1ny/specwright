@@ -137,7 +137,7 @@ class Base(unittest.TestCase):
         return d
 
     def serve(self, **behaviour):
-        """A local http.server over self.rel. behaviour: stall={names}, big={name: bytes}, redirect={name: url}."""
+        """A local http.server over self.rel. behaviour: stall={names}, big={name: bytes}, redirect={name: url}, on_get=callable(name) run before each answer."""
         rel, stop = self.rel, threading.Event()
 
         class Handler(BaseHTTPRequestHandler):
@@ -146,6 +146,8 @@ class Base(unittest.TestCase):
 
             def do_GET(self):
                 name = self.path.rsplit("/", 1)[-1]
+                if behaviour.get("on_get"):
+                    behaviour["on_get"](name)
                 if name in behaviour.get("stall", ()):
                     self.send_response(200)
                     self.send_header("Content-Length", "100")
@@ -339,8 +341,11 @@ void main(List<String> args) {
         self.assertEqual(len(results), 2)
         for code, doc, out, err in results:
             self.assertEqual(code, 0, out + err)
-        self.assertEqual(sorted(p.name for p in self.bin.iterdir()), sorted([NOTICE, EXE]))
         self.assertEqual((self.bin / NOTICE).read_bytes(), NOTICE_BYTES)
+        self.assertEqual(sha((self.bin / EXE).read_bytes()), sha(self.binary))
+        if not WINDOWS:
+            # a part a run cannot delete may stay (Windows holds a running file), so only POSIX asserts the exact listing
+            self.assertEqual(sorted(p.name for p in self.bin.iterdir()), sorted([NOTICE, EXE]))
 
     def test_pre_030_release_installs_without_notice(self):
         self.choose_version("0.29.0")
@@ -669,7 +674,9 @@ class TestPlacement(Base):
             self.assertEqual(code, 0, out + err)
             self.assertIn(doc["action"], ("installed", "replaced", "kept"))
         self.assertEqual(sha(self.final.read_bytes()), sha(self.binary))
-        self.assertEqual(sorted(p.name for p in self.bin.iterdir()), sorted([EXE] + ([NOTICE] if has_notice(self.tag) else [])))
+        if not WINDOWS:
+            # a part a run cannot delete may stay (Windows holds a running file), so only POSIX asserts the exact listing
+            self.assertEqual(sorted(p.name for p in self.bin.iterdir()), sorted([EXE] + ([NOTICE] if has_notice(self.tag) else [])))
 
     def test_blocked_rename_with_matching_file_is_kept(self):
         self.release()
@@ -705,6 +712,46 @@ class TestPlacement(Base):
         self.assertTrue(fresh_notice.exists())
         self.assertTrue(fresh.exists(), "a part modified within the hour belongs to another run")
         self.assertTrue(other.exists())
+
+    @unittest.skipIf(WINDOWS, "platform: a part is made undeletable with directory permissions, which Windows does not have")
+    @unittest.skipIf(not WINDOWS and os.geteuid() == 0, "platform: root deletes whatever the permissions")
+    def test_missing_sums_keeps_undeletable_part(self):
+        self.release(sums=False)
+        self.bin.mkdir(parents=True)
+        old = self.bin / ".sw-aaaa.part"
+        old.write_bytes(b"x")
+        two_hours = time.time() - 7200
+        os.utime(old, (two_hours, two_hours))
+        self.addCleanup(lambda: os.chmod(self.bin, 0o755))
+        # the part is opened before the first request, so denying deletes at that request leaves it undeletable
+        base = self.serve(on_get=lambda name: os.chmod(self.bin, 0o555))
+        self.stopped("assets_not_uploaded", self.tag, "rerun", base=base)
+        os.chmod(self.bin, 0o755)
+        self.assertFalse(old.exists(), "the sweep before the download removed the old part")
+        self.assertEqual(
+            sorted(p.name.split(".", 2)[-1] for p in self.bin.iterdir()),
+            ["sums.part"],
+            "only the current run's undeletable part remains: no binary, notice or other file",
+        )
+
+    @unittest.skipIf(WINDOWS, "platform: a part is made undeletable with directory permissions, which Windows does not have")
+    @unittest.skipIf(not WINDOWS and os.geteuid() == 0, "platform: root deletes whatever the permissions")
+    def test_only_old_part_files_are_cleaned_after_a_held_part(self):
+        self.release()
+        self.bin.mkdir(parents=True)
+        old, held = self.bin / ".sw-aaaa.part", self.bin / ".sw-cccc.stage"
+        old.write_bytes(b"x")
+        held.mkdir()
+        (held / "inner").write_bytes(b"x")
+        os.chmod(held, 0o555)  # the directory cannot be emptied, so it cannot be deleted
+        self.addCleanup(lambda: os.chmod(held, 0o755))
+        two_hours = time.time() - 7200
+        os.utime(old, (two_hours, two_hours))
+        os.utime(held, (two_hours, two_hours))
+        doc = self.installed()
+        self.assertIn(doc["action"], ("installed", "replaced", "kept"))
+        self.assertFalse(old.exists(), "the sweep went on past the held part")
+        self.assertTrue(held.exists(), "a part that is still held stays, without an error")
 
 
 class TestRecovery(Base):

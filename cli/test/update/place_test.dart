@@ -259,7 +259,7 @@ void main() {
       expect(File('$vdir/$_exe').readAsStringSync(), 'existing');
     });
 
-    test('a rename that fails with another file there is sw_in_use', () async {
+    test('a blocked rename leaves the part for the caller', () async {
       // a directory at the final path cannot be replaced by a file
       Directory('$vdir/$_exe').createSync();
       final part = partOf('seven');
@@ -267,7 +267,7 @@ void main() {
       expect(stop.code, 'sw_in_use');
       expect(stop.message, contains('sw-linux-x64 of release v0.37.0'));
       expect(Directory('$vdir/$_exe').existsSync(), isTrue);
-      expect(File(part).existsSync(), isFalse, reason: 'the part is deleted');
+      expect(File(part).existsSync(), isTrue, reason: 'the caller owns it');
     });
 
     test('the running file is never moved', () async {

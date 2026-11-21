@@ -80,6 +80,7 @@ Future<int> runUpdateCommand(
             options,
             environment: environment,
             exitProcess: exitProcess,
+            fileOps: fileOps,
           ),
         ),
       );

@@ -1,9 +1,15 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:ffi' show Abi;
 import 'dart:io';
 
 import 'package:crypto/crypto.dart';
-import 'package:specwright_cli/src/update/options.dart' show updateInterface;
+import 'package:specwright_cli/src/update/file_ops.dart';
+import 'package:specwright_cli/src/update/options.dart'
+    show parseUpdateOptions, updateInterface;
+import 'package:specwright_cli/src/update/place.dart' show fileSha;
+import 'package:specwright_cli/src/update/stop.dart';
+import 'package:specwright_cli/src/update/sw_install.dart' show swInstall;
 import 'package:specwright_cli/src/commands/update.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
@@ -41,6 +47,60 @@ String _hostTarget() {
 }
 
 String _sha(List<int> bytes) => sha256.convert(bytes).toString();
+
+final RegExp _partName = RegExp(
+  r'^\.sw-[0-9a-f]+\.(sums\.part|notice\.part|part(\.exe)?|stage)$',
+);
+
+bool _isPart(String path) => _partName.hasMatch(p.basename(path));
+
+bool _isStage(String path) => p.basename(path).endsWith('.stage');
+
+/// File operations whose `remove` fails for the paths [failRemove] names (as a
+/// held file does) and whose `rename` fails for those [failRename] names;
+/// everything else is the counted wrapper. [renamed] lists every rename's
+/// target, [refused] every refused removal.
+class _Ops extends UpdateFileOps {
+  _Ops(Map<String, String> env, {this.failRemove, this.failRename})
+    : super(environment: env);
+
+  final bool Function(String path)? failRemove;
+  final bool Function(String to)? failRename;
+  final List<String> renamed = [];
+  final List<String> refused = [];
+
+  @override
+  void remove(String path) {
+    if (failRemove?.call(path) ?? false) {
+      refused.add(path);
+      throw FileSystemException('injected: the file is held', path);
+    }
+    super.remove(path);
+  }
+
+  @override
+  void rename(String from, String to) {
+    renamed.add(to);
+    if (failRename?.call(to) ?? false) {
+      throw FileSystemException('injected: rename refused', to);
+    }
+    super.rename(from, to);
+  }
+}
+
+bool get _canDenyAccess {
+  if (Platform.isWindows) return false;
+  return Process.runSync('id', ['-u']).stdout.toString().trim() != '0';
+}
+
+Future<UpdateStop> _stopOf(Future<Object?> run) async {
+  try {
+    await run;
+  } on UpdateStop catch (e) {
+    return e;
+  }
+  fail('expected an UpdateStop');
+}
 
 void main() {
   late Directory temp;
@@ -83,6 +143,7 @@ void main() {
     List<String> args, {
     Map<String, String> env = const {},
     void Function(int code)? exitProcess,
+    UpdateFileOps? fileOps,
   }) async {
     final out = <int>[];
     final code = await runUpdateCommand(
@@ -90,6 +151,7 @@ void main() {
       writeOut: out.addAll,
       cwd: work.path,
       exitProcess: exitProcess,
+      fileOps: fileOps,
       environment: {
         'SPECWRIGHT_HOME': home,
         'SPECWRIGHT_UPDATE_COUNT': log,
@@ -220,6 +282,34 @@ void main() {
       expect(filesUnder(home), isEmpty);
     });
 
+    test('a failed .stage delete keeps the build result', () async {
+      final source = copyFakeSw(fake, '${work.path}/build', _exe);
+      final ops = _Ops({'SPECWRIGHT_UPDATE_COUNT': log}, failRemove: _isStage);
+      List<String> stages() =>
+          Directory(bin())
+              .listSync()
+              .map((e) => p.basename(e.path))
+              .where((n) => n.endsWith('.stage'))
+              .toList();
+      final (code, doc) = await run([
+        '--code',
+        work.path,
+        '--download',
+        tree(),
+        '--build',
+        source,
+        'sw-install',
+      ], fileOps: ops);
+      expect(code, 0, reason: '$doc');
+      expect(doc['action'], 'installed');
+      expect(
+        File('${bin()}/$_exe').readAsBytesSync(),
+        File(source).readAsBytesSync(),
+      );
+      expect(ops.refused, hasLength(1));
+      expect(stages(), hasLength(1), reason: 'the stage directory remains');
+    });
+
     test('a missing file stops', () async {
       final (code, doc) = await build('${work.path}/none/$_exe');
       expect(code, 1);
@@ -285,17 +375,22 @@ void main() {
       String ref = 'v0.37.0',
       String? mirror,
       Map<String, String> env = const {},
-    }) => run([
-      '--code',
-      work.path,
-      '--download',
-      dl,
-      '--ref',
-      ref,
-      '--release-url',
-      mirror ?? Directory(rel).uri.toString(),
-      'sw-install',
-    ], env: env);
+      UpdateFileOps? ops,
+    }) => run(
+      [
+        '--code',
+        work.path,
+        '--download',
+        dl,
+        '--ref',
+        ref,
+        '--release-url',
+        mirror ?? Directory(rel).uri.toString(),
+        'sw-install',
+      ],
+      env: env,
+      fileOps: ops,
+    );
 
     test(
       'installs the host asset after the hash check, notice first',
@@ -458,6 +553,249 @@ void main() {
       expect(code, 0);
       expect(doc['action'], 'skipped');
       expect(doc['message'], 'sw not installed: feature is not a release tag');
+    });
+
+    group('a part that cannot be deleted (D8)', () {
+      _Ops held() =>
+          _Ops({'SPECWRIGHT_UPDATE_COUNT': log}, failRemove: _isPart);
+
+      List<String> parts() =>
+          Directory(bin())
+              .listSync()
+              .map((e) => p.basename(e.path))
+              .where(_partName.hasMatch)
+              .toList();
+
+      bool hasBinaryPart() => parts().any(
+        (n) =>
+            n.endsWith(Platform.isWindows ? '.part.exe' : '.part') &&
+            !n.contains('.sums.') &&
+            !n.contains('.notice.'),
+      );
+
+      test('notice_write_failed survives a failed part delete', () async {
+        release();
+        Directory(bin()).createSync(recursive: true);
+        File('${bin()}/$_exe').writeAsStringSync('existing');
+        final (code, doc) = await install(
+          env: {'SPECWRIGHT_TEST_NOTICE_RENAME': 'fail'},
+          ops: held(),
+        );
+        expect(code, 1);
+        expect(doc['error'], 'notice_write_failed');
+        expect(File('${bin()}/$_exe').readAsStringSync(), 'existing');
+        expect(hasBinaryPart(), isTrue, reason: '${parts()}');
+      });
+
+      test('race hook: kept, part left', () async {
+        release();
+        Directory(bin()).createSync(recursive: true);
+        File('${bin()}/$_exe').writeAsStringSync('stale');
+        final (code, doc) = await install(
+          env: {'SPECWRIGHT_TEST_RENAME': 'race'},
+          ops: held(),
+        );
+        expect(code, 0, reason: '$doc');
+        expect(doc['action'], 'kept');
+        expect(File('${bin()}/$_exe').readAsBytesSync(), binary);
+        expect(hasBinaryPart(), isTrue, reason: '${parts()}');
+      });
+
+      test('fail hook: sw_in_use, part left', () async {
+        release();
+        Directory(bin()).createSync(recursive: true);
+        File('${bin()}/$_exe').writeAsStringSync('stale');
+        final (code, doc) = await install(
+          env: {'SPECWRIGHT_TEST_RENAME': 'fail'},
+          ops: held(),
+        );
+        expect(code, 1);
+        expect(doc['error'], 'sw_in_use');
+        expect(File('${bin()}/$_exe').readAsStringSync(), 'stale');
+        expect(hasBinaryPart(), isTrue, reason: '${parts()}');
+      });
+
+      test('checksum mismatch survives a failed part delete', () async {
+        release(hash: 'f' * 64);
+        final (code, doc) = await install(ops: held());
+        expect(code, 1);
+        expect(doc['error'], 'checksum_mismatch');
+        expect(hasBinaryPart(), isTrue, reason: '${parts()}');
+        expect(
+          Directory(bin()).listSync().map((e) => p.basename(e.path)),
+          everyElement(matches(_partName)),
+          reason: 'only part files are left',
+        );
+      });
+
+      test('deadline_exceeded survives a failed part delete', () async {
+        release();
+        final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+        addTearDown(() => server.close(force: true));
+        server.listen((r) async {
+          r.response
+            ..bufferOutput = false
+            ..headers.contentLength = 100
+            ..add(utf8.encode('start'));
+          await r.response.flush();
+          await Completer<void>().future; // never finishes
+        });
+        final (code, doc) = await install(
+          mirror: 'http://127.0.0.1:${server.port}',
+          env: {'SPECWRIGHT_TEST_HTTP': '1', 'SPECWRIGHT_NET_DEADLINE': '1'},
+          ops: held(),
+        );
+        expect(code, 1);
+        expect(doc['error'], 'deadline_exceeded', reason: '$doc');
+        expect(parts(), hasLength(1), reason: 'the partial download remains');
+      });
+
+      test('no SHA256SUMS: assets_not_uploaded, the part left', () async {
+        release(sums: false);
+        final (code, doc) = await install(ops: held());
+        expect(code, 1);
+        expect(doc['error'], 'assets_not_uploaded');
+        expect(parts(), hasLength(1));
+      });
+
+      test('success removes only this run\'s parts', () async {
+        release();
+        Directory(bin()).createSync(recursive: true);
+        File('${bin()}/.sw-bbbb.part').writeAsStringSync('another run');
+        File('${bin()}/.sw-bbbb.notice.part').writeAsStringSync('another run');
+        final ops = _Ops({'SPECWRIGHT_UPDATE_COUNT': log});
+        final (code, doc) = await install(ops: ops);
+        expect(code, 0, reason: '$doc');
+        expect(
+          Directory(bin()).listSync().map((e) => p.basename(e.path)).toList()
+            ..sort(),
+          ['.sw-bbbb.notice.part', '.sw-bbbb.part', _exe, _notice]..sort(),
+        );
+      });
+    });
+
+    group('the destination on a failed rename (C14)', () {
+      Future<Map<String, Object?>> direct({
+        required _Ops ops,
+        required String Function(String path) hash,
+      }) {
+        final env = {'SPECWRIGHT_HOME': home, 'SPECWRIGHT_UPDATE_COUNT': log};
+        return swInstall(
+          parseUpdateOptions([
+            '--code',
+            work.path,
+            '--download',
+            dl,
+            '--ref',
+            'v0.37.0',
+            '--release-url',
+            Directory(rel).uri.toString(),
+            'sw-install',
+          ], cwd: work.path),
+          environment: env,
+          fileOps: ops,
+          destinationHash: hash,
+        );
+      }
+
+      bool isFinal(String to) => p.basename(to) == _exe;
+
+      test('an unreadable final file on recovery is sw_in_use', () async {
+        release();
+        Directory(bin()).createSync(recursive: true);
+        File('${bin()}/$_exe').writeAsStringSync('stale');
+        final ops = _Ops({'SPECWRIGHT_UPDATE_COUNT': log}, failRename: isFinal);
+        var reads = 0;
+        final stop = await _stopOf(
+          direct(
+            ops: ops,
+            hash: (path) {
+              if (++reads > 1) {
+                throw FileSystemException('injected: unreadable', path);
+              }
+              return fileSha(path);
+            },
+          ),
+        );
+        expect(stop.code, 'sw_in_use');
+        expect(reads, 2, reason: 'the first check, then the recovery');
+        expect(ops.renamed.where(isFinal), hasLength(1));
+      });
+
+      test('a matching hash with the wrong interface is sw_in_use', () async {
+        release();
+        // the final file reports interface 9; the injected hash says it is
+        // the release's file, so only the interface check can refuse it
+        copyFakeSw(fakeIface9, bin(), _exe);
+        final ops = _Ops({'SPECWRIGHT_UPDATE_COUNT': log}, failRename: isFinal);
+        final stop = await _stopOf(
+          direct(ops: ops, hash: (path) => _sha(binary)),
+        );
+        expect(stop.code, 'sw_in_use');
+        expect(ops.renamed.where(isFinal), hasLength(1));
+      });
+
+      test('a hash that fails on the first check makes no rename', () async {
+        release();
+        Directory(bin()).createSync(recursive: true);
+        File('${bin()}/$_exe').writeAsStringSync('stale');
+        final ops = _Ops({'SPECWRIGHT_UPDATE_COUNT': log});
+        await expectLater(
+          direct(
+            ops: ops,
+            hash: (path) =>
+                throw FileSystemException('injected: unreadable', path),
+          ),
+          throwsA(isA<FileSystemException>()),
+        );
+        expect(ops.renamed.where(isFinal), isEmpty);
+      });
+    });
+
+    group('the version directory (D8)', () {
+      test(
+        'an uncreatable part is download_failed before any request',
+        () async {
+          if (!_canDenyAccess) {
+            markTestSkipped('needs a non-root POSIX user');
+            return;
+          }
+          release();
+          Directory(bin()).createSync(recursive: true);
+          addTearDown(() => Process.runSync('chmod', ['755', bin()]));
+          Process.runSync('chmod', ['555', bin()]);
+          var requests = 0;
+          final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+          addTearDown(() => server.close(force: true));
+          server.listen((r) async {
+            requests++;
+            r.response.statusCode = 404;
+            await r.response.close();
+          });
+          final (code, doc) = await install(
+            mirror: 'http://127.0.0.1:${server.port}',
+            env: {'SPECWRIGHT_TEST_HTTP': '1'},
+          );
+          expect(code, 1);
+          expect(doc['error'], 'download_failed', reason: '$doc');
+          expect(doc['message'], contains('.sw-'));
+          expect(requests, 0);
+        },
+      );
+
+      test('an unlistable version directory skips the sweep', () async {
+        if (!_canDenyAccess) {
+          markTestSkipped('needs a non-root POSIX user');
+          return;
+        }
+        release();
+        Directory(bin()).createSync(recursive: true);
+        addTearDown(() => Process.runSync('chmod', ['755', bin()]));
+        Process.runSync('chmod', ['333', bin()]); // writable, not listable
+        final (code, doc) = await install();
+        expect(code, 0, reason: '$doc');
+        expect(doc['action'], 'installed');
+      });
     });
 
     group('the evals\' test hooks', () {
