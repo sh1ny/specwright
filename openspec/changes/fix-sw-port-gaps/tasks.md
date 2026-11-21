@@ -237,11 +237,11 @@ One row per delta-spec scenario. A blank Requirement or Test file cell repeats t
 |  | A long argument through bash -c on Windows | `evals/cli/test_sw_args.py` | test_long_argument_through_bash_c_transport | green |
 |  | A missing transport end marker |  | test_missing_transport_marker_exits_126 | green |
 |  | An argument the launcher cannot represent | `cli/test/run_command_test.dart` | a NUL argument is unrepresentable and nothing starts | green |
-| sw reports its version and interface version | Version report of a CI build | `evals/cli/test_sw_version.py` | test_version_json_reports_version_and_interface | green |
+| sw reports its version and interface version | Version report of a CI build | `evals/cli/test_sw_version.py` | test_version_json_reports_version_and_interface | red |
 |  | Unknown command or flag |  | test_unknown_command_or_flag_prints_usage_and_exits_2 | green |
 | Skills check the project version before running sw | VERSION is not a version | `evals/git-workflow/test_skill_sw_calls.py` | test_skills_validate_version_before_building_path | green |
 |  | The version probe hangs or floods |  | test_probe_has_10_second_timeout_and_one_object | green |
-|  | An older project with newer skills | `evals/cli/test_skill_probe.py` | test_older_project_with_newer_skills_stops | green |
+|  | An older project with newer skills | `evals/cli/test_skill_probe.py` | test_older_project_with_newer_skills_stops | red |
 | Project commands check the project's version | Matching version | `evals/cli/test_sw_project_version.py` | test_matching_version_runs | green |
 |  | Another version |  | test_another_version_is_sw_mismatch | green |
 |  | No VERSION |  | test_no_version_is_sw_mismatch | green |
