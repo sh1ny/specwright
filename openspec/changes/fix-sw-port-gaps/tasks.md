@@ -38,7 +38,7 @@ One row per delta-spec scenario. A blank Requirement or Test file cell repeats t
 |  | Branch moved after the plan |  | TestUndoPlan.test_guard_fails_after_branch_moved | green |
 |  | A jj plan with an unsnapshotted edit | `evals/finish/test_undo_jj.py` |  | green |
 |  | A jj plan with a pending Git ref import |  |  | green |
-|  | A conflicted bookmark that is not the resume target | `cli/test/finish/undo_plan_test.dart` |  | green |
+| A jj resume reads its bookmark by exact name | A conflicted bookmark that is not the resume target | `cli/test/finish/undo_plan_test.dart` |  | green |
 |  | The jj bookmark lookup fails |  |  | green |
 | The undo planner reports paths whole | The first dirty path keeps its first character | `evals/finish/test_undo_plan.py` | test_first_dirty_path_keeps_its_first_character | red |
 |  | A name that porcelain quotes |  | test_a_name_that_porcelain_quotes_is_reported_unquoted | red |
@@ -444,7 +444,7 @@ Verification: never run an eval suite locally. Locally run only the module being
 - [x] 13.1 Write failing tests for the jj rows (`evals/finish/test_undo_jj.py`: unsnapshotted edit, pending Git ref import, conflicted resume bookmark, unbookmarked child, store backend changed after planning with zero `jj` invocations, over-long fileset; the jj half of "Deferred archive found") and the GitButler rows (`evals/vcs/test_gitbutler_undo.py`, real `but`, Linux: vcs-backends "A committed GitButler undo refuses paths its commit would rename" and "A GitButler-selected undo reports a failed target read", and every change-finish row mapped there). Verify they fail for the right reason in PR CI.
 - [x] 13.2 Implement: the jj planner reads the requested bookmark by exact name and stops with `ambiguous_branch` when it is conflicted; the jj resume's first `check branch --backend jj` before `check clean --jj` and `jj new`; on GitButler the failed carried-edits read stops, `bad_path` for a path the GitButler check would refuse or rewrite on a committed undo, `vcs_error`/`not_managed` for the strict target read, the lossless foreign-assignment check at planning and in `check destinations`. Update `skills/specwright-finish/SKILL.md` ("It only reads the repo" → the plan changes no file; on jj it may record jj's own snapshot and Git import) and the doc comment at `undo_plan.dart:74`. Verify: the 13.1 tests pass in PR CI and their rows turn green.
 - [x] 13.3 C30: doc comment of `undoArchivePlan` in `cli/lib/src/finish/undo_plan.dart`.
-- [x] 13.4 C42: confirm the gap is in `specs/change-finish/spec.md` under "A deferred archive's undo is planned by a script that runs nothing". Verify: `openspec validate fix-sw-port-gaps --strict` passes and the requirement holds the text.
+- [x] 13.4 C42: confirm the gap is in `specs/change-finish/spec.md` under "A jj resume reads its bookmark by exact name". Verify: `openspec validate fix-sw-port-gaps --strict` passes and the requirement holds the text.
 
 ## 14. Interface 3 (D10)
 

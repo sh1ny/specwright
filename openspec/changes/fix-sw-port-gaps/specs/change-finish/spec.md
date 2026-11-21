@@ -20,7 +20,7 @@ A relative `--code` SHALL start at the planning repo (the root walking up from `
 - **THEN** the plan reports `not_repository` for that path, not `sw_mismatch`, exits non-zero and emits no script
 
 ### Requirement: A deferred archive's undo is planned by a script that runs nothing
-When the deferred check stops on `VERDICT: DEFERRED`, finish SHALL run `finish.sh undo-archive-plan` and show the undo script it prints, without running it or making a commit, merge or push. The plan SHALL write no repo state but jj's snapshot and Git import; the GitButler probe's temp directory is outside it and removed. On jj, a resume SHALL read the one requested bookmark by its exact name, without recovering a scope or matching a suffix, and stop with `ambiguous_branch` when it is conflicted, before reading the archive branch's tip; a conflict on any other bookmark SHALL NOT stop the plan, and a failed lookup SHALL stop it with `vcs_error`. Its output SHALL be one JSON document: the facts found, the undo script, an optional after-rerun script, and warnings. Each script SHALL stop at its first failing command.
+When the deferred check stops on `VERDICT: DEFERRED`, finish SHALL run `finish.sh undo-archive-plan` and show the undo script it prints, without running it or making a commit, merge or push. The plan SHALL write no repo state but jj's snapshot and Git import; the GitButler probe's temp directory is outside it and removed. Its output SHALL be one JSON document: the facts found, the undo script, an optional after-rerun script, and warnings. Each script SHALL stop at its first failing command.
 
 #### Scenario: Deferred archive found
 - **WHEN** finish starts after a deferred change was archived
@@ -46,6 +46,11 @@ When the deferred check stops on `VERDICT: DEFERRED`, finish SHALL run `finish.s
 - **WHEN** the undo is planned for resume bookmark `feat/add-x` on a colocated jj store after a plain `git fetch` moved the remote branch it tracks
 - **THEN** every working-tree file's bytes are unchanged; separately, the operation log gains only jj's own import and snapshot operations, and `feat/add-x` and its `refs/heads/` mirror move, or `feat/add-x` becomes conflicted and the plan stops with `ambiguous_branch`
 
+## ADDED Requirements
+
+### Requirement: A jj resume reads its bookmark by exact name
+On jj, an undo plan that resumes SHALL read the one requested bookmark by its exact name, without recovering a scope or matching a suffix, and stop with `ambiguous_branch` when it is conflicted, before reading the archive branch's tip. A conflict on any other bookmark SHALL NOT stop the plan, and a failed lookup SHALL stop it with `vcs_error`.
+
 #### Scenario: A conflicted bookmark that is not the resume target
 - **WHEN** the undo is planned on jj for resume bookmark `feat/add-x` while a different bookmark, such as `team/feat/add-x`, is conflicted
 - **THEN** the plan prints its steps, and no `ambiguous_branch` stop is raised
@@ -53,8 +58,6 @@ When the deferred check stops on `VERDICT: DEFERRED`, finish SHALL run `finish.s
 #### Scenario: The jj bookmark lookup fails
 - **WHEN** the jj lookup of the requested resume bookmark by exact name fails
 - **THEN** the plan stops with `vcs_error` and prints no steps
-
-## ADDED Requirements
 
 ### Requirement: The undo planner reports paths whole
 On Git and GitButler, `sw finish undo-archive-plan` SHALL read a `dirty_tree` stop's `files` and `carried_edits` with one NUL-framed porcelain reader, and report each exactly as named: never cut, C-quoted or with a backslash rewritten. A staged rename or copy SHALL give both its paths in `files`. `carried_edits` SHALL stay in UTF-8 byte order. A non-UTF-8 path SHALL stop with `not_utf8`; carried edits drop non-member records first. jj and an uncommitted archive keep their path sources.
