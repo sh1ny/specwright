@@ -699,6 +699,28 @@ void main() {
       expect(doc, contains('no emitted guard catches it'));
       expect(doc, contains('Rejected: a strict lookup on the planner\'s path'));
     });
+
+    test('checkIndex carries the state read and lazy fetch parts of C19', () {
+      final doc = docOfLocal(
+        'lib/src/finish/undo_step.dart',
+        'Future<void> checkIndex(',
+      );
+      expect(doc, contains('first state read'));
+      expect(doc, contains("keeps today's error name, `git_error`"));
+      expect(doc, contains('GIT_NO_LAZY_FETCH'));
+      expect(doc, contains('the only barrier'));
+    });
+
+    test('runUndoStep carries the gitlink and batching parts of C46', () {
+      final doc = docAbove(
+        'lib/src/finish/undo_step.dart',
+        'Future<int> runUndoStep(',
+      );
+      expect(doc, contains('index records as a gitlink'));
+      expect(doc, contains('same inventory feeds'));
+      expect(doc, contains('lossless foreign-assignment check'));
+      expect(doc, contains('every batch of a phase passes before'));
+    });
   });
 
   group('the plan (task 3.3)', () {
@@ -821,7 +843,7 @@ void main() {
           argvsOf(doc['steps']),
           containsAllInOrder([
             preflightStep(repo),
-            u(['check', 'branch', 'feat/x']),
+            u(['check', 'branch', 'feat/x', '--backend', 'git']),
             u(['check', 'tip', 'HEAD', a]),
             u(['check', 'index']),
             u(['check', 'absent', backup]),
@@ -1871,11 +1893,98 @@ void main() {
             'feat/x',
             '--',
           ],
-          undoStep(top, ['check', 'branch', 'feat/x']),
+          undoStep(top, ['check', 'branch', 'feat/x', '--backend', 'git']),
           undoStep(top, ['check', 'tip', 'HEAD', a]),
         ]),
       );
       expect(doc['carried_edits'], <String>[]);
+    }, skip: skip);
+
+    test('a resume from main passes a guard on each side of its one '
+        'checkout', () async {
+      final repo = branchRepo();
+      archive(repo, ['add-x'], commitIt: true);
+      git(repo, ['checkout', '-q', 'main']);
+      final top = topOf(repo);
+      final steps = argvsOf((await ok(repo, branch: 'feat/x'))['steps']);
+      final checkouts = [
+        for (var i = 0; i < steps.length; i++)
+          if (steps[i].first == 'git' && steps[i].contains('checkout')) i,
+      ];
+      expect(checkouts, hasLength(1), reason: '$steps');
+      final checkout = checkouts.single;
+      final source = indexOfStep(
+        steps,
+        undoStep(top, ['check', 'branch', 'main', '--backend', 'git']),
+      );
+      expect(source, inInclusiveRange(0, checkout - 1), reason: '$steps');
+      // the recorded view is read again right after the checkout, before
+      // anything else reads the archive branch's configuration
+      expect(steps[checkout + 1], preflightStep(repo), reason: '$steps');
+      expect(
+        steps.indexWhere(
+          (s) => equals(preflightStep(repo)).matches(s, {}),
+          checkout + 2,
+        ),
+        -1,
+      );
+      expect(
+        steps[checkout + 2],
+        undoStep(top, ['check', 'branch', 'feat/x', '--backend', 'git']),
+      );
+    }, skip: skip);
+
+    test(
+      'a detached resume pins the commit HEAD is at before the checkout',
+      () async {
+        final repo = branchRepo();
+        archive(repo, ['add-x'], commitIt: true);
+        git(repo, ['checkout', '-q', '--detach', 'main']);
+        final head = git(repo, ['rev-parse', 'HEAD']);
+        final top = topOf(repo);
+        final steps = argvsOf((await ok(repo, branch: 'feat/x'))['steps']);
+        final checkout = steps.indexWhere(
+          (s) => s.first == 'git' && s.contains('checkout'),
+        );
+        expect(checkout, greaterThan(0), reason: '$steps');
+        final source = indexOfStep(
+          steps,
+          undoStep(top, ['check', 'branch', '', '--backend', 'git']),
+        );
+        final pin = indexOfStep(
+          steps,
+          undoStep(top, ['check', 'tip', 'HEAD', head]),
+        );
+        expect(source, inInclusiveRange(0, checkout - 1), reason: '$steps');
+        expect(pin, inInclusiveRange(0, checkout - 1), reason: '$steps');
+      },
+      skip: skip,
+    );
+
+    test('an environment that names another checkout is git_env', () async {
+      final repo = branchRepo();
+      archive(repo, ['add-x'], commitIt: true);
+      final other = '${tmp.path}/other';
+      Process.runSync('git', ['clone', '-q', repo, other]);
+      git(other, ['branch', 'main', 'origin/main']);
+      expect(
+        git(other, ['ls-tree', '-r', '--name-only', 'HEAD', '--', ad]),
+        isNotEmpty,
+        reason: 'the other checkout holds the same archive, so it would plan',
+      );
+      final r = await plan(
+        rq(repo),
+        context(
+          environment: {
+            ...Platform.environment,
+            'GIT_DIR': '$other/.git',
+            'GIT_WORK_TREE': other,
+          },
+        ),
+      );
+      expect(r.code, 1, reason: '${r.doc}');
+      expect(r.doc['error'], 'git_env', reason: '${r.doc}');
+      expect(r.doc.containsKey('steps'), isFalse);
     }, skip: skip);
 
     test(
@@ -3084,6 +3193,62 @@ void main() {
         );
       }, skip: skip);
 
+      test('a main spec whose type the archive changed is unsupported_entry '
+          'naming it', () async {
+        final repo = branchRepo();
+        // the parent of the archive commit tracks the spec as a symlink; the
+        // archive commit writes it as a regular file
+        File('${tmp.path}/link-text.txt').writeAsStringSync('b/spec.md');
+        final oid = git(repo, [
+          'hash-object',
+          '-w',
+          '${tmp.path}/link-text.txt',
+        ]);
+        git(repo, ['update-index', '--cacheinfo', '120000,$oid,$specA']);
+        git(repo, ['commit', '-q', '-m', 'chore: spec a becomes a link']);
+        archive(repo, ['add-x']);
+        // staged by plumbing: `git add` keeps a link's mode where
+        // core.symlinks is false
+        final synced = git(repo, ['hash-object', '-w', '$repo/$specA']);
+        git(repo, ['update-index', '--cacheinfo', '100644,$synced,$specA']);
+        commitAll(repo, 'chore(add-x): archive change');
+        expect(
+          git(repo, [
+            'diff-tree',
+            '-r',
+            '--no-commit-id',
+            '--name-status',
+            'HEAD',
+          ]),
+          contains('T\t$specA'),
+          reason: 'the archive commit changes the type of the spec',
+        );
+        await refused(repo, 'unsupported_entry', says: [specA]);
+      }, skip: skip);
+
+      test('a tag named like the archive branch does not make a read '
+          'ambiguous', () async {
+        final repo = branchRepo();
+        final a = archive(repo, ['add-x'], commitIt: true)!;
+        git(repo, ['checkout', '-q', 'main']);
+        // another commit under the branch's short name, as a tag
+        git(repo, ['tag', 'feat/x', 'main']);
+        final r = await plan(rq(repo, branch: 'feat/x'));
+        expect(r.code, 0, reason: '${r.doc}');
+        expect(r.doc['archive_commit'], a);
+      }, skip: skip);
+
+      test('a failed lookup of the archive branch is vcs_error, not '
+          'no_archive', () async {
+        final repo = branchRepo();
+        archive(repo, ['add-x'], commitIt: true);
+        git(repo, ['checkout', '-q', 'main']);
+        // Git ignores the broken ref with a warning, which the lookup reads
+        // as a failure
+        File('$repo/.git/refs/heads/feat/x').writeAsStringSync('garbage\n');
+        await refused(repo, 'vcs_error', branch: 'feat/x');
+      }, skip: skip);
+
       test('a resume under a git older than 2.40 is tool_too_old, and a plan '
           'that does not resume is not', () async {
         final repo = branchRepo();
@@ -3725,8 +3890,10 @@ void main() {
         String bookmark = 'feat/x',
         List<List<String>>? seen,
         bool? windows,
+        Map<String, String>? environment,
       }) => FinishContext(
         windows: windows,
+        environment: environment,
         stateReader: read,
         runner: (cwd, command, env) async {
           if (command.first != 'jj') {
@@ -3988,7 +4155,40 @@ void main() {
         ]);
       }, skip: skip);
 
-      test('a failed bookmark read is vcs_error', () async {
+      test('a conflicted bookmark that is not the resume target', () async {
+        final repo = branchRepo();
+        archive(repo, ['add-x'], commitIt: true);
+        final seen = <List<String>>[];
+        // `team/feat/x` is conflicted, but the exact-name lookup of `feat/x`
+        // does not list it, as jj would not
+        final r = await plan(
+          rq(repo),
+          FinishContext(
+            stateReader: reader(),
+            runner: (cwd, command, env) async {
+              if (command.first != 'jj') {
+                return runTool(cwd, command, environment: env);
+              }
+              seen.add(command);
+              final listed = command[3] == exactPattern('team/feat/x');
+              final line = jsonEncode({
+                'name': 'team/feat/x',
+                'conflict': true,
+                'target': [null],
+              });
+              return ToolResult(
+                0,
+                listed ? utf8.encode('$line\n') : Uint8List(0),
+                Uint8List(0),
+              );
+            },
+          ),
+        );
+        expect(r.code, 0, reason: '${r.doc}');
+        expect(seen.single[3], exactPattern('feat/x'));
+      }, skip: skip);
+
+      test('the jj bookmark lookup fails', () async {
         final repo = branchRepo();
         archive(repo, ['add-x'], commitIt: true);
         final r = await plan(
@@ -4026,6 +4226,24 @@ void main() {
           ]),
         );
       }, skip: skip);
+
+      test('a large environment is not counted', () async {
+        final repo = branchRepo();
+        archive(repo, ['add-x'], commitIt: true);
+        // the environment alone passes the 32,766-byte budget, the commit line
+        // does not
+        final big = {...Platform.environment, 'SW_BIG_ENV': 'x' * 40000};
+        final r = await plan(
+          rq(repo),
+          jjCtx(reader(), windows: false, environment: big),
+        );
+        expect(r.code, 0, reason: '${r.doc}');
+        final commits = [
+          for (final s in argvsOf(r.doc['steps']))
+            if (s[0] == 'jj' && s[1] == 'commit') s,
+        ];
+        expect(commits, hasLength(1));
+      }, skip: Platform.isWindows ? 'posix: a 40,000-byte variable' : skip);
 
       test(
         'posix: a jj fileset over 32,766 UTF-8 bytes is plan_too_large',

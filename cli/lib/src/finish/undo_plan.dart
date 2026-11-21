@@ -665,6 +665,18 @@ class _Planner {
       throw VcsStop('not_a_repo', '$d is not inside a git work tree');
     }
     final top = pathOf(r, 'repository path');
+    // the checkout the plan is for comes from the requested directory alone: a
+    // `GIT_DIR` or `GIT_WORK_TREE` naming another checkout would make Git's
+    // answer, and every view derived from it, agree with itself
+    final own = checkoutOf(d);
+    if (own != null && !samePath(own, top)) {
+      throw VcsStop(
+        'git_env',
+        'The undo is planned for $own, but the environment (GIT_DIR or '
+            'GIT_WORK_TREE) makes Git work in $top; unset them, then plan '
+            'again',
+      );
+    }
     final gitdir = pathOf(
       await git(top, ['rev-parse', '--absolute-git-dir']),
       'git directory',
@@ -1246,7 +1258,7 @@ class _Planner {
           '--no-renames',
           '--diff-filter=A',
           '--format=%H',
-          '$main..$branch',
+          '$main..$t',
           '--',
           _joinAll([ad, 'review.md']),
         ]);
@@ -1338,6 +1350,17 @@ class _Planner {
           deleted.add(path);
         }
         if (path.startsWith(specsBase)) {
+          if (st == 'T') {
+            // a restore from the parent would bring the old kind of entry
+            // back (a link for a file), which is no copy of the spec
+            throw VcsStop(
+              'unsupported_entry',
+              '$path changed type in the archive commit (a link, file or '
+                  'submodule became another kind of entry), which the undo '
+                  'does not restore; undo the archive by hand',
+              extra: {'path': path},
+            );
+          }
           if (st == 'M') {
             mod.add(path);
           } else if (st == 'A') {
@@ -1893,7 +1916,7 @@ class _Planner {
       undo(['check', 'absent', backupDir]);
     } else {
       final v = view!;
-      undo([
+      void preflight() => undo([
         'check',
         'preflight',
         '--git-dir',
@@ -1905,7 +1928,21 @@ class _Planner {
         '--objects',
         v.objects,
       ]);
+      List<String> gitRole(String name) => [
+        'check',
+        'branch',
+        name,
+        '--backend',
+        'git',
+        if (code != null && code.isNotEmpty) ...['--code', code],
+      ];
+      preflight();
       if (committed && branch != cb) {
+        // the source guard: the settings and the branch (empty on a detached
+        // HEAD, which the commit pin below then fixes) are what the plan was
+        // made under, before anything is read for the checkout
+        undo(gitRole(cb));
+        if (cb.isEmpty) undo(['check', 'tip', 'HEAD', head]);
         undo(['check', 'clean']);
         undo(['check', 'tip', 'refs/heads/$branch', t]);
         // the same attribute reads the plan made, under the environment these
@@ -1931,9 +1968,12 @@ class _Planner {
           ]),
         );
       }
-      undo(['check', 'branch', planBranch]);
-      undo(['check', 'tip', headref, t]);
       final resumed = committed && branch != cb;
+      // the recorded view again, as the first step on the archive branch: its
+      // conditional configuration (`includeIf onbranch:`) applies only now
+      if (resumed) preflight();
+      undo(gitRole(planBranch));
+      undo(['check', 'tip', headref, t]);
       if (resumed) {
         // the checkout wrote the archive branch's files: check them, and what
         // the undo would write, before any backup or index change

@@ -466,6 +466,20 @@ void main() {
       expect(doc['message'], contains('work tree'));
     });
 
+    test('preflight reads configuration that applies only on the current '
+        'branch', () async {
+      final branch = _git(repo, ['branch', '--show-current']);
+      final included = File('${tmp.path}/on-branch.cfg')
+        ..writeAsStringSync('[attr]\n\ttree = HEAD\n');
+      _git(repo, [
+        'config',
+        'includeIf.onbranch:$branch.path',
+        included.path.replaceAll('\\', '/'),
+      ]);
+      final doc = await stops(['check', 'preflight', ...view()], 'git_env');
+      expect(doc['message'], contains('attr.tree'));
+    });
+
     test('preflight refuses a grafts file', () async {
       Directory('${gd()}/info').createSync(recursive: true);
       File('${gd()}/info/grafts').writeAsStringSync('\n');

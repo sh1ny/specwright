@@ -64,7 +64,15 @@ VcsStop _failed(String message) => VcsStop('undo_step_failed', message);
 /// as a gitlink, and, below each moved member, an entry of any type named like
 /// `.git` (case, trailing dots and spaces folded). The planner runs the same
 /// walk when it plans, before any backup or move; the steps run it again
-/// before any backup or index change and at the start of the rerun. A restore
+/// before any backup or index change and at the start of the rerun. The same
+/// walk refuses a component that the index records as a gitlink (one batched
+/// `git ls-files -s -z` over the ancestors) and, on a resume, one that the
+/// pinned archive tip records as one. The same inventory feeds GitButler's tree
+/// and cleanliness checks and, with the moved member directories, its lossless
+/// foreign-assignment check, at planning and in the first `check destinations`.
+/// Every guard that consumes the inventory is batched under the argument limit,
+/// in its printed `sw` line and in each child Git call it makes, and every batch
+/// of a phase passes before that phase's first mutation or rerun. A restore
 /// replaces its destination by a sibling temporary file renamed over it, with
 /// the mode the restore revision records, and never writes into the existing
 /// file. `check absent` counts a path as absent only from a successful listing
@@ -648,7 +656,14 @@ class _UndoStep {
   /// and the checkout must start from a clean tree. The checks are
   /// point-in-time: a `git add` or a hook that stages a path after `check
   /// index` and before the commit is not caught, and the plan warns that the
-  /// index must not change while the steps run; no lock is added.
+  /// index must not change while the steps run; no lock is added. The planner's
+  /// first state read keeps today's error name, `git_error`, when its `git
+  /// branch --show-current` or its `git status` fails, an exception to the
+  /// failed-read `vcs_error` rule. Lazy fetch: `sw` sets `GIT_NO_LAZY_FETCH=1`
+  /// only for the Git commands it starts itself (the planner and `sw finish
+  /// undo-step`); the Git steps the plan prints run directly from `{cwd, argv}`
+  /// without it, so for them the partial-clone refusal in the preflight is the
+  /// only barrier and must not be removed.
   ///
   /// C31: a Git undo never runs while a merge, cherry-pick, revert, rebase or
   /// sequencer is in progress (checked when planning, by the first guard when

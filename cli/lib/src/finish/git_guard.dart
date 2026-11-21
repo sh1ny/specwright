@@ -127,6 +127,22 @@ String? _readText(String path) {
   }
 }
 
+/// The checkout that holds [dir]: the nearest directory on its path with a
+/// `.git` entry, or null when there is none. It reads no Git configuration and
+/// no environment, so `GIT_DIR` and `GIT_WORK_TREE` cannot change the answer.
+String? checkoutOf(String dir) {
+  var at = p.absolute(dir);
+  while (true) {
+    if (FileSystemEntity.typeSync('$at/.git', followLinks: false) !=
+        FileSystemEntityType.notFound) {
+      return at;
+    }
+    final up = p.dirname(at);
+    if (up == at) return null;
+    at = up;
+  }
+}
+
 /// The paths of [top], derived from its `.git` entry alone (a directory, or a
 /// file that names the Git directory), or null when it has none. It reads no
 /// Git configuration and no environment, so it is independent of what could

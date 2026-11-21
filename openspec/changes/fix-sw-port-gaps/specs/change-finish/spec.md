@@ -20,7 +20,7 @@ A relative `--code` SHALL start at the planning repo (the root walking up from `
 - **THEN** the plan reports `not_repository` for that path, not `sw_mismatch`, exits non-zero and emits no script
 
 ### Requirement: A deferred archive's undo is planned by a script that runs nothing
-When the deferred check stops on `VERDICT: DEFERRED`, finish SHALL run `finish.sh undo-archive-plan` and show the undo script it prints, without running it or making a commit, merge or push. The plan SHALL write no repo state but jj's snapshot and Git import; the GitButler probe's temp directory is outside it and removed. Its output SHALL be one JSON document: the facts found, the undo script, an optional after-rerun script, and warnings. Each script SHALL stop at its first failing command.
+When the deferred check stops on `VERDICT: DEFERRED`, finish SHALL run `finish.sh undo-archive-plan` and show the undo script it prints, without running it or making a commit, merge or push. The plan SHALL write no repo state but jj's snapshot and Git import; the GitButler probe's temp directory is outside it and removed. On jj, a resume SHALL read the one requested bookmark by its exact name, without recovering a scope or matching a suffix, and stop with `ambiguous_branch` when it is conflicted, before reading the archive branch's tip; a conflict on any other bookmark SHALL NOT stop the plan, and a failed lookup SHALL stop it with `vcs_error`. Its output SHALL be one JSON document: the facts found, the undo script, an optional after-rerun script, and warnings. Each script SHALL stop at its first failing command.
 
 #### Scenario: Deferred archive found
 - **WHEN** finish starts after a deferred change was archived
@@ -45,6 +45,14 @@ When the deferred check stops on `VERDICT: DEFERRED`, finish SHALL run `finish.s
 #### Scenario: A jj plan with a pending Git ref import
 - **WHEN** the undo is planned for resume bookmark `feat/add-x` on a colocated jj store after a plain `git fetch` moved the remote branch it tracks
 - **THEN** every working-tree file's bytes are unchanged; separately, the operation log gains only jj's own import and snapshot operations, and `feat/add-x` and its `refs/heads/` mirror move, or `feat/add-x` becomes conflicted and the plan stops with `ambiguous_branch`
+
+#### Scenario: A conflicted bookmark that is not the resume target
+- **WHEN** the undo is planned on jj for resume bookmark `feat/add-x` while a different bookmark, such as `team/feat/add-x`, is conflicted
+- **THEN** the plan prints its steps, and no `ambiguous_branch` stop is raised
+
+#### Scenario: The jj bookmark lookup fails
+- **WHEN** the jj lookup of the requested resume bookmark by exact name fails
+- **THEN** the plan stops with `vcs_error` and prints no steps
 
 ## ADDED Requirements
 
@@ -612,6 +620,13 @@ The planner's own Git calls and every step it emits, with each command a step st
 #### Scenario: A bulk undo with a very long member list
 - **WHEN** on Windows, with the archive branch checked out, `sw finish undo-archive-plan` plans a committed docs-only bulk archive whose member names joined into the undo subject would exceed the command-line limit
 - **THEN** the plan's commit step fits the limit, the steps run to one undo commit whose subject names the deferred change and the member count, and no step fails to start
+
+### Requirement: The planner does not count the environment a step runs with
+On POSIX the planner SHALL size each command line without the environment the steps will run with, which the kernel also counts against its limit. A jj or GitButler commit that fits the planner's budget can therefore be rejected at launch after the members moved, and the user then reruns the commit step with a smaller environment.
+
+#### Scenario: A large environment is not counted
+- **WHEN** on POSIX a jj bulk undo is planned under an inherited environment whose size, added to its commit line, passes the 32,766-byte budget
+- **THEN** the plan prints the commit as one step and does not stop with `plan_too_large`
 
 ### Requirement: An undo never writes inside a nested repository
 Unless the earlier ignored-archive refusal applies, an undo SHALL stop with `unsupported_entry` naming it if a path its steps, other than the resume branch switch, may write, remove or move has a work-tree component that the index, or on resume the archive tip, records as a gitlink, or that holds a `.git` entry, or if a moved member's directory holds below it an entry of any type whose name folds to `.git`; checked at planning, before any backup or move, and before the rerun.

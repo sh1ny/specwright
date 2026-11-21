@@ -1123,6 +1123,65 @@ class TestGitGuards(Base):
         self.assertNotIn("git restore", recovery)
         self.assertNotIn("`", recovery)
 
+    def test_a_submodule_dirty_at_planning(self):
+        src = self.tmp / "subsrc"
+        src.mkdir()
+        sub_git = ["-c", "user.name=T", "-c", "user.email=t@example.com", "-c", "commit.gpgsign=false"]
+        fx.git(src, "init", "-q", "-b", "main")
+        (src / "f.txt").write_text("one\n", encoding="utf-8")
+        fx.git(src, "add", "-A")
+        fx.git(src, *sub_git, "commit", "-q", "-m", "first")
+        self.git("-c", "protocol.file.allow=always", "submodule", "add", "-q", str(src), "sub")
+        self.git("commit", "-q", "-m", "chore: add a submodule")
+        self.committed()
+        self.git("checkout", "-q", "main")
+        self.git("config", "submodule.sub.ignore", "all")
+        (self.work / "sub" / "f.txt").write_text("changed\n", encoding="utf-8")
+        self.assertEqual(self.git("status", "--porcelain"), "", "ignore = all hides the submodule's change")
+        self.refused("dirty_tree", "sub", branch=BRANCH)
+
+    def test_another_checkout_named_by_the_environment(self):
+        self.committed()
+        other = self.tmp / "other"
+        subprocess.run(["git", "clone", "-q", str(self.work), str(other)], check=True, capture_output=True)
+        fx.git(other, "branch", "main", "origin/main")  # the clone holds the same archive, so it would plan
+        before = (fx.state(self.work), fx.state(other))
+        out = fx.run_plan(self.work, "add-x", env={"GIT_DIR": str(other / ".git"), "GIT_WORK_TREE": str(other)})
+        self.assertStops(out, "git_env")
+        self.assertEqual((fx.state(self.work), fx.state(other)), before)
+
+    def test_a_gitbutler_target_that_cannot_be_read(self):
+        self.committed()
+        (self.work / ".git" / "gitbutler").mkdir()
+        self.git("config", "gitbutler.project.targetRef", "refs/remotes/origin/main")
+        empty = self.tmp / "empty.cfg"  # `git config --get` reads only this file: the target setting is not in it
+        empty.write_text("", encoding="utf-8")
+        before = fx.state(self.work)
+        out = fx.run_plan(self.work, "add-x", env={"GIT_CONFIG": str(empty)})
+        self.assertStops(out, "gitbutler_workspace")
+        self.assertEqual(fx.state(self.work), before)
+
+    def test_a_main_spec_whose_type_the_archive_changed(self):
+        self.single({"a": "New thing"})
+        link = subprocess.run(["git", "hash-object", "-w", "--stdin"], cwd=self.work, input="b/spec.md", text=True,
+                              capture_output=True, check=True).stdout.strip()
+        self.git("update-index", "--cacheinfo", f"120000,{link},{SPEC_A}")
+        self.git("commit", "-q", "-m", "chore: spec a becomes a link")
+        fx.archive(self.work, "add-x")
+        # staged by plumbing: `git add` keeps a link's mode where core.symlinks is false
+        regular = self.git("hash-object", "-w", SPEC_A)
+        self.git("update-index", "--cacheinfo", f"100644,{regular},{SPEC_A}")
+        fx.commit(self.work, "chore(add-x): archive change")
+        self.assertIn(f"T\t{SPEC_A}", self.git("diff-tree", "-r", "--no-commit-id", "--name-status", "HEAD"))
+        self.refused("unsupported_entry", SPEC_A)
+
+    def test_the_archive_branch_lookup_fails(self):
+        self.committed()
+        self.git("checkout", "-q", "main")
+        # Git ignores a broken ref with a warning, which the exact lookup reads as a failure, not as no branch
+        (self.work / ".git" / "refs" / "heads" / "bugfix" / "add-x").write_text("garbage\n", encoding="utf-8")
+        self.refused("vcs_error", branch=BRANCH)
+
 
 class TestRerunEligibility(Base):
     """Rerun eligibility is read from the copy the undo restores (change fix-sw-port-gaps, group 11, D2)."""

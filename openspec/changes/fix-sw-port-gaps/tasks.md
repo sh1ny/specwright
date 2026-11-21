@@ -22,120 +22,122 @@ One row per delta-spec scenario. A blank Requirement or Test file cell repeats t
 |  | A message file with an interior carriage return |  | read-back folds an interior lone CR | red |
 |  | jj stores LF for a CRLF message | `cli/test/vcs/jj_backend_test.dart` | commit normalises CRLF; merge message keeps its bytes | red |
 |  | A commit the old size check refused | `cli/test/vcs/gitbutler_backend_test.dart` | paths over the old 32,000-byte estimate commit | red |
-|  | A Git commit line at the Windows boundary | `cli/test/vcs/git_backend_test.dart` | windows: git commit line of 32,767 units is not_utf8 | red |
-|  | A non-commit VCS command at the Windows boundary |  | windows: merge line of 32,767 units is not_utf8 | red |
+|  | A Git commit line at the Windows boundary | `cli/test/vcs/git_backend_test.dart` | windows: a git commit line of 32,767 units is not_utf8 | red |
+|  | A non-commit VCS command at the Windows boundary |  | windows: a merge line of 32,767 units is not_utf8 | red |
 |  | A fenced network call at the Windows boundary |  | windows: fetch-main line of 32,767 units is git_network_error | red |
 |  | A GitButler message path a batch shim cannot carry | `cli/test/vcs/gitbutler_backend_test.dart` | windows: but.cmd with % in the resolved message path | red |
 |  | A Git commit through a batch shim over the limit | `cli/test/vcs/git_backend_test.dart` | windows: git.exe then git.cmd raw line over the limit | red |
 |  | Any other commit | `evals/vcs/test_git_backend.py` | test_commit_outputs_unchanged | red |
 | finish.sh finds the project from --code, then --dir | Store-backed plan finds the code checkout's sw | `evals/finish/test_finish_shim.py` | test_code_picks_the_project | green |
 |  | Store-backed call without --code |  | test_store_without_code_is_sw_mismatch | green |
-|  | Relative --code is read from the planning repo |  | test_relative_code_from_planning_repo | red |
-|  | A missing code directory in a checkout of another version |  | test_missing_code_in_other_version_is_not_repository | red |
+|  | Relative --code is read from the planning repo |  | test_relative_code_is_anchored_at_the_planning_root | red |
+|  | A missing code directory in a checkout of another version |  | test_missing_code_is_not_repository | red |
 | A deferred archive's undo is planned by a script that runs nothing | Deferred archive found | `evals/finish/test_undo_jj.py` | test_jj_plan_changes_no_file | green |
 |  | Plan run on a dirty unrelated path in a resume on main | `evals/finish/test_undo_plan.py` | test_resume_on_dirty_main_refused | red |
 |  | No archive of the change |  | TestUndoPlan.test_no_archive_refused | green |
 |  | Branch moved after the plan |  | TestUndoPlan.test_guard_fails_after_branch_moved | green |
 |  | A jj plan with an unsnapshotted edit | `evals/finish/test_undo_jj.py` |  | green |
 |  | A jj plan with a pending Git ref import |  |  | green |
-| The undo planner reports paths whole | The first dirty path keeps its first character | `evals/finish/test_undo_plan.py` |  | red |
-|  | A name that porcelain quotes |  |  | red |
-|  | A staged rename on resume |  |  | red |
+|  | A conflicted bookmark that is not the resume target | `cli/test/finish/undo_plan_test.dart` |  | green |
+|  | The jj bookmark lookup fails |  |  | green |
+| The undo planner reports paths whole | The first dirty path keeps its first character | `evals/finish/test_undo_plan.py` | test_first_dirty_path_keeps_its_first_character | red |
+|  | A name that porcelain quotes |  | test_a_name_that_porcelain_quotes_is_reported_unquoted | red |
+|  | A staged rename on resume |  | test_a_staged_rename_reports_both_paths | red |
 |  | The planner leaves the index alone |  | test_planner_leaves_a_stale_index_alone | red |
-|  | A name with a backslash |  |  | red |
-|  | A non-UTF-8 name in an unrelated archive |  |  | red |
-|  | An unreadable directory in an unrelated archive |  |  | red |
-|  | A dirty path that is not UTF-8 on resume |  |  | green |
-| The undo planner's status reads list every untracked file | Untracked files hidden by configuration | `evals/finish/test_undo_plan.py` |  | red |
+|  | A name with a backslash |  | test_a_name_with_a_backslash_keeps_it | red |
+|  | A non-UTF-8 name in an unrelated archive |  | test_a_non_utf8_name_in_an_unrelated_archive_is_no_obstacle | red |
+|  | An unreadable directory in an unrelated archive |  | test_an_unreadable_directory_in_an_unrelated_archive_stops_the_plan | red |
+|  | A dirty path that is not UTF-8 on resume |  | test_a_dirty_path_that_is_not_utf8_on_resume_stops_with_not_utf8 | green |
+| The undo planner's status reads list every untracked file | Untracked files hidden by configuration | `evals/finish/test_undo_plan.py` | test_untracked_files_hidden_by_configuration_are_listed | red |
 | A failed status read stops the undo plan | The resume status read fails | `cli/test/finish/undo_plan_test.dart` | a failed resume status read is vcs_error | red |
 |  | The carried-edits status read fails |  | a failed carried-edits read is vcs_error | red |
 |  | A carried-edits read fails on GitButler | `evals/vcs/test_gitbutler_undo.py` |  | green |
 |  | A staged change on the change branch | `evals/finish/test_undo_plan.py` | TestUndoPlan.test_staged_changes_refused | green |
 | A failed staged-index read stops the undo plan | The staged-index read fails | `cli/test/finish/undo_plan_test.dart` | a failed staged-index read is vcs_error | red |
 |  | The staged-index read fails for an uncommitted archive |  | a failed staged-index read on an uncommitted archive | red |
-| The staged-index checks see every staged path | A staged gitlink hidden by configuration before planning | `evals/finish/test_undo_plan.py` |  | green |
-|  | A staged path that a diff helper would hide | `evals/finish/test_undo_steps.py` |  | red |
-|  | The plan warns about the index | `cli/test/finish/undo_plan_test.dart` | a Git plan warns that the index must not change | red |
-|  | A gitlink staged after planning | `evals/finish/test_undo_steps.py` |  | red |
+| The staged-index checks see every staged path | A staged gitlink hidden by configuration before planning | `evals/finish/test_undo_plan.py` | test_a_staged_gitlink_hidden_by_configuration_is_staged_changes | green |
+|  | A staged path that a diff helper would hide | `cli/test/finish/undo_step_test.dart` | index sees a staged path that a diff helper would hide | red |
+|  | The plan warns about the index | `cli/test/finish/undo_plan_test.dart` | the plan warns about the index, edits and operations | red |
+|  | A gitlink staged after planning | `evals/finish/test_undo_steps.py` | test_check_index_sees_a_staged_gitlink_that_ignore_submodules_hides | red |
 | The resume cleanliness checks see submodule changes | A submodule dirty at planning | `evals/finish/test_undo_plan.py` |  | red |
-|  | A submodule made dirty before the steps run | `evals/finish/test_undo_steps.py` |  | red |
+|  | A submodule made dirty before the steps run | `cli/test/finish/undo_step_test.dart` | clean sees a submodule change that ignore = all hides | red |
 |  | A dirty submodule under a GitButler undo | `evals/vcs/test_gitbutler_undo.py` |  | green |
-| The resume checkout never overwrites an ignored file | An ignored local file the branch tracks | `evals/finish/test_undo_steps.py` |  | red |
+| The resume checkout never overwrites an ignored file | An ignored local file the branch tracks | `cli/test/finish/undo_plan_test.dart` | emitted Git steps carry the safety options and the checkout flags | red |
 | The GitButler undo guard compares trees itself | Another applied branch's edit with a diff helper that exits 0 | `evals/vcs/test_gitbutler_undo.py` |  | green |
 |  | Another applied branch edits only a sibling path |  |  | green |
-| The Git undo treats each path literally and reads one object view | A Git undo leaves a pattern-matching sibling alone | `evals/finish/test_undo_steps.py` |  | red |
-|  | A replaced archive parent |  |  | red |
-| The Git undo refuses a Git environment that changes what it reads or writes | An inherited attribute source | `evals/finish/test_undo_steps.py` |  | red |
-|  | Inherited pathspec settings |  |  | red |
-|  | An index override present from planning | `evals/finish/test_undo_plan.py` |  | red |
+| The Git undo treats each path literally and reads one object view | A Git undo leaves a pattern-matching sibling alone | `cli/test/finish/undo_step_test.dart` | unchanged takes a bracketed path literally | red |
+|  | A replaced archive parent | `cli/test/finish/undo_plan_test.dart` | emitted Git steps carry the safety options and the checkout flags | red |
+| The Git undo refuses a Git environment that changes what it reads or writes | An inherited attribute source | `evals/finish/test_undo_steps.py` | test_an_inherited_attribute_source_stops_the_steps_at_the_first_guard | red |
+|  | Inherited pathspec settings | `evals/finish/test_undo_plan.py` | test_a_true_pathspec_mode_variable_is_refused | red |
+|  | An index override present from planning | `evals/finish/test_undo_plan.py` | test_an_index_routed_elsewhere_is_refused | red |
 |  | Another checkout named by the environment |  |  | red |
-|  | A work tree rerouted by configuration | `evals/finish/test_undo_steps.py` |  | red |
-|  | An index routed elsewhere |  |  | red |
-| The Git undo refuses while a Git operation is in progress | A Git operation in progress | `evals/finish/test_undo_steps.py` |  | red |
-| The undo plan stops when a read it relies on fails | A planner read fails | `evals/finish/test_undo_plan.py` |  | red |
-|  | A member replaced by a file |  |  | red |
-|  | An unlistable delta directory |  |  | red |
+|  | A work tree rerouted by configuration | `cli/test/finish/undo_step_test.dart` | preflight refuses a work tree rerouted by configuration | red |
+|  | An index routed elsewhere | `evals/finish/test_undo_steps.py` | test_the_preflight_refuses_an_index_routed_elsewhere | red |
+| The Git undo refuses while a Git operation is in progress | A Git operation in progress | `evals/finish/test_undo_steps.py` | test_a_merge_in_progress_stops_the_steps_at_the_first_guard | red |
+| The undo plan stops when a read it relies on fails | A planner read fails | `cli/test/finish/undo_plan_test.dart` | a failed archive-presence read is vcs_error | red |
+|  | A member replaced by a file | `evals/finish/test_undo_plan.py` | test_a_member_replaced_by_a_file_is_a_vcs_error | red |
+|  | An unlistable delta directory |  | test_an_unlistable_delta_directory_is_a_vcs_error | red |
 |  | A GitButler target that cannot be read |  |  | red |
 |  | A failed target read with GitButler selected | `evals/vcs/test_gitbutler_undo.py` |  | red |
-|  | A partial clone | `evals/finish/test_undo_plan.py` |  | red |
+|  | A partial clone | `evals/finish/test_undo_plan.py` | test_grafts_partial_clone_and_sparse_checkout_are_refused | red |
 |  | Configuration that reroutes Git only on the archive branch | `evals/finish/test_undo_steps.py` |  | red |
 |  | A resume from main passes both branch guards |  |  | red |
-|  | A code directory reached through a symlink and `..` | `evals/finish/test_finish_shim.py` |  | green |
-|  | A relative code directory resolved from the store |  |  | red |
-|  | Options are validated before the version check |  |  | red |
-|  | A code directory that does not exist |  |  | red |
+|  | A code directory reached through a symlink and `..` | `evals/finish/test_finish_shim.py` | test_code_directory_reached_through_a_symlink_and_dotdot | green |
+|  | A relative code directory resolved from the store |  | test_a_relative_code_of_another_version_is_the_one_that_stops_the_plan | red |
+|  | Options are validated before the version check |  | test_missing_change_is_usage_in_another_version | red |
+|  | A code directory that does not exist |  | test_missing_code_is_not_repository | red |
 |  | A missing planning directory |  | test_missing_dir_is_not_a_repo_before_any_version_check | red |
-|  | The emitted steps check the version the planner checked |  |  | red |
-|  | The archive branch carries another committed version | `evals/finish/test_undo_plan.py` |  | red |
-|  | A version stamp the checkout changes | `evals/finish/test_undo_steps.py` |  | red |
-|  | A decision file that is not a regular file on the current branch | `evals/finish/test_undo_plan.py` |  | red |
-|  | An explicit filter unset |  |  | red |
-|  | Two members whose names differ only by case |  |  | red |
-|  | A filter whose name is unspecified |  |  | red |
+|  | The emitted steps check the version the planner checked |  | test_emitted_steps_check_the_version_the_planner_checked | red |
+|  | The archive branch carries another committed version | `evals/finish/test_undo_plan.py` | test_archive_branch_with_another_committed_version_is_sw_mismatch | red |
+|  | A version stamp the checkout changes | `cli/test/finish/undo_plan_test.dart` | a resume warns to check Git before switching back | red |
+|  | A decision file that is not a regular file on the current branch | `evals/finish/test_undo_plan.py` | test_decision_file_that_is_a_fifo_is_vcs_error_without_blocking | red |
+|  | An explicit filter unset |  | test_an_explicit_filter_unset_is_unsupported_filter | red |
+|  | Two members whose names differ only by case |  | test_two_members_whose_names_differ_only_by_case_are_duplicate_member | red |
+|  | A filter whose name is unspecified |  | test_a_filter_whose_name_is_unspecified_is_unsupported_filter | red |
 |  | A change marker that is not a regular file | `evals/finish/test_undo_steps.py` |  | red |
-|  | A settings file that is not a regular file |  |  | red |
+|  | A settings file that is not a regular file |  | test_settings_file_that_is_not_a_regular_file | red |
 |  | A detached HEAD moved after planning |  |  | red |
-|  | A version stamp that is not a regular file |  |  | red |
+|  | A version stamp that is not a regular file |  | test_version_stamp_that_is_not_a_regular_file | red |
 |  | A jj store resume whose backend changed after planning | `evals/finish/test_undo_jj.py` |  | red |
-|  | A sparse checkout on resume | `evals/finish/test_undo_plan.py` |  | red |
+|  | A sparse checkout on resume | `evals/finish/test_undo_plan.py` | test_grafts_partial_clone_and_sparse_checkout_are_refused | red |
 |  | The version check names the same checkout | `evals/finish/test_finish_shim.py` |  | red |
 |  | A backend selection changed before the resume checkout | `evals/finish/test_undo_steps.py` |  | red |
-|  | A resumed branch that selects another backend |  |  | red |
-|  | GitButler set up after planning |  |  | red |
-|  | Settings that cannot be read | `evals/finish/test_undo_plan.py` |  | red |
-|  | An unreadable work-tree tasks file |  |  | red |
+|  | A resumed branch that selects another backend |  | test_a_resumed_branch_that_selects_another_backend | red |
+|  | GitButler set up after planning | `cli/test/finish/undo_step_test.dart` | preflight refuses GitButler metadata, whatever the settings say | red |
+|  | Settings that cannot be read | `cli/test/finish/undo_plan_test.dart` | a settings path that is a directory is vcs_error naming it | red |
+|  | An unreadable work-tree tasks file | `evals/finish/test_undo_plan.py` | test_an_unreadable_work_tree_tasks_file_is_a_vcs_error | red |
 |  | A tag named like the archive branch | `evals/finish/test_undo_steps.py` |  | red |
-|  | A tag that spells the full branch ref | `evals/finish/test_undo_plan.py` |  | red |
-|  | The archive branch deleted after planning | `evals/finish/test_undo_steps.py` |  | red |
-|  | A branch name that is not UTF-8 at the guard |  |  | red |
+|  | A tag that spells the full branch ref | `evals/finish/test_undo_plan.py` | test_the_tip_lookup_is_exact | red |
+|  | The archive branch deleted after planning | `cli/test/finish/undo_step_test.dart` | tip on a branch ref is an exact branch lookup | red |
+|  | A branch name that is not UTF-8 at the guard | `evals/finish/test_undo_steps.py` |  | red |
 |  | A task file hidden by an index flag | `evals/finish/test_undo_plan.py` | test_a_task_file_hidden_by_an_index_flag_is_git_env | green |
-|  | A main spec with a hidden local edit |  |  | red |
-|  | An unrelated file with a hidden edit on resume |  |  | red |
-|  | Ignored content under the archive root |  |  | red |
-|  | An edit a filesystem monitor missed on resume | `evals/finish/test_undo_steps.py` |  | red |
+|  | A main spec with a hidden local edit |  | test_a_resume_refuses_an_assume_unchanged_file_anywhere | red |
+|  | An unrelated file with a hidden edit on resume |  | test_a_resume_refuses_an_assume_unchanged_file_anywhere | red |
+|  | Ignored content under the archive root |  | test_ignored_content_under_the_archive_root_is_refused | red |
+|  | An edit a filesystem monitor missed on resume | `cli/test/finish/undo_plan_test.dart` | both status reads are read-only and list every untracked file | red |
 |  | A GitButler undo over a hidden edit | `evals/vcs/test_gitbutler_undo.py` |  | green |
-|  | An archive sibling Git cannot list | `evals/finish/test_undo_plan.py` |  | red |
-|  | A status read that warns and exits 0 | `evals/finish/test_undo_steps.py` |  | red |
+|  | An archive sibling Git cannot list | `evals/finish/test_undo_plan.py` | test_an_unreadable_directory_in_an_unrelated_archive_stops_the_plan | red |
+|  | A status read that warns and exits 0 | `cli/test/finish/undo_plan_test.dart` | a resume status read that writes to stderr is vcs_error | red |
 |  | A main spec whose type the archive changed | `evals/finish/test_undo_plan.py` |  | red |
-|  | An empty code directory | `evals/finish/test_finish_shim.py` |  | red |
+|  | An empty code directory | `evals/finish/test_finish_shim.py` | test_empty_code_is_not_repository | red |
 |  | A clean resume reads an empty status | `evals/finish/test_undo_plan.py` | TestUndoPlan.test_resume_on_main_checks_out_branch | green |
 |  | A rerun under a nested planning root | `evals/finish/test_undo_steps.py` | `TestNestedPlanningRoot.test_a_rerun_under_a_nested_planning_root` | red |
-|  | A new spec that is a case alias of a tracked one | `evals/finish/test_undo_plan.py` |  | red |
+|  | A new spec that is a case alias of a tracked one | `cli/test/finish/undo_step_test.dart` | destinations refuses a spelling the disk holds differently | red |
 |  | An untracked case alias owned by another GitButler branch | `evals/vcs/test_gitbutler_undo.py` |  | red |
 |  | The archive branch lookup fails | `evals/finish/test_undo_plan.py` |  | red |
 |  | The state read's branch lookup fails | `cli/test/finish/undo_plan_test.dart` | a failed branch lookup in the state read is git_error | red |
-|  | The state read's status fails |  | a failed status in the state read is git_error | red |
-| Rerun eligibility is read from the copy the undo restores | A checkout filter on a rerun input | `evals/finish/test_undo_plan.py` |  | red |
-|  | An untracked attributes file in the work tree |  |  | red |
+|  | The state read's status fails |  | a failed branch lookup in the state read is git_error | red |
+| Rerun eligibility is read from the copy the undo restores | A checkout filter on a rerun input | `evals/finish/test_undo_plan.py` | test_a_checkout_filter_on_a_rerun_input_is_unsupported_filter | red |
+|  | An untracked attributes file in the work tree |  | test_an_untracked_attributes_file_in_the_work_tree_is_unsupported_filter | red |
 |  | A checkout filter configured only when the steps run | `evals/finish/test_undo_steps.py` |  | red |
-|  | A current-branch filter on an unchanged decision file | `evals/finish/test_undo_plan.py` |  | red |
+|  | A current-branch filter on an unchanged decision file | `evals/finish/test_undo_plan.py` | test_a_current_branch_filter_on_an_unchanged_decision_file_names_head | red |
 |  | Restored decision bytes differ from the tip | `evals/finish/test_undo_steps.py` | test_restored_decision_bytes_that_differ_from_the_tip_stop_the_steps_after_the_checkout | red |
-|  | A submodule inside an archived member | `evals/finish/test_undo_plan.py` |  | red |
-|  | A committed symlink as a decision file |  |  | red |
-|  | A Git too old to read the tip's attributes |  |  | red |
-|  | A tasks file deleted from the work tree |  |  | red |
-|  | A member deferred after its archive commit |  |  | red |
-| A Git undo that fails between index steps names what to clean up | A Git undo that fails between index steps | `evals/finish/test_undo_steps.py` |  | red |
+|  | A submodule inside an archived member | `evals/finish/test_undo_plan.py` | test_a_gitlink_under_an_archived_member_is_unsupported_entry | red |
+|  | A committed symlink as a decision file |  | test_a_decision_file_committed_as_a_symlink_is_unsupported_filter | red |
+|  | A Git too old to read the tip's attributes |  | test_a_git_older_than_2_40_is_tool_too_old_on_a_resume_only | red |
+|  | A tasks file deleted from the work tree |  | test_a_tasks_file_deleted_from_the_work_tree_is_decided_as_absent | red |
+|  | A member deferred after its archive commit |  | test_a_member_deferred_after_its_archive_commit_is_not_archived_again | red |
+| A Git undo that fails between index steps names what to clean up | A Git undo that fails between index steps | `evals/finish/test_undo_steps.py` | test_failing_step_stops_later_steps | red |
 | The Git undo checks each restore destination after the checkout | An ignored directory at a restore destination | `evals/finish/test_undo_steps.py` |  | red |
 |  | An untracked file in a resumed archive |  |  | red |
 | A committed GitButler undo stops on a path it cannot commit as named | A GitButler undo of a path with glob characters | `evals/vcs/test_gitbutler_undo.py` |  | red |
@@ -152,7 +154,7 @@ One row per delta-spec scenario. A blank Requirement or Test file cell repeats t
 |  | State read fails for another reason | `evals/finish/test_undo_plan.py` | test_malformed_settings_state_read_exits_1 | green |
 | Fixed undo-plan defects are exceptions to the script's refusals | A usage error from the state read | `cli/test/finish/undo_plan_test.dart` | an injected usage VcsStop is one usage document, exit 2 | red |
 |  | A guard that now refuses | `evals/finish/test_undo_plan.py` | test_a_staged_gitlink_hidden_by_configuration_is_staged_changes | green |
-|  | A plan carries the new index warning | `cli/test/finish/undo_plan_test.dart` | a clean-index Git plan carries the index warning | red |
+|  | A plan carries the new index warning | `cli/test/finish/undo_plan_test.dart` | the plan warns about the index, edits and operations | red |
 |  | Any other refusal | `evals/finish/test_parity.py` | TestPlanGit.test_refusal_dirty_tree | green |
 | An undo destination is absent only by evidence | The first undo in a fresh checkout | `evals/finish/test_undo_steps.py` | `test_the_first_undo_in_a_fresh_checkout_proves_its_backup_absent` | green |
 |  | An ancestor that cannot be listed | `cli/test/finish/undo_step_test.dart` | check absent with an unlistable ancestor refuses | red |
@@ -162,6 +164,7 @@ One row per delta-spec scenario. A blank Requirement or Test file cell repeats t
 |  | A GitButler bulk undo whose commit runs through `but.cmd` | `cli/test/finish/undo_plan_test.dart` | windows: but.cmd payload over 8,191 is plan_too_large | red |
 |  | A Git bulk undo whose synced spec paths force batching | `evals/finish/test_undo_steps.py` |  | red |
 |  | A bulk undo with a very long member list | `cli/test/finish/undo_plan_test.dart` | a long member list keeps every line within the limit | red |
+| The planner does not count the environment a step runs with | A large environment is not counted | `cli/test/finish/undo_plan_test.dart` |  | green |
 | An undo never writes inside a nested repository | A rerun spec inside a submodule | `evals/finish/test_undo_plan.py` | `test_a_rerun_spec_inside_a_submodule_is_unsupported_entry` | red |
 |  | A linked worktree inside an archived member |  | `test_a_linked_worktree_inside_an_archived_member_is_unsupported_entry` | red |
 |  | A linked `.git` marker inside an archived member |  | `test_a_linked_git_marker_inside_an_archived_member_is_unsupported_entry` | red |
@@ -183,19 +186,19 @@ One row per delta-spec scenario. A blank Requirement or Test file cell repeats t
 |  | An archived member edited after a GitButler plan |  |  | green |
 |  | A foreign assignment made after a GitButler plan |  |  | red |
 |  | An unassigned member edit on a GitButler undo |  |  | green |
-| Windows record replacement retries a transient refusal | A refusal that clears within the retry window | `cli/test/pr/feedback_record_test.dart` | a refused replace that clears writes the record | red |
-|  | A refusal that persists |  | a persistent replace failure rethrows the first error after 6 attempts | red |
-|  | The temporary source disappears during a pause |  | a source removed during a pause ends the retries | red |
-|  | A refusal that persists |  | a failed temp cleanup keeps the first error | red |
-|  | The temporary source is gone after the first attempt |  | a replace whose source is gone is not retried | green |
-|  | Other platforms |  | off Windows a failed replace is not retried | green |
-|  | The lock create and publication are not retried |  | the lock create and publication make one attempt | green |
-|  | A refusal that clears within the retry window | `cli/test/pr/feedback_pass_test.dart` | adopt holds the lock through a retry pause, and cleans up before the release | red |
+| Windows record replacement retries a transient refusal | A refusal that clears within the retry window | `cli/test/pr/feedback_record_test.dart` | a refusal that clears within the window writes the record | red |
+|  | A refusal that persists |  | a refusal that persists reports the first error after 6 attempts | red |
+|  | The temporary source disappears during a pause |  | a source removed during a pause stops without another replace | red |
+|  | A refusal that persists |  | a failed temporary cleanup never replaces the first error | red |
+|  | The temporary source is gone after the first attempt |  | a source gone after the first failed attempt is not retried | green |
+|  | Other platforms |  | other platforms report the error at once with no pause | green |
+|  | The lock create and publication are not retried |  | the lock create makes one attempt | green |
+|  | A refusal that clears within the retry window | `cli/test/pr/feedback_pass_test.dart` | adopt holds its lock through every replace and the cleanup | red |
 |  | Concurrent adoption on Windows | `evals/pr-pair/test_workflow_records.py` | test_concurrent_mutations_acquire_one_lock | red |
-| A PR call's new helper refusal keeps its exit with a fixed diagnostic | A reaction whose gh line fits only without the helper | `cli/test/pr/reply_test.dart` | windows: react line over the limit only behind the helper exits 127 | red |
-|  | A snapshot query that fits only without the helper | `cli/test/pr/snapshot_test.dart` | windows: GraphQL line over the limit only behind the helper | red |
-|  | A PR call refused by an older check | `cli/test/pr/reply_test.dart` | windows: line over the limit as given is unrepresentable | red |
-|  | A PR call whose batch payload is too long |  | windows: gh.cmd payload over 8,191 is unsafe batch argument | red |
+| A PR call's new helper refusal keeps its exit with a fixed diagnostic | A reaction whose gh line fits only without the helper | `cli/test/pr/reply_test.dart` | windows: a react line over the limit only behind the helper exits 127 | red |
+|  | A snapshot query that fits only without the helper | `cli/test/pr/snapshot_test.dart` | windows: a GraphQL line over the limit only behind the helper | red |
+|  | A PR call refused by an older check | `cli/test/pr/reply_test.dart` | windows: a line over the limit as given is unrepresentable | red |
+|  | A PR call whose batch payload is too long |  | windows: a gh.cmd payload over 8,191 is an unsafe batch argument | red |
 | Fixed snapshot defects are exceptions to the scripts' contract | A fixed case differs from its record | `evals/pr-pair/test_parity.py` | SnapshotParity.test_fixed_cases_are_listed_differences | red |
 |  | An unaffected case still matches its record |  | SnapshotParity.test_snapshot_of_an_empty_pr | green |
 | sw pr snapshot reads --timeout as decimal seconds | A leading zero | `cli/test/pr/snapshot_test.dart` | --timeout 08 wakes at 8 seconds | red |
@@ -215,8 +218,8 @@ One row per delta-spec scenario. A blank Requirement or Test file cell repeats t
 | Long Windows arguments reach native tools whole | A 20,000-character argument on Windows | `evals/pr-pair/test_as_shim.py` | test_long_argument_reaches_fenced_tool_on_windows | green |
 |  | Over the Windows command-line limit | `cli/test/resolved_line_test.dart` | a started line over 32,766 units is refused | red |
 |  | The last accepted and first refused lengths |  | 32,766 units start, 32,767 are refused | red |
-|  | Under the limit alone, over it behind the helper | `cli/test/bounded_run_test.dart` | windows: helper line over the limit is a failed helper start | red |
-|  | A batch launch behind the helper | `cli/test/launch_test.dart` | windows: raw cmd.exe line fits, helper line does not | red |
+|  | Under the limit alone, over it behind the helper | `cli/test/bounded_run_test.dart` | windows: a helper line over the limit is a failed helper start | red |
+|  | A batch launch behind the helper | `cli/test/launch_test.dart` | windows: the raw cmd.exe line fits but the helper line does not | red |
 |  | An inherited batch launch through the identity fence | `evals/pr-pair/test_as_shim.py` | test_inherited_batch_line_over_the_limit_exits_2 | red |
 |  | A reviewer run behind the helper | `evals/review-routes/test_review_run.py` | test_reviewer_line_over_the_limit_behind_the_helper | red |
 |  | A reviewer line of exactly 32,767 units |  | test_reviewer_line_of_32767_units | red |
@@ -225,8 +228,8 @@ One row per delta-spec scenario. A blank Requirement or Test file cell repeats t
 |  | An explicit omp run whose version probe is over the limit | `cli/test/review/routes_test.dart` | test_omp_version_probe_over_the_limit_is_not_utf8 | red |
 |  | An explicit omp run whose resolved version probe is exactly at the limit |  | test_omp_version_probe_of_32767_units_is_omp_too_old | red |
 |  | An explicit omp run whose batch version probe is over the limit |  | test_omp_cmd_version_probe_raw_line_is_omp_too_old | red |
-|  | A line of exactly 32,767 units before lookup | `cli/test/launch_test.dart` | windows: 32,767 units to a .cmd over the batch cap is UnsafeBatchArgument | red |
-|  | A line of exactly 32,767 units that resolves shorter |  | windows: 32,767 units resolving shorter starts | red |
+|  | A line of exactly 32,767 units before lookup | `cli/test/launch_test.dart` | windows: 32,767 units to a .cmd over the batch cap is unsafe | red |
+|  | A line of exactly 32,767 units that resolves shorter |  | windows: 32,767 units as given, resolving shorter, start | red |
 |  | A review's Git read over the limit | `evals/review-routes/test_review_run.py` | test_git_read_over_the_limit_is_not_utf8 | red |
 |  | A review's Git read the old checks admitted |  | test_git_read_of_32767_units_is_a_failed_start | red |
 |  | A review's Git read through a batch shim over the limit |  | test_git_cmd_raw_line_over_the_limit_is_not_a_repo | red |
@@ -252,12 +255,12 @@ One row per delta-spec scenario. A blank Requirement or Test file cell repeats t
 |  | Two leading --project options |  | test_two_leading_project_options_is_usage | green |
 |  | A relative --code in the undo planner | `evals/finish/test_finish_shim.py` | test_relative_code_is_anchored_at_the_planning_root | red |
 | A bounded launch checks the helper's own command line | A line that fits only without the helper | `cli/test/bounded_run_test.dart` | windows: planBoundedLaunch refuses the serialized helper argv | red |
-| A caller's check of the command as given keeps its limit | A command exactly at the caller's limit | `cli/test/launch_test.dart` | windows: as-given precheck admits 32,767 units | red |
+| A caller's check of the command as given keeps its limit | A command exactly at the caller's limit | `cli/test/launch_test.dart` | the as-given precheck admits 32,767 units, plain and quoted | red |
 | The failed-job log call caps its two streams together | Two streams under their old separate caps | `evals/pr-pair/test_pr_snapshot.py` | test_logs_over_the_shared_cap_are_response_too_large | red |
 | Command lookup takes only files the user can execute | A file only another user can run comes first | `evals/cli/test_sw_run.py` | test_lookup_skips_a_file_the_user_cannot_execute | red |
 |  | No file the user can execute | `cli/test/resolve_test.dart` | no executable candidate is command not found | red |
 |  | An explicit path the user cannot execute | `evals/cli/test_sw_run.py` | test_explicit_path_without_execute_keeps_the_start_failure | red |
-| The undo plan's Git steps carry their safety options | An undo plan's Git step | `cli/test/finish/undo_plan_test.dart` | every Git step carries --literal-pathspecs and --no-replace-objects | red |
+| The undo plan's Git steps carry their safety options | An undo plan's Git step | `cli/test/finish/undo_plan_test.dart` | emitted Git steps carry the safety options and the checkout flags | red |
 |  | A resume with submodule recursion enabled | `evals/finish/test_undo_steps.py` | test_resume_with_submodule_recurse_leaves_submodule | red |
 |  | Another printed command | `evals/pr-pair/test_workflow_transport.py` | WorkflowTransport.test_cleanup_plan_names_running_sw | green |
 | The project root is found from the physical path | A project path through a link and `..` | `evals/cli/test_sw_project_version.py` | test_project_through_link_and_dotdot_is_physical | red |
@@ -434,7 +437,7 @@ Verification: never run an eval suite locally. Locally run only the module being
 - [x] 12.5 C46: doc comment of `runUndoStep` in `cli/lib/src/finish/undo_step.dart`.
 - [x] 12.6 C48: confirm the gap is in `specs/change-finish/spec.md` under "A rerun plan warns that it writes specs in place". Verify: `openspec validate fix-sw-port-gaps --strict` passes and the requirement holds the text.
 - [x] 12.7 C51: doc comment of `undoArchivePlan` in `cli/lib/src/finish/undo_plan.dart`.
-- [x] 12.8 C52: confirm the gap is in `specs/change-finish/spec.md` under "Every printed undo step fits the command line". Verify: `openspec validate fix-sw-port-gaps --strict` passes and the requirement holds the text.
+- [x] 12.8 C52: confirm the gap is in `specs/change-finish/spec.md` under "The planner does not count the environment a step runs with". Verify: `openspec validate fix-sw-port-gaps --strict` passes and the requirement holds the text.
 
 ## 13. Undo planner on jj and GitButler (D2)
 

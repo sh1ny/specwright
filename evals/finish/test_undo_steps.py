@@ -415,6 +415,147 @@ class TestBranchCheck(tj.JjBase):
 
 
 
+class TestResumeGuards(StepsCase):
+    """The Git resume's guards around its one checkout (change fix-sw-port-gaps, D2)."""
+
+    OTHER_BACKENDS = ("vcs: jj\n", "vcs: gitbutler\nfinish: pr\n")
+
+    def planned_resume(self):
+        """The archive is committed on BRANCH, HEAD is on main, and the resume is planned."""
+        build_single(self.work)
+        fx.git(self.work, "checkout", "-q", "main")
+        code, doc, raw = fx.run_plan(self.work, "add-x", branch=BRANCH)
+        self.assertEqual(code, 0, raw)
+        return doc
+
+    @staticmethod
+    def checkouts(steps):
+        return [n for n, s in enumerate(steps) if git_subcommand(s["argv"]) == "checkout"]
+
+    @staticmethod
+    def branch_guards(steps):
+        """(position, expected branch) of each `check branch` step."""
+        return [(n, s["argv"][7]) for n, s in enumerate(steps)
+                if undo_kind(s) == "check" and s["argv"][6:7] == ["branch"]]
+
+    def test_a_resume_from_main_passes_both_branch_guards(self):
+        doc = self.planned_resume()
+        steps = doc["steps"]
+        (checkout,) = self.checkouts(steps)
+        self.assertEqual([(n < checkout, name) for n, name in self.branch_guards(steps)], [(True, "main"), (False, BRANCH)])
+        r = fx.run_steps(self.scripts, steps)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(len(self.checkouts(r.ran)), 1)
+        self.assertEqual(fx.git(self.work, "branch", "--show-current"), BRANCH)
+
+    def test_a_detached_head_moved_after_planning(self):
+        build_single(self.work)
+        fx.git(self.work, "checkout", "-q", "--detach", "main")
+        code, doc, raw = fx.run_plan(self.work, "add-x", branch=BRANCH)
+        self.assertEqual(code, 0, raw)
+        moved = fx.commit(self.work, "feat: another detached commit", {"src/app.py": "print('v2')\n"})
+        before = fx.state(self.work)
+        r = fx.run_steps(self.scripts, doc["steps"])
+        self.assertNotEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(self.checkouts(r.ran), [], "the checkout ran")
+        self.assertEqual(fx.git(self.work, "rev-parse", "HEAD"), moved)
+        self.assertEqual(fx.git(self.work, "branch", "--show-current"), "")
+        self.assertEqual(fx.state(self.work), before)
+
+    def test_a_backend_selection_changed_before_the_resume_checkout(self):
+        for text in self.OTHER_BACKENDS:
+            with self.subTest(settings=text):
+                self.setUp()
+                doc = self.planned_resume()
+                fx.write(self.work, f"{P}/specwright.yaml", text)  # the selection the plan was not made under
+                before = fx.state(self.work)
+                r = fx.run_steps(self.scripts, doc["steps"])
+                self.assertNotEqual(r.returncode, 0, r.stdout + r.stderr)
+                self.assertIn("git_env", r.stdout)
+                self.assertIn(text.split()[1], r.stdout + r.stderr)  # the backend it now selects is named
+                self.assertEqual(self.checkouts(r.ran), [], "the checkout ran")
+                self.assertEqual(fx.state(self.work), before)
+
+    def test_a_resumed_branch_that_selects_another_backend(self):
+        for text in self.OTHER_BACKENDS:
+            with self.subTest(settings=text):
+                self.setUp()
+                build_single(self.work)
+                fx.commit(self.work, "chore: select another backend", {f"{P}/specwright.yaml": text})
+                tip = fx.git(self.work, "rev-parse", BRANCH)
+                fx.git(self.work, "checkout", "-q", "main")
+                code, doc, raw = fx.run_plan(self.work, "add-x", branch=BRANCH)
+                self.assertEqual(code, 0, raw)
+                r = fx.run_steps(self.scripts, doc["steps"])
+                self.assertNotEqual(r.returncode, 0, r.stdout + r.stderr)
+                self.assertIn("git_env", r.stdout)
+                self.assertTrue(text.split()[1] in r.stdout + r.stderr and "git" in r.stdout + r.stderr)
+                self.assertEqual(len(self.checkouts(r.ran)), 1, "the stop comes after the checkout")
+                self.assertEqual(r.ran[-1]["argv"][5:7], ["check", "branch"], r.ran[-1])
+                self.assertFalse(Path(doc["backup_dir"]).exists(), "a backup was made")
+                self.assertEqual(fx.git(self.work, "rev-parse", "HEAD"), tip, "an undo commit was made")
+                self.assertEqual(fx.git(self.work, "diff", "--cached", "--name-only"), "")
+
+    def test_configuration_that_reroutes_git_only_on_the_archive_branch(self):
+        doc = self.planned_resume()
+        # Git reads core.worktree only from the repository's own config file, never through an include, so a conditional
+        # include cannot move the work tree; it can still switch on `attr.tree`, which only the archive branch sets
+        routed = self.tmp / "on-branch.cfg"
+        routed.write_text("[attr]\n\ttree = HEAD\n", encoding="utf-8")
+        fx.git(self.work, "config", f"includeIf.onbranch:{BRANCH}.path", routed.as_posix())
+        tip = fx.git(self.work, "rev-parse", f"refs/heads/{BRANCH}")
+        r = fx.run_steps(self.scripts, doc["steps"])
+        self.assertNotEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("git_env", r.stdout)
+        (checkout,) = self.checkouts(r.ran)
+        self.assertEqual(checkout, len(r.ran) - 2, "the step right after the checkout did not stop")
+        self.assertEqual(r.ran[-1]["argv"][5:7], ["check", "preflight"], r.ran[-1])
+        self.assertFalse(Path(doc["backup_dir"]).exists(), "a backup was made")
+        self.assertEqual(fx.git(self.work, "rev-parse", f"refs/heads/{BRANCH}"), tip, "an undo commit was made")
+
+    def test_a_tag_named_like_the_archive_branch(self):
+        build_single(self.work, deltas={"a": "Branch thing"})
+        archive_commit = fx.git(self.work, "rev-parse", BRANCH)
+        fx.git(self.work, "checkout", "-q", "main")
+        fx.git(self.work, "checkout", "-q", "-b", "other")
+        fx.make_change(self.work, "add-x", "DEFERRED", {"a": "Tag thing"})
+        fx.archive(self.work, "add-x", commit_it=True)
+        fx.git(self.work, "tag", BRANCH, "HEAD")  # another archive of the same member, named like the branch
+        fx.git(self.work, "checkout", "-q", "main")
+        code, doc, raw = fx.run_plan(self.work, "add-x", branch=BRANCH)
+        self.assertEqual(code, 0, raw)
+        self.assertEqual(doc["archive_commit"], archive_commit)
+        r = fx.run_steps(self.scripts, doc["steps"])
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        parent = subprocess.run(["git", "cat-file", "blob", f"{archive_commit}^:{SPEC_A}"], cwd=self.work,
+                                capture_output=True, check=True).stdout
+        self.assertEqual((self.work / SPEC_A).read_bytes(), parent)
+
+    @unittest.skipUnless(sys.platform.startswith("linux"), "platform: macOS and Windows file systems refuse a name with invalid UTF-8 bytes")
+    def test_a_branch_name_that_is_not_utf8_at_the_guard(self):
+        fx.git(self.work, "checkout", "-q", "-b", "bugfix/add-�")
+        fx.make_change(self.work, "add-x", "DEFERRED", {"a": "New thing"})
+        fx.archive(self.work, "add-x", commit_it=True)
+        code, doc, raw = fx.run_plan(self.work, "add-x")
+        self.assertEqual(code, 0, raw)
+        bad = b"refs/heads/bugfix/add-\xff"  # a branch at the same commit whose name differs by one byte
+        subprocess.run([b"git", b"update-ref", bad, b"HEAD"], cwd=self.work, check=True)
+        subprocess.run([b"git", b"symbolic-ref", b"HEAD", bad], cwd=self.work, check=True)
+
+        def facts():
+            def git_bytes(*args):
+                return subprocess.run(["git", *args], cwd=self.work, capture_output=True, check=True).stdout
+            return (git_bytes("for-each-ref"), git_bytes("ls-files", "--stage"), (self.work / ".git" / "HEAD").read_bytes(),
+                    fx.snapshot(self.work))
+
+        before = facts()
+        r = fx.run_steps(self.scripts, doc["steps"])
+        self.assertNotEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("not_utf8", r.stdout)
+        self.assertEqual(r.ran[-1]["argv"][5:7], ["check", "branch"], r.ran[-1])
+        self.assertEqual(facts(), before)
+
+
 class TestRegularFileReads(StepsCase):
     """A FIFO a branch or a link puts where a step or the version check reads never blocks it (C38, ADR 0043). Each run
     is bounded to 60 seconds, so a read that blocks fails the test instead of hanging it."""
