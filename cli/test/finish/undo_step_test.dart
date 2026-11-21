@@ -804,6 +804,346 @@ void main() {
     });
   });
 
+  group('destinations, inputs and copies (group 12)', () {
+    Future<Map<String, Object?>> stops(List<String> args, String error) async {
+      final (code, doc) = await step(args);
+      expect(code, 1, reason: '$args $doc');
+      expect(doc!['error'], error, reason: '$doc');
+      return doc;
+    }
+
+    /// Whether a link can be made here (Windows needs a privilege for it).
+    bool canLink() {
+      try {
+        Link('$repo/probe-link').createSync(repo);
+        Link('$repo/probe-link').deleteSync();
+        return true;
+      } on FileSystemException {
+        return false;
+      }
+    }
+
+    bool isRoot() =>
+        !Platform.isWindows &&
+        (Process.runSync('id', ['-u']).stdout as String).trim() == '0';
+
+    test('absent proves a missing path from its nearest ancestor', () async {
+      // a fresh checkout: nothing below the Git directory exists yet
+      await passes(['check', 'absent', '.git/specwright-undo/some-archive']);
+      await passes(['check', 'absent', 'a/b/c/d']);
+    });
+
+    test('absent refuses a path below a file', () async {
+      final doc = await stops(['check', 'absent', 'a.txt/below'], 'vcs_error');
+      expect(doc['message'], contains('a.txt/below'));
+    });
+
+    test(
+      'check absent with an unlistable ancestor refuses',
+      () async {
+        Directory('$repo/locked').createSync();
+        Process.runSync('chmod', ['000', '$repo/locked']);
+        try {
+          final doc = await stops([
+            'check',
+            'absent',
+            'locked/inside/x',
+          ], 'vcs_error');
+          expect(doc['message'], contains('locked/inside/x'));
+        } finally {
+          Process.runSync('chmod', ['755', '$repo/locked']);
+        }
+      },
+      skip: Platform.isWindows
+          ? 'platform: a mode-000 directory needs POSIX'
+          : isRoot()
+          ? 'platform: root can list a mode-000 directory'
+          : false,
+    );
+
+    test('copy --if-present skips a source that is not there', () async {
+      await passes(['copy', '--if-present', 'no-marker.yaml', 'out.yaml']);
+      expect(File('$repo/out.yaml').existsSync(), isFalse);
+      await passes(['copy', '--if-present', 'a.txt', 'kept.txt']);
+      expect(File('$repo/kept.txt').readAsStringSync(), 'one\n');
+    });
+
+    test(
+      'copy --if-present of a link to a FIFO is vcs_error and does not block '
+      '(POSIX)',
+      () async {
+        if (Platform.isWindows) {
+          markTestSkipped('platform: no FIFO on Windows');
+          return;
+        }
+        Process.runSync('mkfifo', ['$repo/pipe']);
+        Link('$repo/marker.yaml').createSync('$repo/pipe');
+        final (code, doc) = await step([
+          'copy',
+          '--if-present',
+          'marker.yaml',
+          'backup.yaml',
+        ]);
+        expect(code, 1, reason: '$doc');
+        expect(doc!['error'], 'vcs_error');
+        expect(doc['message'], contains('marker.yaml'));
+        expect(File('$repo/backup.yaml').existsSync(), isFalse);
+      },
+      timeout: const Timeout(Duration(seconds: 60)),
+    );
+
+    test('a failed marker copy stops before any index change', () async {
+      final before = _git(repo, ['ls-files', '--stage']);
+      File('$repo/marker.yaml').writeAsStringSync('code_changes: none\n');
+      // the backup directory was never made: the copy fails, whatever the
+      // flag says about an absent source
+      final (code, doc) = await step([
+        'copy',
+        '--if-present',
+        'marker.yaml',
+        'no/backup/dir/marker.yaml',
+      ]);
+      expect(code, 1, reason: '$doc');
+      expect(File('$repo/no/backup/dir/marker.yaml').existsSync(), isFalse);
+      expect(File('$repo/marker.yaml').existsSync(), isTrue);
+      expect(_git(repo, ['ls-files', '--stage']), before);
+    });
+
+    test('destinations passes real directories and a missing leaf', () async {
+      Directory('$repo/openspec/specs/a').createSync(recursive: true);
+      File('$repo/openspec/specs/a/spec.md').writeAsStringSync('x\n');
+      await passes([
+        'check',
+        'destinations',
+        '--',
+        'openspec/specs/a/spec.md',
+        'openspec/specs/new/deep/spec.md',
+      ]);
+    });
+
+    test('destinations refuses a file where a directory is needed', () async {
+      Directory('$repo/openspec/specs/a').createSync(recursive: true);
+      File('$repo/openspec/specs/a/spec.md').writeAsStringSync('x\n');
+      final doc = await stops([
+        'check',
+        'destinations',
+        '--',
+        'openspec/specs/a/spec.md/b/spec.md',
+      ], 'unsupported_entry');
+      expect(doc['message'], contains('openspec/specs/a/spec.md'));
+    });
+
+    test('destinations refuses a directory where a spec file goes', () async {
+      Directory('$repo/openspec/specs/a/spec.md/b').createSync(recursive: true);
+      File('$repo/openspec/specs/a/spec.md/b/spec.md').writeAsStringSync('x');
+      final doc = await stops([
+        'check',
+        'destinations',
+        '--',
+        'openspec/specs/a/spec.md',
+      ], 'unsupported_entry');
+      expect(doc['message'], contains('openspec/specs/a/spec.md'));
+    });
+
+    test('destinations refuses a component that holds a .git entry', () async {
+      Directory('$repo/openspec/specs/foo').createSync(recursive: true);
+      File('$repo/openspec/specs/foo/.git').writeAsStringSync('gitdir: /x\n');
+      final doc = await stops([
+        'check',
+        'destinations',
+        '--',
+        'openspec/specs/foo/bar/spec.md',
+      ], 'unsupported_entry');
+      expect(doc['message'], contains('openspec/specs/foo'));
+    });
+
+    test('destinations refuses a link component', () async {
+      if (!canLink()) {
+        markTestSkipped('platform: this account cannot create links');
+        return;
+      }
+      Directory('${tmp.path}/outside').createSync();
+      Directory('$repo/openspec/specs').createSync(recursive: true);
+      Link('$repo/openspec/specs/foo').createSync('${tmp.path}/outside');
+      final doc = await stops([
+        'check',
+        'destinations',
+        '--',
+        'openspec/specs/foo/bar/spec.md',
+      ], 'unsupported_entry');
+      expect(doc['message'], contains('openspec/specs/foo'));
+      expect(Directory('${tmp.path}/outside').listSync(), isEmpty);
+    });
+
+    test('destinations refuses paths equal or nested after folding', () async {
+      for (final pair in [
+        ['openspec/specs/Foo/spec.md', 'openspec/specs/foo/spec.md'],
+        ['openspec/specs/a/spec.md', 'openspec/specs/A/spec.md/b/spec.md'],
+      ]) {
+        final doc = await stops([
+          'check',
+          'destinations',
+          '--',
+          ...pair,
+        ], 'unsupported_entry');
+        expect(doc['message'], contains(pair[0]));
+        expect(doc['message'], contains(pair[1]));
+      }
+    });
+
+    test(
+      'destinations refuses a spelling the disk holds differently',
+      () async {
+        Directory('$repo/Specs').createSync();
+        // a volume that tells the two apart has nothing to refuse
+        final folds = Directory('$repo/specs').existsSync();
+        if (!folds) {
+          markTestSkipped('platform: a case-sensitive volume');
+          return;
+        }
+        final doc = await stops([
+          'check',
+          'destinations',
+          '--',
+          'specs/x/spec.md',
+        ], 'unsupported_entry');
+        expect(doc['message'], contains('Specs'));
+        expect(doc['message'], contains('specs'));
+      },
+    );
+
+    test(
+      'destinations refuses an entry named like .git below a member',
+      () async {
+        Directory('$repo/m/scratch').createSync(recursive: true);
+        File('$repo/m/scratch/.GIT').writeAsStringSync('gitdir: /x\n');
+        final doc = await stops([
+          'check',
+          'destinations',
+          '--member',
+          'm',
+        ], 'unsupported_entry');
+        expect(doc['message'], contains('scratch/.GIT'));
+      },
+    );
+
+    group('inputs and tracked files', () {
+      String blob(String text) {
+        File('$repo/blob.tmp').writeAsStringSync(text);
+        final oid = _git(repo, ['hash-object', '-w', 'blob.tmp']);
+        File('$repo/blob.tmp').deleteSync();
+        return oid;
+      }
+
+      void member(Map<String, String> files) {
+        files.forEach((name, text) {
+          File('$repo/d/$name')
+            ..createSync(recursive: true)
+            ..writeAsStringSync(text);
+        });
+        _git(repo, ['add', '-A']);
+        _git(repo, ['commit', '-q', '-m', 'member']);
+      }
+
+      test('inputs passes files that equal their blobs, a CR aside', () async {
+        member({'review.md': 'VERDICT: DEFERRED\n', 'tasks.md': 'a\r\nb\r\n'});
+        await passes([
+          'check',
+          'inputs',
+          'd',
+          blob('VERDICT: DEFERRED\n'),
+          blob('a\nb\n'),
+        ]);
+      });
+
+      test('inputs stops at bytes that differ from the blob', () async {
+        member({'review.md': 'VERDICT: DEFERRED\n', 'tasks.md': r'$Id: x $'});
+        final doc = await stops([
+          'check',
+          'inputs',
+          'd',
+          blob('VERDICT: DEFERRED\n'),
+          blob(r'$Id$'),
+        ], 'undo_step_failed');
+        expect(doc['message'], contains('d/tasks.md'));
+      });
+
+      test('inputs wants a missing file where the plan has -', () async {
+        member({'review.md': 'x\n', 'tasks.md': 'y\n'});
+        final doc = await stops([
+          'check',
+          'inputs',
+          'd',
+          blob('x\n'),
+          '-',
+        ], 'undo_step_failed');
+        expect(doc['message'], contains('d/tasks.md'));
+        await passes(['check', 'inputs', 'd', blob('x\n'), blob('y\n')]);
+      });
+
+      test('inputs refuses a skip-worktree entry under the member', () async {
+        member({'review.md': 'x\n', 'tasks.md': 'y\n'});
+        _git(repo, ['update-index', '--skip-worktree', 'd/tasks.md']);
+        final doc = await stops([
+          'check',
+          'inputs',
+          'd',
+          blob('x\n'),
+          blob('y\n'),
+        ], 'git_env');
+        expect(doc['message'], contains('d/tasks.md'));
+      });
+
+      test('tracked refuses an untracked or ignored file, naming it', () async {
+        member({'review.md': 'x\n'});
+        await passes(['check', 'tracked', 'd']);
+        File('$repo/.gitignore').writeAsStringSync('*.log\n');
+        _git(repo, ['add', '-A']);
+        _git(repo, ['commit', '-q', '-m', 'ignore']);
+        File('$repo/d/extra.log').writeAsStringSync('mine\n');
+        final doc = await stops(['check', 'tracked', 'd'], 'undo_step_failed');
+        expect(doc['message'], contains('d/extra.log'));
+      });
+    });
+
+    test('write-blob replaces the destination and leaves no sibling', () async {
+      File('$repo/spec.md').writeAsStringSync('old\n');
+      _git(repo, ['add', '-A']);
+      _git(repo, ['commit', '-q', '-m', 'spec']);
+      File('$repo/spec.md').writeAsStringSync('newer\n');
+      await passes(['write-blob', 'HEAD', 'spec.md', 'spec.md']);
+      expect(File('$repo/spec.md').readAsStringSync(), 'old\n');
+      expect(
+        Directory(repo)
+            .listSync()
+            .map((e) => e.uri.pathSegments.lastWhere((s) => s.isNotEmpty))
+            .where((n) => n.contains('spec.md') && n != 'spec.md'),
+        isEmpty,
+      );
+    });
+
+    test(
+      'write-blob gives a hard-linked destination a new file and the '
+      "revision's mode",
+      () async {
+        File('$repo/spec.md').writeAsStringSync('old\n');
+        _git(repo, ['add', '-A']);
+        _git(repo, ['commit', '-q', '-m', 'spec']);
+        File('$repo/spec.md').writeAsStringSync('newer\n');
+        Process.runSync('chmod', ['755', '$repo/spec.md']);
+        Process.runSync('ln', ['$repo/spec.md', '$repo/twin.md']);
+        await passes(['write-blob', 'HEAD', 'spec.md', 'spec.md']);
+        expect(File('$repo/spec.md').readAsStringSync(), 'old\n');
+        expect(File('$repo/twin.md').readAsStringSync(), 'newer\n');
+        final mode = File('$repo/spec.md').statSync().mode & 0x49;
+        expect(mode, 0, reason: 'the revision records a non-executable mode');
+      },
+      skip: Platform.isWindows
+          ? 'platform: hard links and modes need POSIX'
+          : false,
+    );
+  });
+
   group('doc comments', () {
     test('checkIndex carries C19', () {
       final doc = _docOf('Future<void> checkIndex(');
@@ -842,6 +1182,23 @@ void main() {
         ),
       );
       expect(doc, contains('no command may run a whole undo'));
+    });
+
+    test('runUndoStep carries C46', () {
+      final src = File('lib/src/finish/undo_step.dart').readAsStringSync();
+      final at = src.indexOf('Future<int> runUndoStep(');
+      final doc = src
+          .substring(0, at)
+          .split('\n')
+          .reversed
+          .takeWhile((l) => l.startsWith('///') || l.trim().isEmpty)
+          .toList()
+          .reversed
+          .join('\n');
+      expect(doc, contains('C46'));
+      expect(doc, contains('checks one destination list'));
+      expect(doc, contains('sibling temporary file renamed over it'));
+      expect(doc, contains('C48'));
     });
   });
 }

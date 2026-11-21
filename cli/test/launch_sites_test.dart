@@ -1164,10 +1164,11 @@ const launchAllowlist = Allowlist(
       'runTool': Call(2, _tool),
       'runGh': Call(1, _tool),
     },
-    // the index-flag scan reads `git ls-files -v -z` as it arrives and ends the
-    // child at the first flagged entry (C45), which the buffered runner cannot
+    // the index-flag and untracked-file scans read `git ls-files -z` as it
+    // arrives and end the child at the first flagged entry or the twentieth
+    // path (C45), which the buffered runner cannot
     'finish/git_guard.dart': {
-      'Process.start': Call(1, _tool, function: 'firstFlaggedEntry'),
+      'Process.start': Call(1, _tool, function: '_scanListing'),
     },
     'finish/undo_plan.dart': {'runTool': Call(1, _tool)},
     'finish/undo_step.dart': {'runTool': Call(1, _tool)},

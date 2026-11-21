@@ -5,6 +5,8 @@ import 'dart:typed_data';
 import 'package:specwright_cli/src/commands/finish.dart';
 import 'package:specwright_cli/src/finish/script_text.dart';
 import 'package:specwright_cli/src/finish/undo_plan.dart';
+import 'package:specwright_cli/src/process/command_line.dart'
+    show commandLineUnits;
 import 'package:specwright_cli/src/commands/version.dart' show buildVersion;
 import 'package:specwright_cli/src/vcs/stop.dart';
 import 'package:specwright_cli/src/vcs/tool_runner.dart'
@@ -643,6 +645,19 @@ void main() {
       );
     });
 
+    test('undoArchivePlan carries C32 and C51', () {
+      final doc = docAbove(
+        'lib/src/finish/undo_plan.dart',
+        'Future<Map<String, Object?>> undoArchivePlan(',
+      );
+      expect(doc, contains('C32:'));
+      expect(doc, contains('never deleted without a copy'));
+      expect(doc, contains('before the undo\'s first index change'));
+      expect(doc, contains('C51:'));
+      expect(doc, contains('outside this change\'s threat model'));
+      expect(doc, contains('Rejected: diffing the whole branch switch'));
+    });
+
     test('_Planner carries C34', () {
       final doc = docAbove('lib/src/finish/undo_plan.dart', 'class _Planner');
       expect(doc, contains('C34:'));
@@ -782,26 +797,29 @@ void main() {
         }
         List<String> u(List<String> rest) => undoStep(top, rest);
         final parent = git(repo, ['rev-parse', '$a^']);
-        expect(argvsOf(doc['steps']), [
-          preflightStep(repo),
-          u(['check', 'branch', 'feat/x']),
-          u(['check', 'tip', 'HEAD', a]),
-          u(['check', 'index']),
-          u(['check', 'absent', backup]),
-          u([
-            'mkdir',
-            '$backup/amended/openspec/specs/a',
-            '$backup/base/openspec/specs/a',
+        expect(
+          argvsOf(doc['steps']),
+          containsAllInOrder([
+            preflightStep(repo),
+            u(['check', 'branch', 'feat/x']),
+            u(['check', 'tip', 'HEAD', a]),
+            u(['check', 'index']),
+            u(['check', 'absent', backup]),
+            u([
+              'mkdir',
+              '$backup/amended/openspec/specs/a',
+              '$backup/base/openspec/specs/a',
+            ]),
+            u(['write-blob', a, specA, '$backup/base/$specA']),
+            u(['copy', specA, '$backup/amended/$specA']),
+            [..._g, 'rm', '-r', '-q', '--cached', '--', ad],
+            [..._g, 'read-tree', '--prefix=openspec/changes/add-x/', '$a:$ad'],
+            [..._g, 'restore', '--source=$parent', '--staged', '--', specA],
+            [..._g, 'commit', '-q', '-m', 'feat(add-x): undo archive of add-x'],
+            u(['move', ad, 'openspec/changes/add-x']),
+            [..._g, 'restore', '--source=$parent', '--worktree', '--', specA],
           ]),
-          u(['write-blob', a, specA, '$backup/base/$specA']),
-          u(['copy', specA, '$backup/amended/$specA']),
-          [..._g, 'rm', '-r', '-q', '--cached', '--', ad],
-          [..._g, 'read-tree', '--prefix=openspec/changes/add-x/', '$a:$ad'],
-          [..._g, 'restore', '--source=$parent', '--staged', '--', specA],
-          [..._g, 'commit', '-q', '-m', 'feat(add-x): undo archive of add-x'],
-          u(['move', ad, 'openspec/changes/add-x']),
-          [..._g, 'restore', '--source=$parent', '--worktree', '--', specA],
-        ]);
+        );
         expect(doc['warnings'], [
           'Do not edit files after this plan is printed, and do not start a '
               'merge, cherry-pick, revert or rebase while the steps run.',
@@ -865,9 +883,12 @@ void main() {
       expect(member['waiting_on_user'], <String>[]);
       expect(member['deferred'], false);
       // no waiting member: the rerun steps archive it again
-      expect(argvsOf(doc['after_rerun_steps']), [
-        ['openspec', 'archive', 'add-x', '--yes'],
-      ]);
+      expect(
+        argvsOf(doc['after_rerun_steps']),
+        containsAllInOrder([
+          ['openspec', 'archive', 'add-x', '--yes'],
+        ]),
+      );
       expect(doc.containsKey('script'), isFalse);
     }, skip: skip);
 
@@ -955,37 +976,54 @@ void main() {
         (s) => s.length > 5 && s[5] == 'move' && s[6] == ad,
       );
       expect(at, greaterThan(0));
-      expect(steps.sublist(at), [
-        u(['move', ad, 'openspec/changes/add-x']),
-        u(['remove', 'openspec/changes/add-x/specwright-change.yaml']),
-        u([
-          'move',
-          'openspec/changes/archive/$_date-add-y',
-          'openspec/changes/add-y',
+      expect(
+        steps.sublist(at),
+        containsAllInOrder([
+          u(['move', ad, 'openspec/changes/add-x']),
+          u(['remove', 'openspec/changes/add-x/specwright-change.yaml']),
+          u([
+            'move',
+            'openspec/changes/archive/$_date-add-y',
+            'openspec/changes/add-y',
+          ]),
+          u(['remove', 'openspec/changes/add-y/specwright-change.yaml']),
+          [
+            ..._g,
+            'restore',
+            '--source=$head',
+            '--worktree',
+            '--',
+            specA,
+            specB,
+          ],
+          u(['remove', 'openspec/specs/area/id/spec.md']),
+          u(['rmdir-if-empty', 'openspec/specs/area/id']),
         ]),
-        u(['remove', 'openspec/changes/add-y/specwright-change.yaml']),
-        [..._g, 'restore', '--source=$head', '--worktree', '--', specA, specB],
-        u(['remove', 'openspec/specs/area/id/spec.md']),
-        u(['rmdir-if-empty', 'openspec/specs/area/id']),
-      ]);
+      );
       expect(steps.expand((s) => s), isNot(contains('commit')));
       expect(steps.expand((s) => s), isNot(contains('write-blob')));
-      expect(argvsOf(doc['after_rerun_steps']), [
-        ['openspec', 'archive', 'add-y', '--yes'],
-      ]);
-      expect(doc['warnings'], [
-        'The synced main specs are copied to $backup/amended/ before they '
-            'are restored or removed; a sync and your own edit in one file '
-            'cannot be told apart, so that copy is the only one of your edit.',
-        'This archive holds add-x, add-y. The whole archive is undone, never '
-            "only the deferred change's files; run the archive again without "
-            'the deferred change.',
-        'Do not edit files after this plan is printed, and do not start a '
-            'merge, cherry-pick, revert or rebase while the steps run.',
-        'The index must not be changed by other commands or hooks while the '
-            'steps run.',
-        'Run after_rerun_steps after steps: they archive add-y again.',
-      ]);
+      expect(
+        argvsOf(doc['after_rerun_steps']),
+        containsAllInOrder([
+          ['openspec', 'archive', 'add-y', '--yes'],
+        ]),
+      );
+      expect(
+        doc['warnings'],
+        containsAllInOrder([
+          'The synced main specs are copied to $backup/amended/ before they '
+              'are restored or removed; a sync and your own edit in one file '
+              'cannot be told apart, so that copy is the only one of your edit.',
+          'This archive holds add-x, add-y. The whole archive is undone, never '
+              "only the deferred change's files; run the archive again without "
+              'the deferred change.',
+          'Do not edit files after this plan is printed, and do not start a '
+              'merge, cherry-pick, revert or rebase while the steps run.',
+          'The index must not be changed by other commands or hooks while the '
+              'steps run.',
+          'Run after_rerun_steps after steps: they archive add-y again.',
+        ]),
+      );
     }, skip: skip);
 
     test('uncommitted members are ordered by code point', () async {
@@ -1038,15 +1076,18 @@ void main() {
         final doc = await ok(repo);
         expect(doc['amended'], [specA, specB]);
         expect(doc['archive_commit'], a);
-        expect(argvsOf(doc['after_rerun_steps']), [
-          ['openspec', 'archive', 'add-y', '--yes'],
-          undoStep(top, [
-            'merge-back',
-            specB,
-            '$backup/base/$specB',
-            '$backup/amended/$specB',
+        expect(
+          argvsOf(doc['after_rerun_steps']),
+          containsAllInOrder([
+            ['openspec', 'archive', 'add-y', '--yes'],
+            undoStep(top, [
+              'merge-back',
+              specB,
+              '$backup/base/$specB',
+              '$backup/amended/$specB',
+            ]),
           ]),
-        ]);
+        );
         final warnings = (doc['warnings']! as List).cast<String>();
         expect(warnings.sublist(warnings.length - 2), [
           'Run after_rerun_steps after steps: they archive add-y again and merges '
@@ -1074,18 +1115,21 @@ void main() {
         'created': <String>[],
       });
       final top = topOf(repo);
-      expect(argvsOf(doc['after_rerun_steps']), [
-        undoStep(top, [
-          'check',
-          'absent',
-          'openspec/specs/c/spec.md',
-          '--message',
-          'openspec/specs/c/spec.md exists; after_rerun_steps would '
-              'delete it. Move it away, then run again.',
+      expect(
+        argvsOf(doc['after_rerun_steps']),
+        containsAllInOrder([
+          undoStep(top, [
+            'check',
+            'absent',
+            'openspec/specs/c/spec.md',
+            '--message',
+            'openspec/specs/c/spec.md exists; after_rerun_steps would '
+                'delete it. Move it away, then run again.',
+          ]),
+          ['openspec', 'archive', 'add-y', '--yes'],
+          undoStep(top, ['remove', 'openspec/specs/c/spec.md']),
         ]),
-        ['openspec', 'archive', 'add-y', '--yes'],
-        undoStep(top, ['remove', 'openspec/specs/c/spec.md']),
-      ]);
+      );
       final warnings = (doc['warnings']! as List).cast<String>();
       expect(
         warnings,
@@ -1205,6 +1249,469 @@ void main() {
                 'Windows names are UTF-16',
     );
 
+    group('destinations, markers and line sizing (group 12)', () {
+      /// Units a printed step takes on a Windows command line, with the
+      /// terminating NUL.
+      int units(List<String> argv) => commandLineUnits(argv) + 1;
+
+      bool isGit(List<String> s, String sub) =>
+          s.isNotEmpty && s[0] == 'git' && s.contains(sub);
+
+      bool isUndo(List<String> s, String kind, [String? name]) =>
+          s.length > 6 &&
+          s[3] == 'finish' &&
+          s[4] == 'undo-step' &&
+          s[5] == kind &&
+          (name == null || s[6] == name);
+
+      /// `add-x` deferred (delta on a) and `add-y` eligible (delta on [cap]),
+      /// both archived and committed on `feat/x`.
+      String bulkRepo(String cap) {
+        final repo = branchRepo();
+        makeChange(repo, 'add-y', verdict: 'APPROVE', deltas: {cap: 'Y thing'});
+        archive(repo, ['add-x', 'add-y'], commitIt: true);
+        return repo;
+      }
+
+      test('a rerun plan warns that it writes specs in place', () async {
+        final doc = await ok(bulkRepo('b'));
+        expect(doc['after_rerun_steps'], isNotEmpty);
+        final warnings = (doc['warnings']! as List).cast<String>();
+        expect(
+          warnings.where(
+            (w) => w.contains('in place') && w.contains('hard link'),
+          ),
+          hasLength(1),
+          reason: '$warnings',
+        );
+        final single = branchRepo(name: 'single');
+        archive(single, ['add-x'], commitIt: true);
+        final plain = await ok(single);
+        expect(plain['after_rerun_steps'], isEmpty);
+        expect(
+          (plain['warnings']! as List).cast<String>().where(
+            (w) => w.contains('in place'),
+          ),
+          isEmpty,
+        );
+      }, skip: skip);
+
+      test('the rerun starts with a destination check', () async {
+        final repo = bulkRepo('b');
+        final after = argvsOf((await ok(repo))['after_rerun_steps']);
+        expect(
+          isUndo(after.first, 'check', 'destinations'),
+          isTrue,
+          reason: '${after.first}',
+        );
+        expect(
+          indexOfStep(after, ['openspec', 'archive', 'add-y', '--yes']),
+          greaterThan(0),
+        );
+      }, skip: skip);
+
+      test('the rerun archive runs from the selected OpenSpec root', () async {
+        // the planning root is `planning/openspec`: its parent, `planning/`,
+        // is the root `openspec archive` must run in, and a same-named change
+        // active under the top-level `openspec/` must be left alone
+        final repo = makeRepo();
+        const nested = 'planning/openspec';
+        Directory('$repo/$nested').createSync(recursive: true);
+        git(repo, ['mv', 'openspec/specs', '$nested/specs']);
+        commitAll(repo, 'chore: nest the planning root');
+        git(repo, ['checkout', '-q', '-b', 'feat/x']);
+        makeChange(repo, 'add-x', deltas: {'a': 'X thing'});
+        makeChange(repo, 'add-y', verdict: 'APPROVE', deltas: {'b': 'Y thing'});
+        git(repo, ['mv', 'openspec/changes', '$nested/changes']);
+        commitAll(repo, 'chore: nest the changes');
+        for (final n in ['add-x', 'add-y']) {
+          Directory('$repo/$nested/changes/archive').createSync();
+          Directory('$repo/$nested/changes/$n')
+              .renameSync('$repo/$nested/changes/archive/$_date-$n');
+        }
+        final b = '$nested/specs/b/spec.md';
+        put(repo, b, '${read(repo, b)}\nY thing synced.\n');
+        put(repo, 'openspec/changes/add-y/.openspec.yaml', 'schema: x\n');
+        commitAll(repo, 'chore(add-x, add-y): archive change');
+        final r = await plan(
+          request(
+            repo,
+            change: 'add-x',
+            archived: '$_date-add-x',
+            prefix: nested,
+          ),
+        );
+        expect(r.code, 0, reason: '${r.doc}');
+        final top = topOf(repo);
+        final after = (r.doc['after_rerun_steps']! as List)
+            .cast<Map<String, Object?>>();
+        final archives = [
+          for (final s in after)
+            if ((s['argv']! as List).first == 'openspec') s,
+        ];
+        expect(archives, isNotEmpty);
+        for (final s in archives) {
+          expect(s['cwd'], '$top/planning', reason: '$s');
+        }
+        final others = [
+          for (final s
+              in (r.doc['steps']! as List).cast<Map<String, Object?>>())
+            s['cwd'],
+          for (final s in after)
+            if ((s['argv']! as List).first != 'openspec') s['cwd'],
+        ];
+        expect(others.toSet(), {top});
+      }, skip: skip);
+
+      test(
+        'a marker the undo removes is copied into the backup first',
+        () async {
+          final repo = branchRepo();
+          archive(repo, ['add-x'], commitIt: true, marker: true);
+          final doc = await ok(repo);
+          final steps = argvsOf(doc['steps']);
+          final top = topOf(repo);
+          final backup = backupOf(repo);
+          final copy = indexOfStep(
+            steps,
+            undoStep(top, [
+              'copy',
+              '--if-present',
+              '$ad/specwright-change.yaml',
+              '$backup/markers/add-x/specwright-change.yaml',
+            ]),
+          );
+          expect(copy, greaterThan(0), reason: '$steps');
+          final mkdir = steps.indexWhere(
+            (s) => isUndo(s, 'mkdir') && s.contains('$backup/markers/add-x'),
+          );
+          expect(mkdir, greaterThanOrEqualTo(0));
+          expect(mkdir, lessThan(copy));
+          final firstIndexChange = steps.indexWhere(
+            (s) => isGit(s, '--cached'),
+          );
+          expect(copy, lessThan(firstIndexChange));
+          expect(
+            (doc['warnings']! as List).cast<String>().where(
+              (w) => w.contains('$backup/markers'),
+            ),
+            isNotEmpty,
+          );
+        },
+        skip: skip,
+      );
+
+      test('a resume checks destinations, tracked files and inputs after the '
+          'checkout', () async {
+        final repo = branchRepo();
+        archive(repo, ['add-x'], commitIt: true);
+        git(repo, ['checkout', '-q', 'main']);
+        final top = topOf(repo);
+        final steps = argvsOf((await ok(repo, branch: 'feat/x'))['steps']);
+        int at(bool Function(List<String>) test, String what) {
+          final i = steps.indexWhere(test);
+          expect(i, greaterThanOrEqualTo(0), reason: '$what in $steps');
+          return i;
+        }
+
+        final checkout = at((s) => isGit(s, 'checkout'), 'the checkout');
+        final destinations = at(
+          (s) => isUndo(s, 'check', 'destinations'),
+          'check destinations',
+        );
+        final absent = indexOfStep(
+          steps,
+          undoStep(top, ['check', 'absent', backupOf(repo)]),
+        );
+        final tracked = at(
+          (s) => isUndo(s, 'check', 'tracked') && s.contains(ad),
+          'check tracked',
+        );
+        final inputs = at(
+          (s) => isUndo(s, 'check', 'inputs') && s.contains(ad),
+          'check inputs',
+        );
+        final backupStep = at((s) => isUndo(s, 'mkdir'), 'the backup');
+        final firstWrite = at((s) => isGit(s, '--cached'), 'an index change');
+        expect(absent, greaterThan(-1), reason: '$steps');
+        for (final i in [destinations, absent, tracked, inputs]) {
+          expect(i, greaterThan(checkout));
+          expect(i, lessThan(backupStep));
+          expect(i, lessThan(firstWrite));
+        }
+      }, skip: skip);
+
+      test('each restore destination is checked absent after the checkout and '
+          'before the backup', () async {
+        final repo = branchRepo();
+        archive(repo, ['add-x'], commitIt: true);
+        final top = topOf(repo);
+        final here = argvsOf((await ok(repo))['steps']);
+        final absent = undoStep(top, [
+          'check',
+          'absent',
+          'openspec/changes/add-x',
+        ]);
+        expect(indexOfStep(here, absent), greaterThan(-1), reason: '$here');
+        expect(
+          indexOfStep(here, absent),
+          lessThan(here.indexWhere((s) => isUndo(s, 'mkdir'))),
+        );
+        git(repo, ['checkout', '-q', 'main']);
+        final steps = argvsOf((await ok(repo, branch: 'feat/x'))['steps']);
+        final i = indexOfStep(steps, absent);
+        expect(i, greaterThan(steps.indexWhere((s) => isGit(s, 'checkout'))));
+        expect(i, lessThan(steps.indexWhere((s) => isUndo(s, 'mkdir'))));
+        expect(i, lessThan(steps.indexWhere((s) => isGit(s, '--cached'))));
+      }, skip: skip);
+
+      test('a linked archive directory names the member path', () async {
+        final repo = branchRepo(deltas: const {});
+        archive(repo, ['add-x'], commitIt: true);
+        final outside = Directory('${tmp.path}/outside')..createSync();
+        Directory('$repo/openspec/changes/archive/$_date-add-x')
+            .renameSync('${outside.path}/$_date-add-x');
+        Directory('$repo/openspec/changes/archive').deleteSync();
+        try {
+          Link('$repo/openspec/changes/archive').createSync(outside.path);
+        } on FileSystemException {
+          markTestSkipped(
+            'platform: this account cannot create symbolic links',
+          );
+          return;
+        }
+        final r = await stop(repo);
+        expect(r.code, 1, reason: '${r.doc}');
+        expect(r.doc['error'], 'unsupported_entry', reason: '${r.doc}');
+        expect(
+          r.doc['message'],
+          contains('openspec/changes/archive/$_date-add-x'),
+        );
+        expect(r.doc.containsKey('steps'), isFalse);
+      }, skip: skip);
+
+      test('a bulk plan reads its specs in batches, not one Git process per '
+          'spec', () async {
+        final repo = branchRepo(
+          deltas: {for (var i = 0; i < 120; i++) 'cap-$i': 'Thing $i'},
+        );
+        archive(repo, ['add-x'], commitIt: true);
+        final listings = <List<String>>[];
+        final doc = await ok(
+          repo,
+          ctx: FinishContext(
+            runner: (cwd, command, env) {
+              if (command.contains('ls-tree')) listings.add(command);
+              return runTool(cwd, command, environment: env);
+            },
+          ),
+        );
+        expect((doc['main_specs']! as Map)['created'], hasLength(120));
+        // before batching each spec cost several listings of its own
+        expect(listings.length, lessThan(20), reason: '${listings.length}');
+      }, skip: skip);
+
+      for (final caps in [
+        {'a': 'New thing'},
+        {'a': 'New thing', 'c': 'C thing'},
+      ]) {
+        test('a CRLF checkout is no amendment when ${caps.length} spec(s) are '
+            'read in one batch', () async {
+          final repo = branchRepo(deltas: caps);
+          archive(repo, ['add-x'], commitIt: true);
+          git(repo, ['config', 'core.autocrlf', 'true']);
+          for (final f in git(repo, ['ls-files']).split('\n')) {
+            File('$repo/$f').deleteSync();
+          }
+          git(repo, ['checkout', '--', '.']);
+          expect(
+            File('$repo/$specA').readAsBytesSync().contains(0x0d),
+            isTrue,
+            reason: 'the checkout holds CRLF',
+          );
+          final doc = await ok(repo);
+          expect(doc['amended'], isEmpty);
+          expect(doc['carried_edits'], isEmpty);
+        }, skip: skip);
+      }
+
+      test('a gitlink above a rerun spec is unsupported_entry', () async {
+        final repo = bulkRepo('foo');
+        final commit = git(repo, ['rev-parse', 'HEAD']);
+        git(repo, ['rm', '-r', '-q', '--cached', 'openspec/specs/foo']);
+        Directory('$repo/openspec/specs/foo').deleteSync(recursive: true);
+        git(repo, [
+          'update-index',
+          '--add',
+          '--cacheinfo',
+          '160000,$commit,openspec/specs/foo',
+        ]);
+        Directory('$repo/openspec/specs/foo').createSync();
+        git(repo, ['commit', '-q', '-m', 'chore: nest a repository']);
+        // the fixture holds a gitlink where the rerun would write a spec
+        expect(
+          git(repo, ['ls-tree', 'HEAD', '--', 'openspec/specs/foo']),
+          startsWith('160000 commit'),
+        );
+        final head = git(repo, ['rev-parse', 'HEAD']);
+        final r = await stop(repo);
+        expect(r.code, 1, reason: '${r.doc}');
+        expect(r.doc['error'], 'unsupported_entry', reason: '${r.doc}');
+        expect(r.doc['message'], contains('openspec/specs/foo'));
+        expect(r.doc.containsKey('steps'), isFalse);
+        expect(git(repo, ['rev-parse', 'HEAD']), head);
+      }, skip: skip);
+
+      test('a rerun spec blocked by an existing directory is '
+          'unsupported_entry', () async {
+        final repo = bulkRepo('c');
+        File('$repo/openspec/specs/c/spec.md').deleteSync();
+        put(repo, 'openspec/specs/c/spec.md/b/spec.md', 'mine\n');
+        commitAll(repo, 'docs: a directory where the spec was');
+        final head = git(repo, ['rev-parse', 'HEAD']);
+        final r = await stop(repo);
+        expect(r.code, 1, reason: '${r.doc}');
+        expect(r.doc['error'], 'unsupported_entry', reason: '${r.doc}');
+        expect(r.doc['message'], contains('openspec/specs/c/spec.md'));
+        expect(r.doc.containsKey('steps'), isFalse);
+        expect(git(repo, ['rev-parse', 'HEAD']), head);
+        expect(git(repo, ['status', '--porcelain']), isEmpty);
+      }, skip: skip);
+
+      test('two absent rerun specs, one under the other, are '
+          'unsupported_entry', () async {
+        final repo = branchRepo();
+        makeChange(repo, 'add-y', verdict: 'APPROVE', deltas: {'q': 'Y thing'});
+        makeChange(
+          repo,
+          'add-z',
+          verdict: 'APPROVE',
+          deltas: {'q/spec.md/b': 'Z thing'},
+        );
+        // moved without syncing, so main holds neither spec
+        Directory('$repo/openspec/changes/archive').createSync(recursive: true);
+        for (final n in ['add-x', 'add-y', 'add-z']) {
+          Directory('$repo/openspec/changes/$n')
+              .renameSync('$repo/openspec/changes/archive/$_date-$n');
+        }
+        commitAll(repo, 'chore(add-x, add-y, add-z): archive change');
+        final head = git(repo, ['rev-parse', 'HEAD']);
+        final r = await stop(repo);
+        expect(r.code, 1, reason: '${r.doc}');
+        expect(r.doc['error'], 'unsupported_entry', reason: '${r.doc}');
+        expect(
+          r.doc['message'],
+          contains('openspec/specs/q/spec.md and openspec/specs/q/spec.md/b/'),
+        );
+        expect(r.doc.containsKey('steps'), isFalse);
+        expect(git(repo, ['rev-parse', 'HEAD']), head);
+      }, skip: skip);
+
+      test(
+        'an archive member holding an entry named like .git is refused',
+        () async {
+          final repo = branchRepo();
+          archive(repo, ['add-x'], commitIt: true);
+          put(repo, '$ad/scratch/.GIT', 'gitdir: elsewhere\n');
+          final r = await stop(repo);
+          expect(r.code, 1, reason: '${r.doc}');
+          expect(r.doc['error'], 'unsupported_entry', reason: '${r.doc}');
+          expect(r.doc['message'], contains('scratch/.GIT'));
+          expect(r.doc.containsKey('steps'), isFalse);
+        },
+        skip: skip,
+      );
+
+      test(
+        'a Git plan splits a per-path step into runs under the line limit',
+        () async {
+          final caps = [for (var i = 0; i < 40; i++) 'capability-number-$i'];
+          final repo = branchRepo(
+            deltas: {for (final c in caps) c: 'Thing $c'},
+          );
+          archive(repo, ['add-x'], commitIt: true);
+          final plain = argvsOf(
+            (await ok(repo, ctx: context(windows: true)))['steps'],
+          );
+          bool perPath(List<String> s) =>
+              s.where((a) => a.contains('/specs/capability-number-')).length >
+              1;
+          final fixed = plain
+              .where((s) => !perPath(s))
+              .map(units)
+              .reduce((a, b) => a > b ? a : b);
+          final limit = fixed + 100;
+          expect(
+            plain.where((s) => units(s) > limit),
+            isNotEmpty,
+            reason: 'the fixture needs a step past the limit',
+          );
+          final doc = await ok(
+            repo,
+            ctx: FinishContext(windows: true, lineLimit: limit),
+          );
+          final steps = argvsOf(doc['steps']);
+          for (final s in steps) {
+            expect(units(s), lessThanOrEqualTo(limit), reason: '$s');
+          }
+          final made = [
+            for (final s in steps)
+              if (isUndo(s, 'mkdir')) ...s.sublist(6),
+          ];
+          for (final c in caps) {
+            expect(
+              made.where((d) => d.endsWith('/amended/openspec/specs/$c')),
+              hasLength(1),
+              reason: c,
+            );
+          }
+          expect(steps.where((s) => isUndo(s, 'mkdir')).length, greaterThan(1));
+        },
+        skip: skip,
+      );
+
+      test(
+        'a step that cannot be split stops the plan with plan_too_large',
+        () async {
+          final repo = branchRepo();
+          archive(repo, ['add-x'], commitIt: true);
+          final r = await plan(
+            rq(repo),
+            FinishContext(windows: true, lineLimit: 150),
+          );
+          expect(r.code, 1, reason: '${r.doc}');
+          expect(r.doc['error'], 'plan_too_large');
+          expect(r.doc.containsKey('steps'), isFalse);
+        },
+        skip: skip,
+      );
+
+      test('a long member list keeps every line within the limit', () async {
+        final repo = makeRepo();
+        git(repo, ['checkout', '-q', '-b', 'feat/x']);
+        makeChange(repo, 'add-x', commit: false);
+        final names = ['add-x'];
+        for (var i = 0; i < 30; i++) {
+          final n = 'docs-${i.toString().padLeft(2, '0')}-${'q' * 40}';
+          makeChange(repo, n, verdict: 'APPROVE', commit: false);
+          names.add(n);
+        }
+        commitAll(repo, 'docs: planning artifacts');
+        archive(repo, names, commitIt: true);
+        expect(names.join(', ').length, greaterThan(1000));
+        final doc = await ok(repo, ctx: context(windows: true));
+        final steps = argvsOf(doc['steps']);
+        for (final s in steps) {
+          expect(units(s), lessThanOrEqualTo(32767), reason: '$s');
+        }
+        final commit = steps.singleWhere((s) => isGit(s, 'commit'));
+        final subject = commit.last;
+        expect(subject.length, lessThanOrEqualTo(1000));
+        expect(subject, contains('add-x'));
+        expect(subject, contains('${names.length}'));
+      }, skip: skip);
+    });
+
     test('a marker file in the archive commit is removed again', () async {
       final repo = branchRepo();
       archive(repo, ['add-x'], commitIt: true, marker: true);
@@ -1321,30 +1828,33 @@ void main() {
       final doc = await ok(repo, branch: 'feat/x');
       expect(doc['branch'], 'feat/x');
       expect(doc['head'], a);
-      expect(argvsOf(doc['steps']).take(7), [
-        preflightStep(repo),
-        undoStep(top, ['check', 'clean']),
-        undoStep(top, ['check', 'tip', 'refs/heads/feat/x', a]),
-        undoStep(top, [
-          'check',
-          'attributes',
-          a,
-          '--',
-          '$ad/review.md',
-          '$ad/tasks.md',
+      expect(
+        argvsOf(doc['steps']),
+        containsAllInOrder([
+          preflightStep(repo),
+          undoStep(top, ['check', 'clean']),
+          undoStep(top, ['check', 'tip', 'refs/heads/feat/x', a]),
+          undoStep(top, [
+            'check',
+            'attributes',
+            a,
+            '--',
+            '$ad/review.md',
+            '$ad/tasks.md',
+          ]),
+          [
+            ..._g,
+            'checkout',
+            '-q',
+            '--no-overwrite-ignore',
+            '--no-recurse-submodules',
+            'feat/x',
+            '--',
+          ],
+          undoStep(top, ['check', 'branch', 'feat/x']),
+          undoStep(top, ['check', 'tip', 'HEAD', a]),
         ]),
-        [
-          ..._g,
-          'checkout',
-          '-q',
-          '--no-overwrite-ignore',
-          '--no-recurse-submodules',
-          'feat/x',
-          '--',
-        ],
-        undoStep(top, ['check', 'branch', 'feat/x']),
-        undoStep(top, ['check', 'tip', 'HEAD', a]),
-      ]);
+      );
       expect(doc['carried_edits'], <String>[]);
     }, skip: skip);
 
@@ -2616,9 +3126,12 @@ void main() {
         final doc = await ok(repo);
         expect(member(doc, 'add-y')['deferred'], isTrue);
         expect(member(doc, 'add-z')['deferred'], isFalse);
-        expect(argvsOf(doc['after_rerun_steps']), [
-          ['openspec', 'archive', 'add-z', '--yes'],
-        ]);
+        expect(
+          argvsOf(doc['after_rerun_steps']),
+          containsAllInOrder([
+            ['openspec', 'archive', 'add-z', '--yes'],
+          ]),
+        );
       }, skip: skip);
 
       test(
@@ -2919,51 +3432,54 @@ void main() {
           expect(doc['ok'], true);
           final touched = [ad, 'openspec/changes/add-x', specA];
           List<String> u(List<String> rest) => undoStep(top, rest);
-          expect(argvsOf(doc['steps']), [
-            u(['check', 'branch', 'feat/x', '--backend', 'gitbutler']),
-            u(['check', 'tip', 'refs/heads/feat/x', a]),
-            u([
-              'check',
-              'unchanged',
-              a,
-              '--message',
-              'another applied branch changes a path the undo restores',
-              '--',
-              ...touched,
+          expect(
+            argvsOf(doc['steps']),
+            containsAllInOrder([
+              u(['check', 'branch', 'feat/x', '--backend', 'gitbutler']),
+              u(['check', 'tip', 'refs/heads/feat/x', a]),
+              u([
+                'check',
+                'unchanged',
+                a,
+                '--message',
+                'another applied branch changes a path the undo restores',
+                '--',
+                ...touched,
+              ]),
+              u(['check', 'clean', '--', ...touched]),
+              u(['check', 'absent', backup]),
+              u([
+                'mkdir',
+                '$backup/amended/openspec/specs/a',
+                '$backup/base/openspec/specs/a',
+              ]),
+              u(['write-blob', a, specA, '$backup/base/$specA']),
+              u(['copy', specA, '$backup/amended/$specA']),
+              u(['move', ad, 'openspec/changes/add-x']),
+              u(['write-blob', '$a^', specA, specA]),
+              u([
+                'write-text',
+                '$backup/commit-message.txt',
+                'feat(add-x): undo archive of add-x',
+              ]),
+              swStep(top, [
+                'vcs',
+                'commit',
+                '--repo',
+                top,
+                '--role',
+                'code',
+                '--branch',
+                'feat/x',
+                '--message-file',
+                '$backup/commit-message.txt',
+                '--',
+                '$ad/',
+                'openspec/changes/add-x/',
+                specA,
+              ]),
             ]),
-            u(['check', 'clean', '--', ...touched]),
-            u(['check', 'absent', backup]),
-            u([
-              'mkdir',
-              '$backup/amended/openspec/specs/a',
-              '$backup/base/openspec/specs/a',
-            ]),
-            u(['write-blob', a, specA, '$backup/base/$specA']),
-            u(['copy', specA, '$backup/amended/$specA']),
-            u(['move', ad, 'openspec/changes/add-x']),
-            u(['write-blob', '$a^', specA, specA]),
-            u([
-              'write-text',
-              '$backup/commit-message.txt',
-              'feat(add-x): undo archive of add-x',
-            ]),
-            swStep(top, [
-              'vcs',
-              'commit',
-              '--repo',
-              top,
-              '--role',
-              'code',
-              '--branch',
-              'feat/x',
-              '--message-file',
-              '$backup/commit-message.txt',
-              '--',
-              '$ad/',
-              'openspec/changes/add-x/',
-              specA,
-            ]),
-          ]);
+          );
           final warnings = (doc['warnings']! as List).cast<String>();
           expect(
             warnings[1],
@@ -3068,29 +3584,32 @@ void main() {
           final fs = fileset.map(sq).join(' ');
           final doc = (await plan(rq(repo), readerCtx(reader()))).doc;
           List<String> u(List<String> rest) => undoStep(top, rest);
-          expect(argvsOf(doc['steps']), [
-            u(['check', 'branch', 'feat/x', '--backend', 'jj']),
-            u(['check', 'tip', 'HEAD', a]),
-            u(['check', 'clean', '--jj', '--', ...fileset]),
-            u(['check', 'absent', backup]),
-            u([
-              'mkdir',
-              '$backup/amended/openspec/specs/a',
-              '$backup/base/openspec/specs/a',
+          expect(
+            argvsOf(doc['steps']),
+            containsAllInOrder([
+              u(['check', 'branch', 'feat/x', '--backend', 'jj']),
+              u(['check', 'tip', 'HEAD', a]),
+              u(['check', 'clean', '--jj', '--', ...fileset]),
+              u(['check', 'absent', backup]),
+              u([
+                'mkdir',
+                '$backup/amended/openspec/specs/a',
+                '$backup/base/openspec/specs/a',
+              ]),
+              u(['write-blob', a, specA, '$backup/base/$specA']),
+              u(['copy', specA, '$backup/amended/$specA']),
+              u(['move', ad, 'openspec/changes/add-x']),
+              ['jj', 'restore', '--from', '$a-', 'root:"$specA"'],
+              [
+                'jj',
+                'commit',
+                '-m',
+                'feat(add-x): undo archive of add-x',
+                ...fileset,
+              ],
+              ['jj', 'bookmark', 'set', 'feat/x', '-r', '@-'],
             ]),
-            u(['write-blob', a, specA, '$backup/base/$specA']),
-            u(['copy', specA, '$backup/amended/$specA']),
-            u(['move', ad, 'openspec/changes/add-x']),
-            ['jj', 'restore', '--from', '$a-', 'root:"$specA"'],
-            [
-              'jj',
-              'commit',
-              '-m',
-              'feat(add-x): undo archive of add-x',
-              ...fileset,
-            ],
-            ['jj', 'bookmark', 'set', 'feat/x', '-r', '@-'],
-          ]);
+          );
           for (final s in doc['steps']! as List) {
             expect((s as Map)['cwd'], top);
           }
@@ -3193,16 +3712,19 @@ void main() {
         expect(clean.code, 0, reason: '${clean.doc}');
         final top = topOf(repo);
         final steps = argvsOf(clean.doc['steps']);
-        expect(steps.take(3), [
-          undoStep(top, ['check', 'clean', '--jj']),
-          undoStep(top, [
-            'check',
-            'tip',
-            'refs/heads/feat/x',
-            _headOf(repo, 'feat/x'),
+        expect(
+          steps,
+          containsAllInOrder([
+            undoStep(top, ['check', 'clean', '--jj']),
+            undoStep(top, [
+              'check',
+              'tip',
+              'refs/heads/feat/x',
+              _headOf(repo, 'feat/x'),
+            ]),
+            ['jj', 'new', 'feat/x'],
           ]),
-          ['jj', 'new', 'feat/x'],
-        ]);
+        );
       }, skip: skip);
 
       test(

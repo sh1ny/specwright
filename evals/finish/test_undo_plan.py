@@ -1386,5 +1386,141 @@ class TestRerunEligibility(Base):
                                 "revert or rebase while the steps run."])
 
 
+class TestDestinationRefusals(Base):
+    """What the planner refuses before it prints a step: nested repositories and colliding destinations (change
+    fix-sw-port-gaps, group 12, D2)."""
+
+    def nest(self, rel):
+        """Replace the tracked spec at `rel`'s directory by a gitlink (an uninitialized submodule) and commit."""
+        directory = rel.rsplit("/", 1)[0]
+        commit = self.git("rev-parse", "HEAD")
+        self.git("rm", "-r", "-q", "--cached", directory)
+        fx.rmtree(self.work / directory)
+        self.git("update-index", "--add", "--cacheinfo", f"160000,{commit},{directory}")
+        (self.work / directory).mkdir()  # without its directory `git add -A` would drop the entry
+        self.git("commit", "-q", "-m", "chore: nest a repository")
+        self.assertIn("160000 commit", self.git("ls-tree", "HEAD", "--", directory))
+        return directory
+
+    def test_a_rerun_spec_inside_a_submodule_is_unsupported_entry(self):
+        self.pair(y_deltas={"foo": "Y thing"})
+        fx.archive(self.work, ["add-x", "add-y"], commit_it=True)
+        directory = self.nest(f"{P}/specs/foo/spec.md")
+        head = self.git("rev-parse", "HEAD")
+        self.assertStops(fx.run_plan(self.work, "add-x"), "unsupported_entry", directory)
+        self.assertEqual(self.git("rev-parse", "HEAD"), head)
+        self.assertEqual(self.git("status", "--porcelain"), "")
+
+    def test_a_gitlink_only_on_the_archive_branch_is_unsupported_entry(self):
+        self.pair(y_deltas={"foo": "Y thing"})
+        fx.archive(self.work, ["add-x", "add-y"], commit_it=True)
+        directory = self.nest(f"{P}/specs/foo/spec.md")
+        self.git("checkout", "-q", "main")
+        self.assertStops(fx.run_plan(self.work, "add-x", branch=BRANCH), "unsupported_entry", directory)
+        self.assertEqual(self.git("branch", "--show-current"), "main", "nothing was checked out")
+
+    def test_two_absent_rerun_specs_that_differ_only_by_case_are_unsupported_entry(self):
+        self.on_branch()
+        fx.make_change(self.work, "add-x", "DEFERRED", {"a": "X thing"})
+        fx.make_change(self.work, "add-y", "APPROVE", {"foo": "Y thing"})
+        fx.make_change(self.work, "add-z", "APPROVE", {"Foo": "Z thing"})
+        fx.archive(self.work, ["add-x", "add-y", "add-z"], commit_it=True)
+        out = fx.run_plan(self.work, "add-x")
+        self.assertStops(out, "unsupported_entry", f"{P}/specs/foo/spec.md", f"{P}/specs/Foo/spec.md")
+
+    def exclude(self, pattern):
+        """Ignore `pattern` through .git/info/exclude."""
+        path = self.work / ".git" / "info" / "exclude"
+        path.write_text(path.read_text(encoding="utf-8") + pattern + "\n", encoding="utf-8")
+
+    def archived_single(self):
+        self.single({"a": "New thing"})
+        fx.archive(self.work, "add-x", commit_it=True)
+        return self.work / ad("add-x")
+
+    def refuses_nested_marker(self, scratch, shown):
+        """The plan stops with unsupported_entry naming `shown`, prints no steps, and changes neither repository."""
+        before = fx.state(self.work)
+        out = fx.run_plan(self.work, "add-x")
+        self.assertStops(out, "unsupported_entry", shown)
+        self.assertEqual(fx.state(self.work), before)
+        self.assertTrue(scratch.is_dir(), "the nested checkout was moved")
+        self.assertTrue((self.work / ad("add-x")).is_dir(), "the archive was moved")
+
+    def test_a_linked_worktree_inside_an_archived_member_is_unsupported_entry(self):
+        member = self.archived_single()
+        other = fx.make_repo(self.tmp / "other")
+        scratch = member / "scratch"
+        fx.git(other, "worktree", "add", "-q", "--detach", str(scratch))
+        self.exclude("scratch/")
+        self.assertTrue((scratch / ".git").is_file(), "the worktree's marker is a file naming another repository")
+        self.assertEqual(self.git("status", "--porcelain"), "", "the worktree is hidden from Git")
+        registered = fx.git(other, "worktree", "list", "--porcelain")
+        self.refuses_nested_marker(scratch, "scratch/.git")
+        self.assertEqual(fx.git(other, "worktree", "list", "--porcelain"), registered)
+
+    @unittest.skipIf(sys.platform == "win32", "platform: a symbolic link needs POSIX")
+    def test_a_linked_git_marker_inside_an_archived_member_is_unsupported_entry(self):
+        member = self.archived_single()
+        meta = self.tmp / "meta.git"
+        meta.mkdir()
+        fx.git(meta, "init", "-q", "--bare")
+        scratch = member / "scratch"
+        scratch.mkdir()
+        (scratch / "notes.txt").write_text("mine\n", encoding="utf-8", newline="")
+        os.symlink(os.path.relpath(meta, scratch), scratch / ".git")
+        self.exclude("scratch/")
+        self.assertTrue((scratch / ".git").is_symlink(), "the marker is a symbolic link")
+        self.assertEqual(self.git("status", "--porcelain"), "", "the nested directory is hidden from Git")
+        self.refuses_nested_marker(scratch, "scratch/.git")
+        self.assertEqual((scratch / "notes.txt").read_text(encoding="utf-8"), "mine\n")
+
+    def test_a_worktree_marker_spelled_in_another_case_is_unsupported_entry(self):
+        probe = self.tmp / "CaseProbe"
+        probe.write_text("probe", encoding="utf-8")
+        if not (self.tmp / "caseprobe").exists():
+            self.skipTest("platform: the volume is case-sensitive")
+        member = self.archived_single()
+        other = fx.make_repo(self.tmp / "other")
+        scratch = member / "scratch"
+        fx.git(other, "worktree", "add", "-q", "--detach", str(scratch))
+        os.rename(scratch / ".git", scratch / ".GIT")
+        self.exclude("scratch/")
+        self.assertIn(".GIT", os.listdir(scratch))
+        fx.git(scratch, "rev-parse", "--git-dir")  # Git recognizes the marker
+        self.assertEqual(self.git("status", "--porcelain"), "", "the worktree is hidden from Git")
+        registered = fx.git(other, "worktree", "list", "--porcelain")
+        self.refuses_nested_marker(scratch, "scratch/.GIT")
+        self.assertEqual(fx.git(other, "worktree", "list", "--porcelain"), registered)
+
+    def test_two_absent_rerun_specs_where_one_lies_under_the_other(self):
+        self.pair(y_deltas={"q": "Y thing"})
+        fx.make_change(self.work, "add-z", "APPROVE", {"q/spec.md/b": "Z thing"})
+        archive = self.work / P / "changes" / "archive"
+        archive.mkdir(parents=True)
+        for name in ("add-x", "add-y", "add-z"):  # moved without syncing, so main holds neither spec
+            shutil.move(str(self.work / cd(name)), str(archive / f"{fx.DATE}-{name}"))
+        fx.git(self.work, "add", "-A", "--", P)
+        fx.git(self.work, "commit", "-q", "-m", "chore(add-x, add-y, add-z): archive change")
+        self.assertFalse((self.work / P / "specs" / "q").exists(), "main holds a spec of q")
+        before = fx.state(self.work)
+        out = fx.run_plan(self.work, "add-x")
+        self.assertStops(out, "unsupported_entry", f"{P}/specs/q/spec.md", f"{P}/specs/q/spec.md/b/spec.md")
+        self.assertEqual(fx.state(self.work), before)
+        for name in ("add-x", "add-y", "add-z"):
+            self.assertTrue((archive / f"{fx.DATE}-{name}").is_dir(), f"{name} was moved")
+
+    def test_a_rerun_spec_blocked_by_an_existing_directory(self):
+        self.pair(y_deltas={"q": "Y thing"})
+        fx.archive(self.work, ["add-x", "add-y"], commit_it=True)
+        self.git("rm", "-q", "--", f"{P}/specs/q/spec.md")
+        fx.commit(self.work, "docs: a directory where the spec was", {f"{P}/specs/q/spec.md/b/spec.md": "mine\n"})
+        self.assertTrue((self.work / P / "specs" / "q" / "spec.md").is_dir(), "the spec's path is a directory")
+        self.assertIn(f"{P}/specs/q/spec.md/b/spec.md", self.git("ls-files").splitlines())
+        before = fx.state(self.work)
+        self.assertStops(fx.run_plan(self.work, "add-x"), "unsupported_entry", f"{P}/specs/q/spec.md")
+        self.assertEqual(fx.state(self.work), before)
+
+
 if __name__ == "__main__":
     unittest.main()

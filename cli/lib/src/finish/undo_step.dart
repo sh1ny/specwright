@@ -1,11 +1,13 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:path/path.dart' as p;
 
 import '../commands/vcs.dart';
 import '../entry/regular_file.dart';
 import '../settings/rules.dart';
+import '../update/chmod.dart';
 import '../vcs/args.dart';
 import '../vcs/codec.dart';
 import '../vcs/document.dart';
@@ -36,9 +38,38 @@ VcsStop _failed(String message) => VcsStop('undo_step_failed', message);
 /// C5: The undo primitives exist so a plan stays something the user runs step
 /// by step; no command may run a whole undo. Only the kinds below exist (a new
 /// kind needs a design change): `check` (`branch`, `tip`, `attributes`,
-/// `index`, `clean`, `unchanged`, `absent`), `mkdir`, `copy`, `move`, `remove`, `rmdir-if-empty`, `write-blob`,
-/// `write-text` and `merge-back`. A whole-undo command was rejected because it
-/// would turn a plan the user reviews into an action the agent runs.
+/// `index`, `clean`, `unchanged`, `absent`, `destinations`, `tracked`,
+/// `inputs`), `mkdir`, `copy` (also `--if-present`), `move`, `remove`,
+/// `rmdir-if-empty`, `write-blob`, `write-text` and `merge-back`. A whole-undo
+/// command was rejected because it would turn a plan the user reviews into an
+/// action the agent runs.
+///
+/// C46: an undo, on every backend, checks one destination list: every
+/// main-spec path its steps or `after_rerun_steps` may create, write, remove or
+/// merge into, and each archived member directory it moves with its target.
+/// `check destinations` walks every component below the checkout root once and
+/// requires each existing one to be a real directory (no link, junction or
+/// file), and an existing spec file to be a regular file, so an obstruction
+/// outside the list is caught before any write; it refuses two entries equal,
+/// or one under the other, after `toLowerCase()` or `toUpperCase()` on every
+/// file system, a component that holds a `.git` entry or that the tree records
+/// as a gitlink, and, below each moved member, an entry of any type named like
+/// `.git` (case, trailing dots and spaces folded). The planner runs the same
+/// walk when it plans, before any backup or move; the steps run it again
+/// before any backup or index change and at the start of the rerun. A restore
+/// replaces its destination by a sibling temporary file renamed over it, with
+/// the mode the restore revision records, and never writes into the existing
+/// file. `check absent` counts a path as absent only from a successful listing
+/// of its nearest existing, non-link ancestor (C37). Every printed line, and
+/// each command it starts, fits the launcher's limit: a step that repeats one
+/// operation per path is split into runs, and one that cannot be split stops
+/// the plan with `plan_too_large`.
+///
+/// C48: the rerun's `openspec archive` writes an existing main spec in place,
+/// as the pinned OpenSpec CLI does, so a second hard link to it, made outside
+/// Specwright, sees the rerun's update; the plan warns of it. Rejected:
+/// replacing each rerun destination with a copy before the undo, which is a
+/// series of writes that a later failure leaves part-done.
 Future<int> runUndoStep(
   List<String> args, {
   required void Function(List<int> bytes) writeOut,
@@ -112,11 +143,20 @@ class _UndoStep {
           Directory(at(d)).createSync(recursive: true);
         }
       case 'copy':
-        _count(kind, rest, 2);
+        // `--if-present` skips a source that is proven absent by `lstat`; any
+        // other source, and a failing copy, still stops
+        final ifPresent = rest.isNotEmpty && rest.first == '--if-present';
+        final operands = ifPresent ? rest.sublist(1) : rest;
+        _count(kind, operands, 2);
+        if (ifPresent &&
+            FileSystemEntity.typeSync(at(operands[0]), followLinks: false) ==
+                FileSystemEntityType.notFound) {
+          return;
+        }
         // the source is a work-tree file: it is opened only when it is a
         // regular file (C38), so a FIFO in its place is refused, not waited on
         try {
-          copyRegularFile(at(rest[0]), at(rest[1]));
+          copyRegularFile(at(operands[0]), at(operands[1]));
         } on NotRegularFile catch (e) {
           throw notRegularStop(e);
         }
@@ -156,7 +196,20 @@ class _UndoStep {
             'cannot read ${rest[0]}:${rest[1]}: ${decodeText(r.stderr).trim()}',
           );
         }
-        File(at(rest[2])).writeAsBytesSync(r.stdout);
+        final listed = await _spawn([
+          'git',
+          'ls-tree',
+          '-z',
+          rest[0],
+          '--',
+          rest[1],
+        ]);
+        checkRead(listed, 'git ls-tree');
+        _replaceFile(
+          at(rest[2]),
+          r.stdout,
+          executable: decodeText(listed.stdout).startsWith('100755 '),
+        );
       case 'write-text':
         _count(kind, rest, 2);
         File(at(rest[0])).writeAsBytesSync(utf8.encode('${rest[1]}\n'));
@@ -195,6 +248,8 @@ class _UndoStep {
     final positional = <String>[];
     final paths = <String>[];
     final options = <String, String>{};
+    final members = <String>[];
+    final dirs = <String>[];
     var jj = false;
     for (var i = 1; i < args.length; i++) {
       final a = args[i];
@@ -203,6 +258,8 @@ class _UndoStep {
         break;
       } else if (a == '--jj') {
         jj = true;
+      } else if ((a == '--member' || a == '--dir') && i + 1 < args.length) {
+        (a == '--member' ? members : dirs).add(args[++i]);
       } else if (const [
             '--backend',
             '--code',
@@ -337,13 +394,189 @@ class _UndoStep {
         }
       case 'absent':
         _count('check absent', positional, 1);
-        final path = positional[0];
-        if (FileSystemEntity.typeSync(at(path), followLinks: false) !=
-            FileSystemEntityType.notFound) {
-          throw _failed(options['--message'] ?? '$path exists');
+        _checkAbsent(positional[0], options['--message']);
+      case 'destinations':
+        _count('check destinations', positional, 0);
+        await _checkDestinations(paths, dirs, members);
+      case 'tracked':
+        _count('check tracked', positional, 1);
+        final loose = await untrackedUnder(
+          cwd: cwd,
+          environment: _env,
+          dir: positional[0],
+        );
+        if (loose.isNotEmpty) {
+          throw _failed(
+            'Git does not track ${loose.join(', ')} under ${positional[0]}; '
+            'the undo would move it with the archive. Move it away, then run '
+            'again.',
+          );
         }
+      case 'inputs':
+        _count('check inputs', positional, 3);
+        await _checkInputs(positional[0], positional.sublist(1), paths);
       default:
         throw _usage('unknown undo-step check ${args.first}');
+    }
+  }
+
+  /// `check absent`: [path] is absent when the nearest existing ancestor is
+  /// a directory (not a link) whose listing succeeds and has no entry named as
+  /// the next component down (C37). `notFound` alone is never evidence, and the
+  /// immediate parent need not exist. An ancestor that is no directory, cannot
+  /// be listed, or lists the name stops with the path named.
+  void _checkAbsent(String path, String? message) {
+    final target = at(path);
+    var next = p.basename(target);
+    var dir = p.dirname(target);
+    while (true) {
+      final type = FileSystemEntity.typeSync(dir, followLinks: false);
+      if (type == FileSystemEntityType.notFound) {
+        final up = p.dirname(dir);
+        if (up == dir) {
+          throw VcsStop(
+            'vcs_error',
+            'cannot prove $path absent: no ancestor exists',
+          );
+        }
+        next = p.basename(dir);
+        dir = up;
+        continue;
+      }
+      if (type != FileSystemEntityType.directory) {
+        throw VcsStop(
+          'vcs_error',
+          'cannot prove $path absent: ${p.relative(dir, from: cwd)} is not a '
+              'directory ($type)',
+        );
+      }
+      final List<FileSystemEntity> listing;
+      try {
+        listing = Directory(dir).listSync(followLinks: false);
+      } on FileSystemException catch (e) {
+        throw VcsStop(
+          'vcs_error',
+          'cannot prove $path absent: cannot list ${p.relative(dir, from: cwd)}: '
+              '${e.osError?.message ?? e.message}',
+        );
+      }
+      for (final e in listing) {
+        final name = p.basename(e.path);
+        if (name == next || name.toLowerCase() == next.toLowerCase()) {
+          throw _failed(message ?? '$path exists');
+        }
+      }
+      return;
+    }
+  }
+
+  /// `check destinations`: C46's one walk of the paths [files] (spec files),
+  /// [dirs] and [members] (moved archive directories) names.
+  Future<void> _checkDestinations(
+    List<String> files,
+    List<String> dirs,
+    List<String> members,
+  ) async {
+    refuseCollidingPaths([...files, ...dirs, ...members]);
+    walkDestinations(cwd, files: files, dirs: dirs, members: members);
+    await refuseGitlinkAncestors(
+      (args) => _spawn(['git', ...args]),
+      'HEAD',
+      ancestorDirectories(files, [...dirs, ...members]),
+    );
+  }
+
+  /// `check inputs <member dir> <review blob|-> <tasks blob|->`: the restored
+  /// decision files of a member are the tip's blobs (a missing file where the
+  /// plan has `-`), up to line endings, and no entry under the member is
+  /// flagged assume-unchanged or skip-worktree. Each of [sources] must be a
+  /// regular file, since the backup copies it.
+  Future<void> _checkInputs(
+    String member,
+    List<String> blobs,
+    List<String> sources,
+  ) async {
+    final flagged = await firstFlaggedEntry(
+      cwd: cwd,
+      environment: _env,
+      paths: [member],
+    );
+    if (flagged != null) {
+      throw VcsStop(
+        'git_env',
+        '$flagged is flagged assume-unchanged or skip-worktree, so Git does '
+            'not report its edits and the restored copy cannot be trusted; '
+            'clear the flag, then plan again',
+      );
+    }
+    const files = ['review.md', 'tasks.md'];
+    for (var i = 0; i < files.length; i++) {
+      final path = '$member/${files[i]}';
+      if (blobs[i] == '-') {
+        if (FileSystemEntity.typeSync(at(path), followLinks: false) !=
+            FileSystemEntityType.notFound) {
+          throw _failed(
+            '$path exists, but the archive branch has no such file; the '
+            'plan was made without it',
+          );
+        }
+        continue;
+      }
+      final Uint8List? have;
+      try {
+        have = readRegularFile(at(path));
+      } on NotRegularFile catch (e) {
+        throw notRegularStop(e);
+      }
+      if (have == null) throw _failed('$path is missing after the checkout');
+      final want = await _spawn(['git', 'cat-file', 'blob', blobs[i]]);
+      checkRead(want, 'git cat-file blob');
+      if (!_sameLines(have, want.stdout)) {
+        throw _failed(
+          '$path differs from the archive branch\'s copy, so the rerun would '
+          'decide from bytes the plan did not read; plan again',
+        );
+      }
+    }
+    for (final source in sources) {
+      if (FileSystemEntity.typeSync(at(source)) != FileSystemEntityType.file) {
+        throw _failed('$source is not a regular file the backup can copy');
+      }
+    }
+  }
+
+  /// The bytes of [a] and [b] with every CR before an LF dropped are equal.
+  bool _sameLines(List<int> a, List<int> b) {
+    List<int> lf(List<int> bytes) => [
+      for (var i = 0; i < bytes.length; i++)
+        if (!(bytes[i] == 0x0d && i + 1 < bytes.length && bytes[i + 1] == 0x0a))
+          bytes[i],
+    ];
+    final x = lf(a);
+    final y = lf(b);
+    if (x.length != y.length) return false;
+    for (var i = 0; i < x.length; i++) {
+      if (x[i] != y[i]) return false;
+    }
+    return true;
+  }
+
+  /// Writes [bytes] to a sibling temporary file and renames it over [dest], so
+  /// an existing file, and any other hard link to it, is never written into;
+  /// the temporary file is removed when the rename fails.
+  void _replaceFile(String dest, List<int> bytes, {required bool executable}) {
+    final temp = '$dest.sw-undo-$pid.tmp';
+    try {
+      File(temp).writeAsBytesSync(bytes, flush: true);
+      if (executable) makeExecutable(temp);
+      File(temp).renameSync(dest);
+    } catch (_) {
+      try {
+        File(temp).deleteSync();
+      } on FileSystemException {
+        // nothing was left
+      }
+      rethrow;
     }
   }
 

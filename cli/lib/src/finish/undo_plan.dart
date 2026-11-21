@@ -10,6 +10,7 @@ import '../commit/task_cover.dart' show isPySpace, pyStrip;
 import '../entry/project_version.dart';
 import '../entry/regular_file.dart';
 import '../fs/walk.dart';
+import '../process/command_line.dart' show commandLineUnits;
 import '../vcs/args.dart';
 import '../vcs/codec.dart';
 import '../vcs/git_backend.dart';
@@ -59,7 +60,12 @@ class FinishContext {
     this.stateReader,
     this.sw,
     this.runner,
+    this.lineLimit,
   });
+
+  /// The most command-line units one printed step may take (null: the
+  /// launcher's own limit for the host). Tests only.
+  final int? lineLimit;
 
   /// The `sw` the printed steps start; null is the running binary. Tests only.
   final String? sw;
@@ -183,6 +189,31 @@ typedef UndoPlanner = Future<Map<String, Object?>> Function(
 /// `review.md` or `tasks.md` (`unsupported_filter`), and the Git 2.40 floor
 /// they need, apply to Git resumes only; a jj resume keeps today's behaviour,
 /// reading the stored blob, so a stored symlink is read as its link text.
+///
+/// C32: a marker the undo removes is either copied to the backup directory,
+/// when the steps' guards pass, or left untouched, when a guard refuses; the
+/// copy is made after any checkout and guards and before the undo's first index
+/// change or removal (a resume's checkout writes the index first); it is never
+/// deleted without a copy; a marker already absent when the steps run is
+/// skipped (`copy --if-present`).
+///
+/// C51: the nested-repository refusal covers C46's whole destination inventory
+/// and the moved member subtrees, whichever executable writes them (`sw` steps,
+/// `git restore`, `git rm`, `jj restore`, the rerun's `openspec archive`); only
+/// the resume branch switch is excluded, and with it every path that switch
+/// alone changes. The backup and message files the steps write under the Git
+/// directory (`<git-dir>/specwright-undo/<archived-name>`) are Specwright's own
+/// state outside the work tree and are not checked for markers; a `.git` entry
+/// planted inside the Git directory needs local write access there, which is
+/// outside this change's threat model. The emitted checkout is a plain branch
+/// switch with `--no-overwrite-ignore` and `--no-recurse-submodules`, and it
+/// writes what any `git switch` to that branch would write; a repository the
+/// user initialized by hand over files the outer repository also tracks (not a
+/// gitlink) is the user's own layout, and Git's checkout treats those files as
+/// the outer repository's. Rejected: diffing the whole branch switch and
+/// walking every changed path's ancestors for `.git` markers before checkout,
+/// which adds a tree-wide scan to every resume for a layout Git itself does not
+/// support as nested.
 Future<Map<String, Object?>> undoArchivePlan(
   UndoRequest request,
   FinishContext ctx,
@@ -274,6 +305,7 @@ class _Planner {
     String cwd,
     List<String> args, {
     Map<String, String>? environment,
+    List<int>? input,
   }) async {
     try {
       final run = ctx.runner;
@@ -281,7 +313,7 @@ class _Planner {
       final callEnv = environment ?? env;
       return run != null
           ? await run(cwd, command, callEnv)
-          : await runTool(cwd, command, environment: callEnv);
+          : await runTool(cwd, command, input: input, environment: callEnv);
     } on Unrepresentable catch (e) {
       throw VcsStop.unrepresentable(e);
     }
@@ -600,14 +632,56 @@ class _Planner {
 
     // `<mode> <type> <oid>` of [path] in [tree], or null when it is not there;
     // a failed listing is a `vcs_error`, never a missing entry
+    // Lookups are cached, and a bulk archive's paths are primed in a few
+    // batched listings, so the plan starts a number of Git processes that does
+    // not grow with the number of specs
+    final entryCache = <String, List<String>?>{};
     Future<List<String>?> entry(String tree, String path) async {
+      final key = '$tree\u0000$path';
+      if (entryCache.containsKey(key)) return entryCache[key];
       final r = await git(top, ['ls-tree', '-z', tree, '--', path]);
       final records = readInventory(r, 'git ls-tree');
-      if (records.isEmpty) return null;
-      final text = decodeStrict(records.first.single, 'file name');
-      final tab = text.indexOf('\t');
-      final fields = (tab < 0 ? text : text.substring(0, tab)).split(' ');
-      return fields.length == 3 ? fields : null;
+      List<String>? found;
+      if (records.isNotEmpty) {
+        final text = decodeStrict(records.first.single, 'file name');
+        final tab = text.indexOf('\t');
+        final fields = (tab < 0 ? text : text.substring(0, tab)).split(' ');
+        found = fields.length == 3 ? fields : null;
+      }
+      return entryCache[key] = found;
+    }
+
+    // `entry` for every one of [paths] in [tree], in listings that fit a
+    // command line
+    Future<void> prime(String tree, Iterable<String> paths) async {
+      var chunk = <String>[];
+      var size = 0;
+      Future<void> flush() async {
+        if (chunk.isEmpty) return;
+        final r = await git(top, ['ls-tree', '-z', tree, '--', ...chunk]);
+        final found = <String, List<String>>{};
+        for (final record in readInventory(r, 'git ls-tree')) {
+          final text = decodeStrict(record.single, 'file name');
+          final tab = text.indexOf('\t');
+          if (tab < 0) continue;
+          final fields = text.substring(0, tab).split(' ');
+          if (fields.length == 3) found[text.substring(tab + 1)] = fields;
+        }
+        for (final p in chunk) {
+          entryCache['$tree\u0000$p'] = found[p];
+        }
+        chunk = [];
+        size = 0;
+      }
+
+      for (final p in paths) {
+        if (entryCache.containsKey('$tree\u0000$p')) continue;
+        final n = utf8.encode(p).length + 1;
+        if (chunk.isNotEmpty && size + n > 16000) await flush();
+        chunk.add(p);
+        size += n;
+      }
+      await flush();
     }
 
     Future<bool> has(String tree, String path) async =>
@@ -628,6 +702,90 @@ class _Planner {
       final r = await git(top, ['cat-file', '--filters', '$tree:$path']);
       checkRead(r, 'git cat-file --filters');
       return r.stdout;
+    }
+
+    // `blobWd` of each of [paths]: one `git cat-file --batch --filters` for
+    // them all; the path-at-a-time read stays for a path with a newline and
+    // for a test runner
+    Future<Map<String, Uint8List?>> filteredBlobs(
+      String tree,
+      List<String> paths,
+    ) async {
+      await prime(tree, paths);
+      final out = <String, Uint8List?>{};
+      final have = <String>[];
+      final oids = <String, String>{};
+      for (final p in paths) {
+        final e = await entry(tree, p);
+        if (e == null) {
+          out[p] = null;
+        } else {
+          have.add(p);
+          oids[p] = e[2];
+        }
+      }
+      if (ctx.runner != null || have.any((p) => p.contains('\n'))) {
+        for (final p in have) {
+          out[p] = await blobWd(tree, p);
+        }
+        return out;
+      }
+      if (have.isEmpty) return out;
+      final r = await git(top, [
+        'cat-file',
+        '--batch',
+        '--filters',
+      ], input: utf8.encode([for (final p in have) '${oids[p]} $p\n'].join()));
+      checkRead(r, 'git cat-file --batch --filters');
+      // With `--filters` the header's size is the blob's own, not the
+      // converted content's, so it cannot delimit a record. A record ends at
+      // the newline before the next header, `<oid> blob <size>`, whose object
+      // id is known; the last one ends with the output. Anything that does not
+      // fit that is read again path by path.
+      final bytes = r.stdout;
+      int find(List<int> pattern, int from) {
+        for (var i = from; i + pattern.length <= bytes.length; i++) {
+          if (bytes[i] != pattern[0]) continue;
+          var k = 1;
+          while (k < pattern.length && bytes[i + k] == pattern[k]) {
+            k++;
+          }
+          if (k == pattern.length) return i;
+        }
+        return -1;
+      }
+
+      final parsed = <String, Uint8List>{};
+      var pos = 0;
+      var fits = true;
+      for (var n = 0; n < have.length && fits; n++) {
+        final lead = '${oids[have[n]]} blob '.codeUnits;
+        final eol = bytes.indexOf(0x0a, pos);
+        fits =
+            eol > pos &&
+            eol - pos > lead.length &&
+            [for (var k = 0; k < lead.length; k++) bytes[pos + k]].join(',') ==
+                lead.join(',');
+        if (!fits) break;
+        final int end;
+        if (n + 1 < have.length) {
+          end = find('\n${oids[have[n + 1]]} blob '.codeUnits, eol + 1);
+        } else {
+          end = bytes.length - 1;
+        }
+        fits = end >= eol + 1 && bytes[end] == 0x0a;
+        if (!fits) break;
+        parsed[have[n]] = Uint8List.fromList(bytes.sublist(eol + 1, end));
+        pos = end + 1;
+      }
+      if (fits && pos == bytes.length) {
+        out.addAll(parsed);
+      } else {
+        for (final p in have) {
+          out[p] = await blobWd(tree, p);
+        }
+      }
+      return out;
     }
 
     Uint8List? wdBytes(String path) => _readFile(_under(top, path));
@@ -727,10 +885,30 @@ class _Planner {
       }
     }
 
+    // C46: the one destination list, checked when planning (Git; the jj and
+    // GitButler checks are group 13's): collisions across the whole list, the
+    // path-type walk, and gitlinks above a destination in each tree the undo
+    // writes into
+    Future<void> checkDestinations({
+      required List<String> files,
+      required List<String> dirs,
+      required List<String> memberDirs,
+      required List<String> trees,
+    }) async {
+      refuseCollidingPaths([...files, ...dirs, ...memberDirs]);
+      walkDestinations(top, files: files, dirs: dirs, members: memberDirs);
+      final ancestors = ancestorDirectories(files, [...dirs, ...memberDirs]);
+      for (final tree in trees) {
+        await refuseGitlinkAncestors((args) => git(top, args), tree, ancestors);
+      }
+    }
+
     final warnings = <String>[];
     final members = <_Member>[];
     var mainMod = <String>[];
     var mainNew = <String>[];
+    // the main specs the rerun's `openspec archive` writes (committed only)
+    final syncedByRerun = <String>{};
     var goneSpecs = <String>[];
     var amended = <String>[];
     var carried = <String>[];
@@ -860,6 +1038,7 @@ class _Planner {
           }
         }
       }
+      await prime(head, caps);
       for (final f in sortedByCodePoint(caps)) {
         if (await has(head, f)) {
           mainMod.add(f);
@@ -877,6 +1056,16 @@ class _Planner {
             extra: {'path': tgt},
           );
         }
+      }
+      if (!jj && !gb) {
+        await checkDestinations(
+          files: [...mainMod, ...mainNew],
+          dirs: [
+            for (final m in members) _joinAll([prefix, 'changes', m.name]),
+          ],
+          memberDirs: [for (final m in members) m.dir],
+          trees: [head],
+        );
       }
       // carried edits: archive-copy files that differ from the change
       // directory at HEAD
@@ -1198,6 +1387,51 @@ class _Planner {
           );
         }
       }
+      // the main specs the rerun writes, read once, at planning (C33)
+      final rerunFirst = [
+        for (final m in members)
+          if (!m.deferred && m.waiting.isEmpty) m,
+      ];
+      for (final m in rerunFirst) {
+        if (branch == cb) {
+          // the undo moves the work-tree folder back, so its delta specs are
+          // the ones a rerun syncs
+          for (final w in _walkArchive(top, _joinAll([m.dir, 'specs']))) {
+            if (w.files.contains('spec.md')) {
+              syncedByRerun.add(_joinAll([prefix, 'specs', w.rel, 'spec.md']));
+            }
+          }
+          continue;
+        }
+        final listing = nulList(
+          await git(top, [
+            'ls-tree',
+            '-r',
+            '--name-only',
+            '-z',
+            t,
+            '--',
+            _joinAll([m.dir, 'specs']),
+          ]),
+          'git ls-tree',
+        );
+        for (final p in listing) {
+          final rel = _dropPoints(p, m.dir.runes.length + 1);
+          if (rel.endsWith('/spec.md')) {
+            syncedByRerun.add(_joinAll([prefix, rel]));
+          }
+        }
+      }
+      if (!jj && !gb) {
+        await checkDestinations(
+          files: [...mod, ...created, ...syncedByRerun],
+          dirs: [
+            for (final m in members) _joinAll([prefix, 'changes', m.name]),
+          ],
+          memberDirs: [for (final m in members) m.dir],
+          trees: [head, if (branch != cb) t],
+        );
+      }
       if (_exists(backupDir)) {
         throw VcsStop(
           'backup_exists',
@@ -1205,6 +1439,7 @@ class _Planner {
           extra: {'path': backupDir},
         );
       }
+      await prime(t, [...mod, ...created]);
       for (final f in mod) {
         if (await has(t, f)) mainMod.add(f);
       }
@@ -1225,7 +1460,7 @@ class _Planner {
             if (members.any((m) => p.startsWith('${m.dir}/'))) p,
         ];
       } else if (branch == cb) {
-        final out = await gitStatus(top, [for (final m in members) m.dir]);
+        final out = await gitStatus(top, [archiveBase]);
         // the records outside the members go first, undecoded: an unrelated
         // name that is not UTF-8 never stops the plan
         final prefixes = [for (final m in members) utf8.encode('${m.dir}/')];
@@ -1255,16 +1490,22 @@ class _Planner {
       if (branch == cb) {
         missingInWd([for (final m in members) m.dir, ...backupFiles]);
       }
+      await prime(arch, backupFiles);
+      final syncedWd = branch == cb
+          ? await filteredBlobs(arch, backupFiles)
+          : const <String, Uint8List?>{};
       for (final f in backupFiles) {
-        Uint8List? cur = branch == cb ? wdBytes(f) : null;
-        final Uint8List? synced;
+        final cur = branch == cb ? wdBytes(f) : null;
         if (cur == null) {
-          cur = await blob(t, f);
-          synced = await blob(arch, f);
-        } else {
-          synced = await blobWd(arch, f);
+          // two blobs are the same bytes exactly when their object ids are
+          String? oid(List<String>? e) =>
+              e != null && e[1] == 'blob' ? e[2] : null;
+          if (oid(await entry(t, f)) != oid(await entry(arch, f))) {
+            amended.add(f);
+          }
+        } else if (!_sameOptional(cur, syncedWd[f])) {
+          amended.add(f);
         }
-        if (!_sameOptional(cur, synced)) amended.add(f);
       }
     }
 
@@ -1279,10 +1520,8 @@ class _Planner {
         paths: switching
             ? const []
             : [
-                for (final m in members) m.dir,
-                for (final m in members) _joinAll([prefix, 'changes', m.name]),
-                ...mainMod,
-                ...mainNew,
+                chg,
+                _joinAll([prefix, 'specs']),
               ],
       );
       if (flagged != null) {
@@ -1344,6 +1583,65 @@ class _Planner {
     final steps = <Map<String, Object?>>[];
     void step(List<String> argv) => steps.add(mk(argv));
     void undo(List<String> rest) => step(undoArgv(rest));
+    // C46's line sizing: a line counts what the launcher counts, with its
+    // terminator, against 32,767 (32,766 visible units); a step that repeats
+    // one operation per path is split into runs that fit
+    final lineLimit = ctx.lineLimit ?? 32767;
+    int cost(String a) =>
+        windows ? commandLineUnits([a]) + 1 : utf8.encode(a).length + 1;
+    int measure(List<String> argv) =>
+        argv.fold(windows ? 0 : 1, (n, a) => n + cost(a));
+    void perPath(
+      List<String> head,
+      List<String> items,
+      void Function(List<String> argv) emit,
+    ) {
+      var chunk = <String>[];
+      var used = measure(head);
+      for (final item in items) {
+        if (chunk.isNotEmpty && used + cost(item) > lineLimit) {
+          emit([...head, ...chunk]);
+          chunk = [];
+          used = measure(head);
+        }
+        chunk.add(item);
+        used += cost(item);
+      }
+      if (chunk.isNotEmpty) emit([...head, ...chunk]);
+    }
+
+    // the subject names the members while it stays within 1,000 characters
+    final fullSubject = '$typ($change): undo archive of ${namesAll.join(', ')}';
+    final commitSubject = fullSubject.length <= 1000
+        ? fullSubject
+        : '$typ($change): undo archive of $change (${namesAll.length} changes)';
+    void destinationSteps() {
+      for (final m in members) {
+        undo([
+          'check',
+          'destinations',
+          '--member',
+          m.dir,
+          '--dir',
+          _joinAll([prefix, 'changes', m.name]),
+        ]);
+      }
+      perPath(
+        undoArgv(['check', 'destinations', '--']),
+        sortedByCodePoint({...mainMod, ...mainNew}),
+        step,
+      );
+      // each restore destination is absent: an ignored directory there
+      // would make the final move fail after the undo commit
+      for (final m in members) {
+        undo([
+          'check',
+          'absent',
+          _joinAll([prefix, 'changes', m.name]),
+        ]);
+      }
+    }
+
     final touchedAll = [
       for (final m in members) m.dir,
       for (final m in members) _joinAll([prefix, 'changes', m.name]),
@@ -1449,7 +1747,24 @@ class _Planner {
       }
       undo(['check', 'branch', planBranch]);
       undo(['check', 'tip', headref, t]);
+      final resumed = committed && branch != cb;
+      if (resumed) {
+        // the checkout wrote the archive branch's files: check them, and what
+        // the undo would write, before any backup or index change
+        destinationSteps();
+        for (final m in members) {
+          undo(['check', 'tracked', m.dir]);
+        }
+        for (final m in members) {
+          final review = await entry(t, _joinAll([m.dir, 'review.md']));
+          final tasks = await entry(t, _joinAll([m.dir, 'tasks.md']));
+          undo(['check', 'inputs', m.dir, review?[2] ?? '-', tasks?[2] ?? '-']);
+        }
+      }
       undo(['check', 'index']);
+      if (!resumed) {
+        destinationSteps();
+      }
       undo(['check', 'absent', backupDir]);
     }
     // the fileset as the plan's recovery text quotes it
@@ -1461,12 +1776,27 @@ class _Planner {
       if (committed)
         for (final f in backupFiles) '$backupDir/base/${_dirname(f)}',
     });
-    if (backupFiles.isNotEmpty) undo(['mkdir', ...dirs]);
+    if (backupFiles.isNotEmpty) perPath(undoArgv(['mkdir']), dirs, step);
     for (final f in backupFiles) {
       if (committed) undo(['write-blob', a!, f, '$backupDir/base/$f']);
       undo(['copy', f, '$backupDir/amended/$f']);
     }
     if (backupFiles.isEmpty) undo(['mkdir', backupDir]);
+    // C32: a marker the undo removes is copied before the first index change
+    if (!jj && !gb) {
+      for (final m in members) {
+        if (!markerDirs[m.name]!) {
+          continue;
+        }
+        undo(['mkdir', '$backupDir/markers/${m.name}']);
+        undo([
+          'copy',
+          '--if-present',
+          _joinAll([m.dir, 'specwright-change.yaml']),
+          '$backupDir/markers/${m.name}/specwright-change.yaml',
+        ]);
+      }
+    }
 
     if (committed && !jj && !gb) {
       for (final m in members) {
@@ -1485,21 +1815,13 @@ class _Planner {
           );
         }
       }
-      if (mainMod.isNotEmpty) {
-        step(
-          gitArgv([
-            'restore',
-            '--source=$parent',
-            '--staged',
-            '--',
-            ...mainMod,
-          ]),
-        );
-      }
-      if (mainNew.isNotEmpty) {
-        step(gitArgv(['rm', '-q', '--cached', '--', ...mainNew]));
-      }
-      final subject = '$typ($change): undo archive of ${namesAll.join(', ')}';
+      perPath(
+        gitArgv(['restore', '--source=$parent', '--staged', '--']),
+        mainMod,
+        step,
+      );
+      perPath(gitArgv(['rm', '-q', '--cached', '--']), mainNew, step);
+      final subject = commitSubject;
       step(gitArgv(['commit', '-q', '-m', subject]));
     }
     for (final m in members) {
@@ -1525,18 +1847,19 @@ class _Planner {
         undo(['write-blob', baseRev, f, f]);
       }
     } else if (mainMod.isNotEmpty) {
-      step(
+      perPath(
         gitArgv([
           'restore',
           committed ? '--source=$parent' : '--source=$t',
           '--worktree',
           '--',
-          ...mainMod,
         ]),
+        mainMod,
+        step,
       );
     }
     if (mainNew.isNotEmpty) {
-      undo(['remove', ...mainNew]);
+      perPath(undoArgv(['remove']), mainNew, step);
       for (final dn in sortedByCodePoint({
         for (final f in mainNew) _dirname(f),
       })) {
@@ -1544,12 +1867,12 @@ class _Planner {
       }
     }
     if (jj && committed) {
-      final subject = '$typ($change): undo archive of ${namesAll.join(', ')}';
+      final subject = commitSubject;
       step(['jj', 'commit', '-m', subject, ...fileset]);
       step(['jj', 'bookmark', 'set', rev, '-r', '@-']);
     }
     if (gb && committed) {
-      final subject = '$typ($change): undo archive of ${namesAll.join(', ')}';
+      final subject = commitSubject;
       final msgfile = '$backupDir/commit-message.txt';
       undo(['write-text', msgfile, subject]);
       // a directory ends in `/` so the commit covers the files that left it
@@ -1635,6 +1958,12 @@ class _Planner {
         '$backupDir; no step reads or deletes them.',
       );
     }
+    if (!jj && !gb && markerDirs.values.any((v) => v)) {
+      warnings.add(
+        'A change marker the undo removes is copied to $backupDir/markers/ '
+        'first, and no step deletes that copy.',
+      );
+    }
 
     // ---- after_rerun ------------------------------------------------------
     /// C33: the rerun decision (eligibility and delta inventory) is made once,
@@ -1657,37 +1986,6 @@ class _Planner {
     var redelete = <String>[];
     var names = '';
     if (committed && rerun.isNotEmpty) {
-      final syncedByRerun = <String>{};
-      for (final m in rerun) {
-        if (branch == cb) {
-          // the undo moves the work-tree folder back, so its delta specs are
-          // the ones a rerun syncs
-          for (final w in _walkArchive(top, _joinAll([m.dir, 'specs']))) {
-            if (w.files.contains('spec.md')) {
-              syncedByRerun.add(_joinAll([prefix, 'specs', w.rel, 'spec.md']));
-            }
-          }
-          continue;
-        }
-        final listing = nulList(
-          await git(top, [
-            'ls-tree',
-            '-r',
-            '--name-only',
-            '-z',
-            t,
-            '--',
-            _joinAll([m.dir, 'specs']),
-          ]),
-          'git ls-tree',
-        );
-        for (final p in listing) {
-          final rel = _dropPoints(p, m.dir.runes.length + 1);
-          if (rel.endsWith('/spec.md')) {
-            syncedByRerun.add(_joinAll([prefix, rel]));
-          }
-        }
-      }
       merge = [
         for (final f in amended)
           if (syncedByRerun.contains(f)) f,
@@ -1706,6 +2004,14 @@ class _Planner {
     if (rerun.isNotEmpty) {
       names = rerun.map((m) => m.name).join(', ');
       // stop before any archive when the user made a new spec of the same name
+      // C46: the rerun's destinations are checked again before it writes any
+      if (!jj && !gb) {
+        perPath(
+          undoArgv(['check', 'destinations', '--']),
+          sortedByCodePoint(syncedByRerun),
+          (argv) => afterSteps.add(mk(argv)),
+        );
+      }
       for (final f in redelete) {
         afterSteps.add(
           mk(
@@ -1720,8 +2026,18 @@ class _Planner {
           ),
         );
       }
+      // the rerun archives in the selected OpenSpec root, the parent of the
+      // prefix, so a nested planning root (`planning/openspec`) never
+      // archives a same-named change of the top-level project
+      final slash = prefix.lastIndexOf('/');
+      final rerunCwd = slash < 0
+          ? top
+          : _under(top, prefix.substring(0, slash));
       for (final m in rerun) {
-        afterSteps.add(mk(['openspec', 'archive', m.name, '--yes']));
+        afterSteps.add({
+          'cwd': rerunCwd,
+          'argv': ['openspec', 'archive', m.name, '--yes'],
+        });
       }
       for (final f in merge) {
         afterSteps.add(
@@ -1738,6 +2054,13 @@ class _Planner {
       for (final f in redelete) {
         afterSteps.add(mk(undoArgv(['remove', f])));
       }
+      // C48: the pinned OpenSpec CLI updates an existing spec in place
+      warnings.add(
+        'after_rerun_steps write an existing main spec in place, as '
+        '`openspec archive` does, so a second hard link to one of them, made '
+        'outside Specwright, sees the update; the undo\'s own restore replaces '
+        'the file instead.',
+      );
       warnings.add(
         'Run after_rerun_steps after steps: they archive $names again'
         '${merge.isNotEmpty ? ' and merges the saved amendments into ${merge.join(', ')}. '
@@ -1764,6 +2087,20 @@ class _Planner {
         "change's synced content, so they are saved in $backupDir/amended/ "
         'and never merged automatically; review them by hand.',
       );
+    }
+
+    // a line that cannot be split and still does not fit would fail to start
+    // after the steps began: stop before printing any
+    for (final printed in [...steps, ...afterSteps]) {
+      final argv = (printed['argv']! as List).cast<String>();
+      if (measure(argv) > lineLimit) {
+        throw VcsStop(
+          'plan_too_large',
+          'A step of this undo cannot be split under the command-line limit '
+              '(${measure(argv)} units, limit $lineLimit): '
+              '${argv.take(8).join(' ')} ...; nothing was changed',
+        );
+      }
     }
 
     return {

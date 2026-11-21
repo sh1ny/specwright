@@ -35,6 +35,12 @@ def git_subcommand(argv):
     return rest[0] if rest else None
 
 
+def undo_kind(step):
+    """The kind of an emitted `sw finish undo-step <kind>` step, or None."""
+    argv = step["argv"]
+    return argv[5] if argv[3:5] == ["finish", "undo-step"] and len(argv) > 5 else None
+
+
 def _load(name, filename):
     spec = importlib.util.spec_from_file_location(name, HERE / filename)
     module = importlib.util.module_from_spec(spec)
@@ -381,7 +387,9 @@ class TestUndoSteps(StepsCase):
         r = fx.run_steps(self.scripts, out.plan[1]["after_rerun_steps"])
         self.assertNotEqual(r.returncode, 0)
         self.assertIn(SPEC_A, r.stdout + r.stderr)
-        self.assertEqual(len(r.ran), 1, "a step ran after the refusal")
+        last = r.ran[-1]["argv"]
+        self.assertEqual(last[3:7], ["finish", "undo-step", "check", "absent"], last)
+        self.assertEqual([x for x in r.ran if x["argv"][0] == "openspec"], [], "an archive ran before the guard")
         self.assertFalse((self.work / tp.ad("add-y")).exists(), "an archive ran before the guard")
         self.assertEqual(fx.read(self.work, SPEC_A), mine)
 
@@ -487,6 +495,48 @@ class TestRegularFileReads(StepsCase):
         self.assertIn(f"{P}/specwright.yaml", stop["message"].replace("\\", "/"))
         self.assertFalse(self.backups().exists(), "a backup directory was made")
 
+    @unittest.skipIf(sys.platform == "win32", "platform: a FIFO needs POSIX")
+    def test_a_change_marker_that_is_not_a_regular_file(self):
+        """The marker the undo removes is replaced, after the plan, by a link to a FIFO with no writer: its copy into the
+        backup stops with vcs_error naming it without blocking, and no index change, move or commit follows."""
+        # the plan removes a marker only when the archive commit added it
+        self.git("checkout", "-q", "-b", BRANCH)
+        fx.make_change(self.work, "add-x", "DEFERRED", {"a": "New thing", "b": "B thing"})
+        fx.archive(self.work, "add-x", marker=True, commit_it=True)
+        marker = f"{tp.ad('add-x')}/specwright-change.yaml"
+        self.assertEqual(self.git("ls-files", "--", marker), marker, "the archive commit holds the marker")
+        code, doc, raw = fx.run_plan(self.work, "add-x")
+        self.assertEqual(code, 0, raw)
+        pipe = self.fifo()
+        (self.work / marker).unlink()
+        os.symlink(pipe, self.work / marker)
+        head, index = self.git("rev-parse", "HEAD"), self.git("ls-files", "--stage")
+        result = self.run_bounded(doc["steps"])
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        stop = json.loads(result.stdout)
+        self.assertEqual(stop["error"], "vcs_error", stop)
+        self.assertIn(marker, stop["message"].replace("\\", "/"))
+        self.assertEqual(self.git("rev-parse", "HEAD"), head, "a commit was made")
+        self.assertEqual(self.git("ls-files", "--stage"), index, "the index changed")
+        self.assertTrue((self.work / tp.ad("add-x")).is_dir(), "the archive was moved")
+
+    @unittest.skipIf(sys.platform == "win32", "platform: a FIFO needs POSIX")
+    def test_destination_that_is_not_a_regular_file(self):
+        """A main spec the undo would restore is replaced, after the plan, by a FIFO with no writer: the destination check
+        stops the steps naming it without blocking, before any backup or move."""
+        build_single(self.work)
+        code, doc, raw = fx.run_plan(self.work, "add-x")
+        self.assertEqual(code, 0, raw)
+        (self.work / SPEC_A).unlink()
+        os.mkfifo(self.work / SPEC_A)
+        result = self.run_bounded(doc["steps"])
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        stop = json.loads(result.stdout)
+        self.assertEqual(stop["error"], "unsupported_entry", stop)
+        self.assertIn(SPEC_A, stop["message"].replace("\\", "/"))
+        self.assertFalse(self.backups().exists(), "a backup directory was made")
+        self.assertTrue((self.work / tp.ad("add-x")).is_dir(), "the archive was moved")
+
 
 class TestRestoredCopy(StepsCase):
     """The undo's attribute guards and its check of the restored decision files (change fix-sw-port-gaps, group 11, D2)."""
@@ -533,6 +583,337 @@ class TestRestoredCopy(StepsCase):
         self.assertEqual(len(r.ran), 1, "a step ran after the first guard")
         self.assertIn("attr.tree", r.stdout)
 
+
+    def test_restored_decision_bytes_that_differ_from_the_tip_stop_the_steps_after_the_checkout(self):
+        """`ident` is no filter, so the attribute guard lets it through; the checkout then expands `$Id$` in `tasks.md`, and
+        the restored bytes differ from the tip's blob. Expected red until group 12 adds the check of the restored inputs."""
+        build_single(self.work)
+        tasks = f"{tp.ad('add-x')}/tasks.md"
+        fx.commit(self.work, "chore: an expanded keyword", {f"{P}/.gitattributes": "tasks.md ident\n",
+                                                            tasks: "# Tasks\n\n- [ ] 1.1 $Id$\n"})
+        self.git("checkout", "-q", "main")
+        code, doc, raw = fx.run_plan(self.work, "add-x", branch=BRANCH)
+        self.assertEqual(code, 0, raw)
+        r = fx.run_steps(self.scripts, doc["steps"])
+        self.assertNotEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn(tasks, r.stdout.replace("\\", "/"))
+        self.assertEqual(self.git("branch", "--show-current"), BRANCH, "the checkout ran before the check")
+        self.assertFalse(self.backups().exists(), "a backup directory was made")
+        self.assertTrue((self.work / tp.ad("add-x")).is_dir(), "the archive was undone")
+
+
+class TestDestinations(StepsCase):
+    """The destination list, its checks and the line sizing of the steps (change fix-sw-port-gaps, group 12, D2)."""
+
+    def backups(self):
+        return Path(fx.git(self.work, "rev-parse", "--absolute-git-dir")) / "specwright-undo"
+
+    def test_the_first_undo_in_a_fresh_checkout_proves_its_backup_absent(self):
+        """Nothing under `.git/specwright-undo` exists yet: the absence check passes from the nearest existing ancestor and
+        the steps run to the end."""
+        build_single(self.work)
+        self.assertFalse(self.backups().exists())
+        code, doc, raw = fx.run_plan(self.work, "add-x")
+        self.assertEqual(code, 0, raw)
+        absent = [s for s in doc["steps"] if s["argv"][3:7] == ["finish", "undo-step", "check", "absent"]]
+        self.assertTrue(absent, "the plan checks the backup directory is absent")
+        r = fx.run_steps(self.scripts, doc["steps"])
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertTrue((self.work / tp.cd("add-x")).is_dir(), "the change is back")
+
+    def test_a_git_bulk_undo_whose_synced_spec_paths_force_batching(self):
+        """600 new specs: no single `rm --cached` or `remove` line holds their paths under 32,766 units. Each is split into
+        runs, and the steps run to one undo commit that leaves no new spec."""
+        caps = {f"c{i:04d}-{'y' * 30}": f"Thing {i}" for i in range(600)}
+        build_single(self.work, deltas=caps)
+        count = int(self.git("rev-list", "--count", "HEAD"))
+        code, doc, raw = fx.run_plan(self.work, "add-x")
+        self.assertEqual(code, 0, raw)
+        for step in doc["steps"]:
+            self.assertLessEqual(len(" ".join(step["argv"])), 32766, step["argv"][:8])
+        removes = [s for s in doc["steps"] if s["argv"][3:6] == ["finish", "undo-step", "remove"]]
+        self.assertGreater(len(removes), 1, "the removals are one line")
+        r = fx.run_steps(self.scripts, doc["steps"])
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(int(self.git("rev-list", "--count", "HEAD")), count + 1, "one undo commit")
+        left = [k for k in fx.snapshot(self.work) if k.startswith(f"{P}/specs/c0")]
+        self.assertEqual(left, [], "a new spec is left")
+
+    @unittest.skipIf(sys.platform == "win32", "platform: a link needs POSIX")
+    def test_a_removed_spec_under_a_linked_directory(self):
+        """A new spec's capability directory becomes a link to an outside directory with its own `spec.md` after the plan:
+        the destination check stops the steps naming it before any backup or move, and the outside file is unchanged."""
+        build_single(self.work)
+        code, doc, raw = fx.run_plan(self.work, "add-x")
+        self.assertEqual(code, 0, raw)
+        outside = self.tmp / "outside"
+        outside.mkdir()
+        (outside / "spec.md").write_text("mine\n", encoding="utf-8", newline="")
+        shutil.rmtree(self.work / f"{P}/specs/b")
+        os.symlink(outside, self.work / f"{P}/specs/b")
+        r = fx.run_steps(self.scripts, doc["steps"])
+        self.assertNotEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn(f"{P}/specs/b", (r.stdout + r.stderr).replace("\\", "/"))
+        self.assertEqual((outside / "spec.md").read_text(encoding="utf-8"), "mine\n")
+        self.assertTrue((self.work / tp.ad("add-x")).is_dir(), "the archive was moved")
+        self.assertFalse(self.backups().exists(), "a backup directory was made")
+
+    @unittest.skipIf(sys.platform == "win32", "platform: a link needs POSIX")
+    def test_a_rerun_destination_linked_after_the_undo(self):
+        """The undo's steps ran; a rerun spec's capability directory then becomes a link to an outside directory: the
+        after-rerun destination check stops naming it before any `openspec archive` starts."""
+        self.git("checkout", "-q", "-b", BRANCH)
+        fx.make_change(self.work, "add-x", "DEFERRED", {"a": "X thing"})
+        fx.make_change(self.work, "add-y", "APPROVE", {"c": "Y thing"})
+        fx.archive(self.work, ["add-x", "add-y"], commit_it=True)
+        code, doc, raw = fx.run_plan(self.work, "add-x")
+        self.assertEqual(code, 0, raw)
+        r = fx.run_steps(self.scripts, doc["steps"])
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        outside = self.tmp / "outside"
+        outside.mkdir()
+        spec = self.work / f"{P}/specs/c"
+        if spec.is_dir() and not spec.is_symlink():
+            shutil.rmtree(spec)
+        os.symlink(outside, spec)
+        r = fx.run_steps(self.scripts, doc["after_rerun_steps"])
+        self.assertNotEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn(f"{P}/specs/c", (r.stdout + r.stderr).replace("\\", "/"))
+        self.assertTrue(all(s["argv"][0] != "openspec" for s in r.ran), "an archive started")
+        self.assertEqual(list(outside.iterdir()), [], "a file was written outside the checkout")
+
+    @unittest.skipIf(sys.platform == "win32", "platform: a link needs POSIX")
+    def test_a_linked_archive_directory(self):
+        """`changes/archive` becomes a link to an outside directory holding the archived member, which has no spec deltas:
+        the destination check stops the steps naming the member before any backup or move."""
+        self.git("checkout", "-q", "-b", BRANCH)
+        fx.make_change(self.work, "add-x", "DEFERRED", {})
+        fx.archive(self.work, "add-x", commit_it=True)
+        code, doc, raw = fx.run_plan(self.work, "add-x")
+        self.assertEqual(code, 0, raw)
+        archive = self.work / P / "changes" / "archive"
+        outside = self.tmp / "outside"
+        shutil.move(str(archive), str(outside))
+        os.symlink(outside, archive)
+        r = fx.run_steps(self.scripts, doc["steps"])
+        self.assertNotEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn(tp.ad("add-x"), (r.stdout + r.stderr).replace("\\", "/"))
+        self.assertTrue((outside / f"{fx.DATE}-add-x").is_dir(), "the member left the outside directory")
+        self.assertFalse(self.backups().exists(), "a backup directory was made")
+
+    def exclude(self, pattern):
+        """Ignore `pattern` through .git/info/exclude."""
+        path = self.work / ".git" / "info" / "exclude"
+        path.write_text(path.read_text(encoding="utf-8") + pattern + "\n", encoding="utf-8")
+
+    def marker_archive(self):
+        """The archive of add-x on the branch with its change marker, committed. Returns the marker's path."""
+        fx.git(self.work, "checkout", "-q", "-b", BRANCH)
+        fx.make_change(self.work, "add-x", "DEFERRED", {"a": "New thing", "b": "B thing"})
+        fx.archive(self.work, "add-x", marker=True, commit_it=True)
+        return f"{tp.ad('add-x')}/specwright-change.yaml"
+
+    def resume_plan(self):
+        """From a clean main, plan the resume of the archive branch."""
+        self.git("checkout", "-q", "main")
+        code, doc, raw = fx.run_plan(self.work, "add-x", branch=BRANCH)
+        self.assertEqual(code, 0, raw)
+        return doc
+
+    def saved_marker(self, doc):
+        return Path(doc["backup_dir"]) / "markers" / "add-x" / "specwright-change.yaml"
+
+    def step_index(self, steps, test, what):
+        found = [i for i, s in enumerate(steps) if test(s)]
+        self.assertTrue(found, f"no {what} in the steps")
+        return found[0]
+
+    def test_an_ignored_directory_at_a_restore_destination(self):
+        """The resume plan is made; an ignored, untracked, non-empty directory then appears where the change comes back:
+        the steps stop at the destination check after the checkout, before any backup or index write."""
+        build_single(self.work)
+        tip = self.git("rev-parse", BRANCH)
+        doc = self.resume_plan()
+        keep = self.work / tp.cd("add-x") / "keep" / "notes.txt"
+        keep.parent.mkdir(parents=True)
+        keep.write_text("mine\n", encoding="utf-8", newline="")
+        self.exclude(f"/{tp.cd('add-x')}/")
+        self.git("check-ignore", "-q", "--", f"{tp.cd('add-x')}/keep/notes.txt")
+        self.assertEqual(self.git("status", "--porcelain"), "", "the directory is hidden from Git")
+        r = fx.run_steps(self.scripts, doc["steps"])
+        self.assertNotEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn(tp.cd("add-x"), (r.stdout + r.stderr).replace("\\", "/"))
+        self.assertEqual(self.git("branch", "--show-current"), BRANCH, "the checkout ran before the stop")
+        self.assertEqual(keep.read_text(encoding="utf-8"), "mine\n", "the ignored file was lost")
+        self.assertTrue((self.work / tp.ad("add-x")).is_dir(), "the archive was moved")
+        self.assertEqual(self.git("rev-parse", "HEAD"), tip, "an undo commit was made")
+        self.assertEqual(self.git("status", "--porcelain"), "", "an index write ran")
+        self.assertFalse(self.backups().exists(), "a backup directory was made")
+
+    def test_an_untracked_file_in_a_resumed_archive(self):
+        """An ignored file lies in the archive directory on main, where the tip tracks no such path: after the checkout the
+        steps stop naming it, before any backup or index write."""
+        build_single(self.work)
+        tip = self.git("rev-parse", BRANCH)
+        doc = self.resume_plan()
+        extra = self.work / tp.ad("add-x") / "extra" / "draft.md"
+        extra.parent.mkdir(parents=True)
+        extra.write_text("mine\n", encoding="utf-8", newline="")
+        self.exclude("draft.md")
+        rel = f"{tp.ad('add-x')}/extra/draft.md"
+        self.git("check-ignore", "-q", "--", rel)
+        self.assertNotIn(rel, self.git("ls-tree", "-r", "--name-only", BRANCH).splitlines(), "the tip tracks it")
+        self.assertEqual(self.git("status", "--porcelain"), "", "the file is hidden from Git")
+        r = fx.run_steps(self.scripts, doc["steps"])
+        self.assertNotEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn(rel, (r.stdout + r.stderr).replace("\\", "/"))
+        self.assertEqual(self.git("branch", "--show-current"), BRANCH, "the checkout ran before the stop")
+        self.assertEqual(extra.read_text(encoding="utf-8"), "mine\n")
+        self.assertEqual(self.git("rev-parse", "HEAD"), tip, "an undo commit was made")
+        self.assertFalse(self.backups().exists(), "a backup directory was made")
+        self.assertTrue((self.work / tp.ad("add-x")).is_dir(), "the archive was moved")
+
+    def test_an_edited_change_marker_in_the_archive(self):
+        """The marker the undo removes is edited after the plan was printed, and the guards pass: the backup holds its
+        bytes as they were when the backup step ran, copied before the undo's first index change."""
+        marker = self.marker_archive()
+        code, doc, raw = fx.run_plan(self.work, "add-x")
+        self.assertEqual(code, 0, raw)
+        edited = b"code_changes: none\nedited_after_the_plan: true\n"
+        (self.work / marker).write_bytes(edited)
+        self.assertNotEqual(self.git("show", f"HEAD:{marker}").encode("utf-8"), edited, "the edit is the committed marker")
+        steps = doc["steps"]
+        copy = self.step_index(steps, lambda s: undo_kind(s) == "copy" and "--if-present" in s["argv"], "marker copy")
+        first_index_change = self.step_index(
+            steps, lambda s: git_subcommand(s["argv"]) in ("rm", "read-tree", "restore"), "index change")
+        self.assertLess(copy, first_index_change)
+        r = fx.run_steps(self.scripts, steps)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(self.saved_marker(doc).read_bytes(), edited)
+        self.assertFalse((self.work / tp.cd("add-x") / "specwright-change.yaml").exists(), "the marker was kept in place")
+
+    def test_a_guard_refuses_before_the_backup(self):
+        """A staged change made after the plan stops `check index`, and on a resume a dirty tree stops `check clean`: each
+        stops the steps at the guard, the marker is untouched and no backup directory exists."""
+        marker = self.marker_archive()
+        code, doc, raw = fx.run_plan(self.work, "add-x")
+        self.assertEqual(code, 0, raw)
+        before = (self.work / marker).read_bytes()
+        (self.work / "README.md").write_text("changed\n", encoding="utf-8", newline="")
+        self.git("add", "README.md")
+        r = fx.run_steps(self.scripts, doc["steps"])
+        self.assertNotEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(undo_kind(r.ran[-1]), "check", r.ran[-1])
+        self.assertEqual((self.work / marker).read_bytes(), before, "the marker changed")
+        self.assertFalse(self.backups().exists(), "a backup directory was made")
+        self.git("restore", "--staged", "--worktree", "--", "README.md")
+        tip = self.git("rev-parse", BRANCH)
+        doc = self.resume_plan()
+        (self.work / "README.md").write_text("dirty\n", encoding="utf-8", newline="")
+        r = fx.run_steps(self.scripts, doc["steps"])
+        self.assertNotEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(r.ran[-1]["argv"][5:7], ["check", "clean"], r.ran[-1])
+        self.assertEqual(self.git("branch", "--show-current"), "main", "the checkout ran")
+        self.assertEqual(self.git("rev-parse", BRANCH), tip)
+        self.assertEqual((self.work / "README.md").read_text(encoding="utf-8"), "dirty\n")
+        self.assertFalse(self.backups().exists(), "a backup directory was made")
+
+    def test_a_resumed_undos_marker(self):
+        """On a resume the marker is copied after the checkout and every guard that follows it, before the first
+        `git rm --cached`, and the copy holds the marker's bytes."""
+        self.marker_archive()
+        doc = self.resume_plan()
+        steps = doc["steps"]
+        checkout = self.step_index(steps, lambda s: git_subcommand(s["argv"]) == "checkout", "checkout")
+        copy = self.step_index(steps, lambda s: undo_kind(s) == "copy" and "--if-present" in s["argv"], "marker copy")
+        rm = self.step_index(steps, lambda s: git_subcommand(s["argv"]) == "rm" and "--cached" in s["argv"], "git rm --cached")
+        guards = [i for i, s in enumerate(steps) if i > checkout and undo_kind(s) == "check"]
+        self.assertTrue(guards, "no guard follows the checkout")
+        self.assertTrue(all(i < copy for i in guards), f"a guard follows the copy: {guards} {copy}")
+        self.assertLess(copy, rm)
+        r = fx.run_steps(self.scripts, steps)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(self.saved_marker(doc).read_bytes(), b"code_changes: none\n")
+
+    def test_a_marker_deleted_after_planning(self):
+        """The marker of a committed archive is deleted after the plan: its backup step does nothing and the undo
+        completes with one commit, the change back and no marker in the backup."""
+        marker = self.marker_archive()
+        count = int(self.git("rev-list", "--count", "HEAD"))
+        code, doc, raw = fx.run_plan(self.work, "add-x")
+        self.assertEqual(code, 0, raw)
+        (self.work / marker).unlink()
+        r = fx.run_steps(self.scripts, doc["steps"])
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertFalse(self.saved_marker(doc).exists(), "a marker was backed up")
+        self.assertEqual(int(self.git("rev-list", "--count", "HEAD")), count + 1, "one undo commit")
+        self.assertTrue((self.work / tp.cd("add-x") / "review.md").is_file(), "the change is back")
+        self.assertEqual(self.git("ls-files", "--", f"{tp.cd('add-x')}/specwright-change.yaml"), "")
+
+    @unittest.skipIf(sys.platform == "win32", "platform: a link needs POSIX")
+    def test_a_plain_git_removal_under_a_linked_directory(self):
+        """An uncommitted archive made a new spec; its capability directory then links to an outside directory holding a
+        regular `spec.md`: the plan stops naming the path, nothing is backed up or moved, and the outside file is unchanged."""
+        build_single(self.work, committed=False)
+        outside = self.tmp / "outside"
+        outside.mkdir()
+        (outside / "spec.md").write_text("mine\n", encoding="utf-8", newline="")
+        shutil.rmtree(self.work / f"{P}/specs/b")
+        os.symlink(outside, self.work / f"{P}/specs/b")
+        self.assertTrue((self.work / SPEC_B).is_file(), "the link resolves to a regular spec.md")
+        before = fx.state(self.work)
+        self.assertStops(fx.run_plan(self.work, "add-x"), "unsupported_entry", f"{P}/specs/b")
+        self.assertEqual(fx.state(self.work), before)
+        self.assertEqual((outside / "spec.md").read_text(encoding="utf-8"), "mine\n")
+        self.assertTrue((self.work / tp.ad("add-x")).is_dir(), "the archive was moved")
+        self.assertFalse(self.backups().exists(), "a backup directory was made")
+
+
+class TestNestedPlanningRoot(StepsCase):
+    """The rerun runs in the selected OpenSpec root, with the pinned OpenSpec CLI (change fix-sw-port-gaps, group 12, D2).
+    CI installs it before the evals run (`.github/workflows/evals.yml`); a rerun of OPENSPEC_VERSION selects this module."""
+
+    PROPOSAL = ("## Why\n\nThe undo evals need an active change that the real OpenSpec CLI can archive again, with enough "
+                "text to pass its validation.\n\n## What Changes\n\n- Adds a requirement to the a capability.\n")
+
+    def openspec(self):
+        found = shutil.which("openspec")
+        if not found:
+            if os.environ.get("CI"):
+                self.fail("the pinned openspec CLI is not on PATH in CI")
+            self.skipTest("platform: the openspec CLI is not on PATH")
+        return found
+
+    def test_a_rerun_under_a_nested_planning_root(self):
+        """`planning/openspec` is the selected root and the checkout's top-level `openspec/` holds an active change of the
+        same name: the printed steps, run with the real `openspec archive`, change only the `planning/` root."""
+        real = self.openspec()
+        nested = f"planning/{P}"
+        (self.tmp / "nested").mkdir()
+        work = fx.make_repo(self.tmp / "nested", prefix=nested)
+        fx.make_change(work, "add-y", "APPROVE", {"a": "Top level thing"})
+        fx.write(work, f"{P}/changes/add-y/proposal.md", self.PROPOSAL)
+        fx.write(work, f"{P}/specs/a/spec.md", fx.base_spec("a"))
+        fx.commit(work, "chore: a top-level OpenSpec root")
+        fx.git(work, "checkout", "-q", "-b", BRANCH)
+        fx.make_change(work, "add-x", "DEFERRED", {"a": "X thing"}, prefix=nested)
+        fx.make_change(work, "add-y", "APPROVE", {"a": "Y thing"}, prefix=nested)
+        fx.commit(work, "docs(add-y): a proposal that validates", {f"{nested}/changes/add-y/proposal.md": self.PROPOSAL})
+        fx.archive(work, ["add-x", "add-y"], prefix=nested, commit_it=True)
+
+        def top_level():
+            return {k: v for k, v in fx.snapshot(work).items() if k.startswith(f"{P}/")}
+        top = top_level()
+        self.assertTrue((work / P / "changes" / "add-y" / "proposal.md").is_file(), "the top-level change is active")
+        env = {"XDG_DATA_HOME": str(self.tmp / "xdg-data"), "XDG_CONFIG_HOME": str(self.tmp / "xdg-config"),
+               "OPENSPEC_TELEMETRY": "0"}
+        self.new_run(work, lambda steps: fx.run_steps(self.scripts, steps, env=env, tools={"openspec": real}),
+                     prefix=nested)
+        self.assertEqual(top_level(), top, "the top-level root changed")
+        archived = sorted(p.name for p in (work / nested / "changes" / "archive").glob("*-add-y"))
+        self.assertEqual(len(archived), 1, f"the planning root's add-y was not archived again: {archived}")
+        self.assertTrue((work / nested / "changes" / "add-x" / "review.md").is_file(), "add-x is not back")
+        self.assertFalse((work / nested / "changes" / "add-y").exists(), "add-y stays active")
 
 if __name__ == "__main__":
     unittest.main()

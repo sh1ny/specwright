@@ -426,6 +426,61 @@ Future<String?> firstFlaggedEntry({
   required Map<String, String> environment,
   List<String> paths = const [],
 }) async {
+  final found = await _scanListing(
+    cwd: cwd,
+    environment: environment,
+    label: 'git ls-files -v',
+    args: ['ls-files', '-v', '-z', if (paths.isNotEmpty) '--', ...paths],
+    keep: 1,
+    pick: (bytes) {
+      if (bytes.length <= 2) return null;
+      final tag = bytes[0];
+      if ((tag >= 0x61 && tag <= 0x7a) || tag == 0x53) {
+        return decodeReplacing(Uint8List.sublistView(bytes, 2));
+      }
+      return null;
+    },
+  );
+  return found.isEmpty ? null : found.first;
+}
+
+/// The files under [dir] that Git does not track, ignored ones included (no
+/// exclude option is passed), at most [keep] of them: empty when every file
+/// there is tracked.
+///
+/// `git ls-files -z --others` is read as it arrives and the read ends, with
+/// the child, once [keep] records were kept, so a tree of untracked files
+/// never fills memory. A failed read is a `vcs_error`.
+Future<List<String>> untrackedUnder({
+  required String cwd,
+  required Map<String, String> environment,
+  required String dir,
+  int keep = 20,
+}) => _scanListing(
+  cwd: cwd,
+  environment: environment,
+  label: 'git ls-files --others',
+  args: ['ls-files', '-z', '--others', '--', dir],
+  keep: keep,
+  pick: (bytes) =>
+      bytes.isEmpty ? null : decodeReplacing(Uint8List.sublistView(bytes)),
+);
+
+/// Starts `git` with the safety options and [args] in [cwd], reads its stdout
+/// one NUL-ended record at a time, and returns what [pick] keeps of them, at
+/// most [keep]; the child is ended as soon as that many were kept. A non-zero
+/// exit, any stderr output or a stream error when nothing stopped the read
+/// early is a failed read (`vcs_error` naming [label]).
+///
+/// This is the one place a guard starts an incremental `git` reader.
+Future<List<String>> _scanListing({
+  required String cwd,
+  required Map<String, String> environment,
+  required String label,
+  required List<String> args,
+  required int keep,
+  required String? Function(Uint8List record) pick,
+}) async {
   final Process process;
   try {
     process = await Process.start(
@@ -435,23 +490,19 @@ Future<String?> firstFlaggedEntry({
         '-c',
         'core.fsmonitor=false',
         '--no-optional-locks',
-        'ls-files',
-        '-v',
-        '-z',
-        if (paths.isNotEmpty) '--',
-        ...paths,
+        ...args,
       ],
       workingDirectory: cwd,
       environment: {...environment, 'GIT_OPTIONAL_LOCKS': '0'},
       includeParentEnvironment: false,
     );
   } on ProcessException catch (e) {
-    throw VcsStop('vcs_error', 'git ls-files -v could not run: ${e.message}');
+    throw VcsStop('vcs_error', '$label could not run: ${e.message}');
   }
   final said = <int>[];
   final err = process.stderr.forEach(said.addAll);
   final record = BytesBuilder(copy: false);
-  String? found;
+  final found = <String>[];
   Object? streamError;
   try {
     scan:
@@ -461,20 +512,17 @@ Future<String?> firstFlaggedEntry({
           record.addByte(b);
           continue;
         }
-        final bytes = record.takeBytes();
-        if (bytes.length > 2) {
-          final tag = bytes[0];
-          if ((tag >= 0x61 && tag <= 0x7a) || tag == 0x53) {
-            found = decodeReplacing(Uint8List.sublistView(bytes, 2));
-            break scan;
-          }
+        final kept = pick(record.takeBytes());
+        if (kept != null) {
+          found.add(kept);
+          if (found.length >= keep) break scan;
         }
       }
     }
   } catch (e) {
     streamError = e;
   }
-  if (found != null) {
+  if (found.length >= keep) {
     process.kill();
     await process.exitCode;
     await err;
@@ -484,11 +532,239 @@ Future<String?> firstFlaggedEntry({
   await err;
   if (code != 0 || said.isNotEmpty || streamError != null) {
     throw failedRead(
-      'git ls-files -v',
+      label,
       exitCode: code,
       stderr: said,
       streamError: streamError,
     );
   }
-  return null;
+  return found;
+}
+
+VcsStop _unsupportedEntry(String message) =>
+    VcsStop('unsupported_entry', message);
+
+/// The paths [raw] names, as components with no empty ones.
+List<String> _components(String raw) => [
+  for (final c in raw.replaceAll(r'\', '/').split('/'))
+    if (c.isNotEmpty) c,
+];
+
+/// Refuses, with `unsupported_entry` naming both, two of [paths] that are
+/// equal, or one under the other as a directory prefix, once case is folded
+/// with `toLowerCase()` or with `toUpperCase()`, so that no path has to be
+/// both a file and a directory (C46). Equal strings are one path. The check is
+/// on every file system, since the plan cannot know where the checkout is used.
+void refuseCollidingPaths(Iterable<String> paths) {
+  final unique = <String>{...paths}.toList();
+  for (final fold in <String Function(String)>[
+    (s) => s.toLowerCase(),
+    (s) => s.toUpperCase(),
+  ]) {
+    final exact = <String, String>{};
+    final above = <String, String>{};
+    for (final path in unique) {
+      final parts = [for (final c in _components(path)) fold(c)];
+      final key = parts.join('/');
+      final clash = exact[key] ?? above[key];
+      if (clash != null) throw _collision(clash, path);
+      for (var n = 1; n < parts.length; n++) {
+        final owner = exact[parts.sublist(0, n).join('/')];
+        if (owner != null) throw _collision(owner, path);
+      }
+      exact[key] = path;
+      for (var n = 1; n < parts.length; n++) {
+        above.putIfAbsent(parts.sublist(0, n).join('/'), () => path);
+      }
+    }
+  }
+}
+
+VcsStop _collision(String a, String b) => _unsupportedEntry(
+  '$a and $b are the same path, or one lies under the other, once case is '
+  'folded; the undo would write both, so it stops before it writes either',
+);
+
+/// Whether [name] is one of the spellings Windows and a case-insensitive volume
+/// resolve as `.git`: case folded, trailing dots and spaces removed.
+bool namesDotGit(String name) =>
+    name.replaceFirst(RegExp(r'[. ]+$'), '').toLowerCase() == '.git';
+
+/// The one walk of the destination list (C46): below [root], every existing
+/// component of each path in [files], [dirs] and [members] must be a real
+/// directory (no symbolic link, junction or file), spelled as the disk spells
+/// it; an existing leaf of [files] must be a regular file, and one of [dirs]
+/// and [members] a real directory; no component may hold a `.git` entry; and
+/// each [members] directory is searched, without following a link, for an
+/// entry of any type that is named like `.git`, anywhere below it. Anything
+/// else is `unsupported_entry` naming the path.
+void walkDestinations(
+  String root, {
+  List<String> files = const [],
+  List<String> dirs = const [],
+  List<String> members = const [],
+}) {
+  String at(String rel) => rel.isEmpty ? root : '$root/$rel';
+  FileSystemEntityType typeOf(String rel) =>
+      FileSystemEntity.typeSync(at(rel), followLinks: false);
+  final listings = <String, Map<String, List<String>>>{};
+  Map<String, List<String>> namesIn(
+    String rel,
+  ) => listings.putIfAbsent(rel, () {
+    final byFold = <String, List<String>>{};
+    try {
+      for (final e in Directory(at(rel)).listSync(followLinks: false)) {
+        final name = e.path.replaceAll(r'\', '/').split('/').last;
+        byFold.putIfAbsent(name.toLowerCase(), () => []).add(name);
+      }
+    } on FileSystemException catch (e) {
+      throw VcsStop(
+        'vcs_error',
+        'cannot list ${rel.isEmpty ? '.' : rel}: ${e.osError?.message ?? e.message}',
+      );
+    }
+    return byFold;
+  });
+
+  void walk(String path, {required bool leafIsDir}) {
+    final parts = _components(path);
+    var rel = '';
+    for (var i = 0; i < parts.length; i++) {
+      final parent = rel;
+      rel = rel.isEmpty ? parts[i] : '$rel/${parts[i]}';
+      final leaf = i == parts.length - 1;
+      final type = typeOf(rel);
+      if (type == FileSystemEntityType.notFound) return;
+      for (final name in namesIn(parent)[parts[i].toLowerCase()] ?? const []) {
+        if (name != parts[i]) {
+          throw _unsupportedEntry(
+            '$rel is spelled $name on disk; the undo would write another '
+            'spelling of the same path',
+          );
+        }
+      }
+      if (type == FileSystemEntityType.directory) {
+        if (leaf && !leafIsDir) {
+          throw _unsupportedEntry(
+            '$rel is a directory where the undo needs a file',
+          );
+        }
+        if (typeOf('$rel/.git') != FileSystemEntityType.notFound) {
+          throw _unsupportedEntry(
+            '$rel holds a .git entry, so it is a nested repository; an undo '
+            'never writes inside one',
+          );
+        }
+      } else if (type == FileSystemEntityType.file) {
+        if (!leaf || leafIsDir) {
+          throw _unsupportedEntry(
+            '$rel is a file where the undo needs a directory'
+            '${rel == path ? '' : ' (on the way to $path)'}',
+          );
+        }
+      } else {
+        throw _unsupportedEntry(
+          '$rel is a link or a special file; the undo never writes through '
+          'one${rel == path ? '' : ' (it is on the way to $path)'}',
+        );
+      }
+    }
+  }
+
+  for (final path in files) {
+    walk(path, leafIsDir: false);
+  }
+  for (final path in [...dirs, ...members]) {
+    walk(path, leafIsDir: true);
+  }
+  for (final member in members) {
+    _refuseDotGitBelow(at(member), _components(member).join('/'));
+  }
+}
+
+/// Throws when an entry named like `.git` lies anywhere below [dir]; a link is
+/// listed, never followed. [shown] is [dir] as the message names it.
+void _refuseDotGitBelow(String dir, String shown) {
+  if (FileSystemEntity.typeSync(dir, followLinks: false) !=
+      FileSystemEntityType.directory) {
+    return;
+  }
+  final List<FileSystemEntity> entries;
+  try {
+    entries = Directory(dir).listSync(followLinks: false);
+  } on FileSystemException catch (e) {
+    throw VcsStop(
+      'vcs_error',
+      'cannot list $shown: ${e.osError?.message ?? e.message}',
+    );
+  }
+  for (final e in entries) {
+    final name = e.path.replaceAll(r'\', '/').split('/').last;
+    if (namesDotGit(name)) {
+      throw _unsupportedEntry(
+        '$shown/$name is a nested repository marker, and an undo moves the '
+        'whole directory; move it out, then plan again',
+      );
+    }
+    if (e is Directory) _refuseDotGitBelow(e.path, '$shown/$name');
+  }
+}
+
+/// The directories [paths] lie in, each one's ancestors included (the path
+/// itself too for each of [dirs]), shortest first: where a gitlink would stop
+/// a write.
+List<String> ancestorDirectories(
+  Iterable<String> paths, [
+  Iterable<String> dirs = const [],
+]) {
+  final out = <String>{};
+  for (final path in paths) {
+    final parts = _components(path);
+    for (var n = 1; n < parts.length; n++) {
+      out.add(parts.sublist(0, n).join('/'));
+    }
+  }
+  for (final path in dirs) {
+    final parts = _components(path);
+    for (var n = 1; n <= parts.length; n++) {
+      out.add(parts.sublist(0, n).join('/'));
+    }
+  }
+  return out.toList()..sort();
+}
+
+/// Refuses, with `unsupported_entry`, an ancestor in [ancestors] that [tree]
+/// records as a gitlink. `git ls-tree -z <tree> -- <ancestors>` is not
+/// recursive, so it prints the entry of each ancestor itself; the lookups run
+/// in batches that fit a command line.
+Future<void> refuseGitlinkAncestors(
+  GitRun run,
+  String tree,
+  List<String> ancestors,
+) async {
+  var batch = <String>[];
+  var size = 0;
+  Future<void> flush() async {
+    if (batch.isEmpty) return;
+    final r = await run(['ls-tree', '-z', tree, '--', ...batch]);
+    for (final record in readInventory(r, 'git ls-tree')) {
+      final text = decodeStrict(record.single, 'file name');
+      final tab = text.indexOf('\t');
+      if (text.startsWith('160000 ')) {
+        throw _unsupportedEntry(
+          '${tab < 0 ? text : text.substring(tab + 1)} is a submodule '
+          '(a gitlink); an undo never writes inside a nested repository',
+        );
+      }
+    }
+    batch = [];
+    size = 0;
+  }
+
+  for (final a in ancestors) {
+    if (size + a.length + 1 > 6000) await flush();
+    batch.add(a);
+    size += a.length + 1;
+  }
+  await flush();
 }
