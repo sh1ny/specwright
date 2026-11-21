@@ -119,7 +119,7 @@ One row per delta-spec scenario. A blank Requirement or Test file cell repeats t
 |  | A main spec whose type the archive changed | `evals/finish/test_undo_plan.py` |  | red |
 |  | An empty code directory | `evals/finish/test_finish_shim.py` |  | red |
 |  | A clean resume reads an empty status | `evals/finish/test_undo_plan.py` | TestUndoPlan.test_resume_on_main_checks_out_branch | green |
-|  | A rerun under a nested planning root | `evals/finish/test_undo_steps.py` |  | red |
+|  | A rerun under a nested planning root | `evals/finish/test_undo_steps.py` | `TestNestedPlanningRoot.test_a_rerun_under_a_nested_planning_root` | red |
 |  | A new spec that is a case alias of a tracked one | `evals/finish/test_undo_plan.py` |  | red |
 |  | An untracked case alias owned by another GitButler branch | `evals/vcs/test_gitbutler_undo.py` |  | red |
 |  | The archive branch lookup fails | `evals/finish/test_undo_plan.py` |  | red |
@@ -140,9 +140,9 @@ One row per delta-spec scenario. A blank Requirement or Test file cell repeats t
 |  | An untracked file in a resumed archive |  |  | red |
 | A committed GitButler undo stops on a path it cannot commit as named | A GitButler undo of a path with glob characters | `evals/vcs/test_gitbutler_undo.py` |  | red |
 | The undo keeps a copy of every change marker it removes | An edited change marker in the archive | `evals/finish/test_undo_steps.py` |  | red |
-|  | A guard refuses before the backup |  |  | red |
+|  | A guard refuses before the backup |  |  | green |
 |  | A resumed undo's marker |  |  | red |
-|  | A marker deleted after planning |  |  | red |
+|  | A marker deleted after planning |  |  | green |
 |  | A marker copy that fails | `cli/test/finish/undo_step_test.dart` | a failed marker copy stops before any index change | red |
 | The dirty_tree message names each record plainly | Other dirty stops keep their messages | `evals/finish/test_undo_plan.py` | TestUndoPlan.test_dirty_stops_keep_their_messages | green |
 |  | Ordinary names read as before |  |  | red |
@@ -154,7 +154,7 @@ One row per delta-spec scenario. A blank Requirement or Test file cell repeats t
 |  | A guard that now refuses | `evals/finish/test_undo_plan.py` | test_a_staged_gitlink_hidden_by_configuration_is_staged_changes | green |
 |  | A plan carries the new index warning | `cli/test/finish/undo_plan_test.dart` | a clean-index Git plan carries the index warning | red |
 |  | Any other refusal | `evals/finish/test_parity.py` | TestPlanGit.test_refusal_dirty_tree | green |
-| An undo destination is absent only by evidence | The first undo in a fresh checkout | `evals/finish/test_undo_steps.py` |  | red |
+| An undo destination is absent only by evidence | The first undo in a fresh checkout | `evals/finish/test_undo_steps.py` | `test_the_first_undo_in_a_fresh_checkout_proves_its_backup_absent` | green |
 |  | An ancestor that cannot be listed | `cli/test/finish/undo_step_test.dart` | check absent with an unlistable ancestor refuses | red |
 | A rerun plan warns that it writes specs in place | A bulk undo that reruns the archive | `cli/test/finish/undo_plan_test.dart` | a rerun plan warns that it writes specs in place | red |
 | Every printed undo step fits the command line | A POSIX commit sized in bytes | `cli/test/finish/undo_plan_test.dart` | posix: a jj fileset over 32,766 UTF-8 bytes is plan_too_large | red |
@@ -162,18 +162,18 @@ One row per delta-spec scenario. A blank Requirement or Test file cell repeats t
 |  | A GitButler bulk undo whose commit runs through `but.cmd` | `cli/test/finish/undo_plan_test.dart` | windows: but.cmd payload over 8,191 is plan_too_large | red |
 |  | A Git bulk undo whose synced spec paths force batching | `evals/finish/test_undo_steps.py` |  | red |
 |  | A bulk undo with a very long member list | `cli/test/finish/undo_plan_test.dart` | a long member list keeps every line within the limit | red |
-| An undo never writes inside a nested repository | A rerun spec inside a submodule | `evals/finish/test_undo_plan.py` |  | red |
-|  | A linked worktree inside an archived member |  |  | red |
-|  | A linked `.git` marker inside an archived member |  |  | red |
-|  | A worktree marker spelled in another case |  |  | red |
-|  | A gitlink only on the archive branch |  |  | red |
+| An undo never writes inside a nested repository | A rerun spec inside a submodule | `evals/finish/test_undo_plan.py` | `test_a_rerun_spec_inside_a_submodule_is_unsupported_entry` | red |
+|  | A linked worktree inside an archived member |  | `test_a_linked_worktree_inside_an_archived_member_is_unsupported_entry` | red |
+|  | A linked `.git` marker inside an archived member |  | `test_a_linked_git_marker_inside_an_archived_member_is_unsupported_entry` | red |
+|  | A worktree marker spelled in another case |  | `test_a_worktree_marker_spelled_in_another_case_is_unsupported_entry` | red |
+|  | A gitlink only on the archive branch |  | `test_a_gitlink_only_on_the_archive_branch_is_unsupported_entry` | red |
 | An undo writes only the paths it names | A restore destination that is a link | `evals/vcs/test_gitbutler_undo.py` |  | red |
 |  | A removed spec under a linked directory | `evals/finish/test_undo_steps.py` |  | red |
 |  | A hard-linked restore destination | `evals/vcs/test_gitbutler_undo.py` |  | red |
 |  | A rerun spec under a linked directory |  |  | red |
 |  | A rerun destination linked after the undo | `evals/finish/test_undo_steps.py` |  | red |
-|  | A plain-Git removal under a linked directory |  |  | red |
-|  | Two absent rerun specs that differ only by case | `evals/finish/test_undo_plan.py` |  | red |
+|  | A plain-Git removal under a linked directory |  | `test_a_plain_git_removal_under_a_linked_directory` | red |
+|  | Two absent rerun specs that differ only by case | `evals/finish/test_undo_plan.py` | `test_two_absent_rerun_specs_that_differ_only_by_case_are_unsupported_entry` | red |
 |  | Two absent rerun specs where one lies under the other |  |  | red |
 |  | A rerun spec blocked by an existing directory |  |  | red |
 |  | A linked archive directory | `evals/finish/test_undo_steps.py` |  | red |
