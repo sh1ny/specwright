@@ -3649,6 +3649,41 @@ void main() {
         expect(r.doc['message'], 'ghost is not a local branch');
       }, skip: skip);
 
+      test('a marker the undo removes is copied into the backup first on GitButler', () async {
+        final repo = branchRepo();
+        archive(repo, ['add-x'], commitIt: true, marker: true);
+        final doc = (await plan(rq(repo, branch: 'feat/x'), gbCtx())).doc;
+        expect(doc['ok'], true, reason: '$doc');
+        final steps = argvsOf(doc['steps']);
+        final top = topOf(repo);
+        final backup = backupOf(repo);
+        final copy = indexOfStep(
+          steps,
+          undoStep(top, [
+            'copy',
+            '--if-present',
+            '$ad/specwright-change.yaml',
+            '$backup/markers/add-x/specwright-change.yaml',
+          ]),
+        );
+        final remove = indexOfStep(
+          steps,
+          undoStep(top, [
+            'remove',
+            'openspec/changes/add-x/specwright-change.yaml',
+          ]),
+        );
+        expect(remove, greaterThan(0), reason: '$steps');
+        expect(copy, greaterThan(0), reason: '$steps');
+        expect(copy, lessThan(remove));
+        expect(
+          (doc['warnings']! as List).cast<String>().where(
+            (w) => w.contains('$backup/markers'),
+          ),
+          isNotEmpty,
+        );
+      }, skip: skip);
+
       test(
         'the committed plan guards through vcs.sh and commits through it',
         () async {
@@ -3995,6 +4030,48 @@ void main() {
           ]),
         );
       }, skip: skip);
+
+      test(
+        'a marker the undo removes is copied into the backup first on jj',
+        () async {
+          final repo = branchRepo();
+          archive(repo, ['add-x'], commitIt: true, marker: true);
+          final doc = (await plan(
+            rq(repo, branch: 'feat/x'),
+            jjCtx(reader()),
+          )).doc;
+          expect(doc['ok'], true, reason: '$doc');
+          final steps = argvsOf(doc['steps']);
+          final top = topOf(repo);
+          final backup = backupOf(repo);
+          final copy = indexOfStep(
+            steps,
+            undoStep(top, [
+              'copy',
+              '--if-present',
+              '$ad/specwright-change.yaml',
+              '$backup/markers/add-x/specwright-change.yaml',
+            ]),
+          );
+          final remove = indexOfStep(
+            steps,
+            undoStep(top, [
+              'remove',
+              'openspec/changes/add-x/specwright-change.yaml',
+            ]),
+          );
+          expect(remove, greaterThan(0), reason: '$steps');
+          expect(copy, greaterThan(0), reason: '$steps');
+          expect(copy, lessThan(remove));
+          expect(
+            (doc['warnings']! as List).cast<String>().where(
+              (w) => w.contains('$backup/markers'),
+            ),
+            isNotEmpty,
+          );
+        },
+        skip: skip,
+      );
 
       test(
         'the committed plan works the working copy and commits with jj',

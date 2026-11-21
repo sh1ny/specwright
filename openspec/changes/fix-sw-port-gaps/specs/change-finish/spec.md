@@ -57,7 +57,7 @@ When the deferred check stops on `VERDICT: DEFERRED`, finish SHALL run `finish.s
 ## ADDED Requirements
 
 ### Requirement: The undo planner reports paths whole
-On Git and GitButler, `sw finish undo-archive-plan` SHALL report each path its own `git status` reads give, in a `dirty_tree` stop's `files` and in `carried_edits`, exactly as named: never cut, C-quoted or with a backslash rewritten. A staged rename or copy SHALL give both its paths in `files`. `carried_edits` SHALL stay in UTF-8 byte order. A non-UTF-8 path SHALL stop with `not_utf8`; carried edits drop non-member records first. jj and an uncommitted archive keep their present path sources.
+On Git and GitButler, `sw finish undo-archive-plan` SHALL read a `dirty_tree` stop's `files` and `carried_edits` with one NUL-framed porcelain reader, and report each exactly as named: never cut, C-quoted or with a backslash rewritten. A staged rename or copy SHALL give both its paths in `files`. `carried_edits` SHALL stay in UTF-8 byte order. A non-UTF-8 path SHALL stop with `not_utf8`; carried edits drop non-member records first. jj and an uncommitted archive keep their path sources.
 
 #### Scenario: The first dirty path keeps its first character
 - **WHEN** the archive is committed on `bugfix/add-x`, finish resumes on `main`, and `main` has an uncommitted change to `README.md`, the first entry of `git status`

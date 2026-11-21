@@ -1071,6 +1071,26 @@ void main() {
       expect(Directory('${tmp.path}/outside').listSync(), isEmpty);
     });
 
+    test('a remove or write step walks its destination again', () async {
+      if (!canLink()) {
+        markTestSkipped('platform: this account cannot create links');
+        return;
+      }
+      final outside = Directory('${tmp.path}/outside')..createSync();
+      File('${outside.path}/spec.md').writeAsStringSync('keep\n');
+      Directory('$repo/openspec/specs').createSync(recursive: true);
+      // the parent became a link after the plan's checks
+      Link('$repo/openspec/specs/foo').createSync(outside.path);
+      for (final args in [
+        ['remove', 'openspec/specs/foo/spec.md'],
+        ['write-text', 'openspec/specs/foo/spec.md', 'mine'],
+      ]) {
+        final doc = await stops(args, 'unsupported_entry');
+        expect(doc['message'], contains('openspec/specs/foo'));
+        expect(File('${outside.path}/spec.md').readAsStringSync(), 'keep\n');
+      }
+    });
+
     test('destinations refuses paths equal or nested after folding', () async {
       for (final pair in [
         ['openspec/specs/Foo/spec.md', 'openspec/specs/foo/spec.md'],

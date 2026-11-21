@@ -2019,19 +2019,18 @@ class _Planner {
     }
     if (backupFiles.isEmpty) undo(['mkdir', backupDir]);
     // C32: a marker the undo removes is copied before the first index change
-    if (!jj && !gb) {
-      for (final m in members) {
-        if (!markerDirs[m.name]!) {
-          continue;
-        }
-        undo(['mkdir', '$backupDir/markers/${m.name}']);
-        undo([
-          'copy',
-          '--if-present',
-          _joinAll([m.dir, 'specwright-change.yaml']),
-          '$backupDir/markers/${m.name}/specwright-change.yaml',
-        ]);
+    // or removal, on every backend: the move loop below removes it on all
+    for (final m in members) {
+      if (!markerDirs[m.name]!) {
+        continue;
       }
+      undo(['mkdir', '$backupDir/markers/${m.name}']);
+      undo([
+        'copy',
+        '--if-present',
+        _joinAll([m.dir, 'specwright-change.yaml']),
+        '$backupDir/markers/${m.name}/specwright-change.yaml',
+      ]);
     }
 
     if (committed && !jj && !gb) {
@@ -2193,7 +2192,7 @@ class _Planner {
         '$backupDir; no step reads or deletes them.',
       );
     }
-    if (!jj && !gb && markerDirs.values.any((v) => v)) {
+    if (markerDirs.values.any((v) => v)) {
       warnings.add(
         'A change marker the undo removes is copied to $backupDir/markers/ '
         'first, and no step deletes that copy.',

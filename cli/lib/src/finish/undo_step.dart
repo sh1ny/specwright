@@ -64,7 +64,8 @@ VcsStop _failed(String message) => VcsStop('undo_step_failed', message);
 /// as a gitlink, and, below each moved member, an entry of any type named like
 /// `.git` (case, trailing dots and spaces folded). The planner runs the same
 /// walk when it plans, before any backup or move; the steps run it again
-/// before any backup or index change and at the start of the rerun. The same
+/// before any backup or index change, at the start of the rerun, and on its
+/// work-tree destination in each write or remove step. The same
 /// walk refuses a component that the index records as a gitlink (one batched
 /// `git ls-files -s -z` over the ancestors) and, on a resume, one that the
 /// pinned archive tip records as one. The same inventory feeds GitButler's tree
@@ -151,6 +152,19 @@ class _UndoStep {
     environment: _env,
   );
 
+  /// C46's walk again at each write or remove step, on its work-tree
+  /// destination: a component that became a link or file after the checks
+  /// stops the step before it writes. A path under the Git directory (the
+  /// backup, given absolute) is not a destination.
+  void _walkTarget(String path, {bool dir = false}) {
+    if (p.isAbsolute(path)) return;
+    walkDestinations(
+      cwd,
+      files: dir ? const [] : [path],
+      dirs: dir ? [path] : const [],
+    );
+  }
+
   Future<void> run(List<String> args) async {
     if (args.isEmpty) throw _usage('undo-step needs a kind');
     final kind = args.first;
@@ -168,6 +182,7 @@ class _UndoStep {
         final ifPresent = rest.isNotEmpty && rest.first == '--if-present';
         final operands = ifPresent ? rest.sublist(1) : rest;
         _count(kind, operands, 2);
+        _walkTarget(operands[1]);
         if (ifPresent &&
             FileSystemEntity.typeSync(at(operands[0]), followLinks: false) ==
                 FileSystemEntityType.notFound) {
@@ -183,6 +198,7 @@ class _UndoStep {
       case 'move':
         _count(kind, rest, 2);
         final from = at(rest[0]);
+        _walkTarget(rest[1], dir: FileSystemEntity.isDirectorySync(from));
         if (FileSystemEntity.isDirectorySync(from)) {
           Directory(from).renameSync(at(rest[1]));
         } else {
@@ -190,6 +206,7 @@ class _UndoStep {
         }
       case 'remove':
         for (final f in rest) {
+          _walkTarget(f);
           if (FileSystemEntity.typeSync(at(f), followLinks: false) !=
               FileSystemEntityType.notFound) {
             File(at(f)).deleteSync();
@@ -205,6 +222,7 @@ class _UndoStep {
         }
       case 'write-blob':
         _count(kind, rest, 3);
+        _walkTarget(rest[2]);
         final r = await _spawn([
           'git',
           'cat-file',
@@ -232,9 +250,11 @@ class _UndoStep {
         );
       case 'write-text':
         _count(kind, rest, 2);
+        _walkTarget(rest[0]);
         File(at(rest[0])).writeAsBytesSync(utf8.encode('${rest[1]}\n'));
       case 'merge-back':
         _count(kind, rest, 3);
+        _walkTarget(rest[0]);
         final r = await _spawn([
           'git',
           'merge-file',
@@ -651,7 +671,10 @@ class _UndoStep {
   /// `GIT_GLOB_PATHSPECS`, `GIT_NOGLOB_PATHSPECS` or `GIT_ICASE_PATHSPECS`, a
   /// non-empty `GIT_NAMESPACE` or `GIT_ALTERNATE_OBJECT_DIRECTORIES`, and Git's
   /// effective paths differing from the planned view, which `check preflight`
-  /// checks as the plan's first step; every index and cleanliness check passes
+  /// checks as the plan's first step, each expected path derived independently
+  /// from the checkout's `.git` entry, never asked of the same Git view; a Git
+  /// undo refuses a workspace holding GitButler's metadata directory, whatever
+  /// its configuration says; every index and cleanliness check passes
   /// `--ignore-submodules=none`, because the undo commit takes the whole index
   /// and the checkout must start from a clean tree. The checks are
   /// point-in-time: a `git add` or a hook that stages a path after `check
