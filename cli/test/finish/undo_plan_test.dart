@@ -59,6 +59,26 @@ List<String> swStep(String project, List<String> rest) => [
   ...rest,
 ];
 
+/// The global options every emitted Git step carries.
+const List<String> _g = ['git', '--literal-pathspecs', '--no-replace-objects'];
+
+/// The `check preflight` step a Git plan for [repo] starts with.
+List<String> preflightStep(String repo) {
+  String out(List<String> args) => _gitOut(repo, args);
+  return undoStep(out(['rev-parse', '--show-toplevel']), [
+    'check',
+    'preflight',
+    '--git-dir',
+    out(['rev-parse', '--absolute-git-dir']),
+    '--common-dir',
+    out(['rev-parse', '--path-format=absolute', '--git-common-dir']),
+    '--index',
+    out(['rev-parse', '--path-format=absolute', '--git-path', 'index']),
+    '--objects',
+    out(['rev-parse', '--path-format=absolute', '--git-path', 'objects']),
+  ]);
+}
+
 /// The version stamp the running `sw` checks in the project at [dir].
 void stamp(String dir, [String version = buildVersion]) =>
     put(dir, 'openspec/.specwright/VERSION', '$version\n');
@@ -423,11 +443,17 @@ void main() {
       };
       var r = await plan(request(tmp.path), context(environment: env()));
       expect(r.doc['error'], 'not_a_repo');
-      expect(log.readAsStringSync().trim(), 'rev-parse --show-toplevel|0');
+      expect(
+        log.readAsStringSync().trim(),
+        '--literal-pathspecs --no-replace-objects rev-parse --show-toplevel|0',
+      );
       log.deleteSync();
       r = await plan(request(tmp.path), context(environment: env('1')));
       expect(r.doc['error'], 'not_a_repo');
-      expect(log.readAsStringSync().trim(), 'rev-parse --show-toplevel|1');
+      expect(
+        log.readAsStringSync().trim(),
+        '--literal-pathspecs --no-replace-objects rev-parse --show-toplevel|1',
+      );
     }, skip: skip);
 
     test('a git that cannot start (exit 127) is not_a_repo', () async {
@@ -521,6 +547,57 @@ void main() {
       // ADR 0043 and C36
       expect(doc, contains('ADR 0043'));
       expect(doc, contains('does not prove that the project'));
+    });
+
+    String docAbove(String file, String declaration) {
+      final lines = File(file).readAsLinesSync();
+      final at = lines.indexWhere((l) => l.startsWith(declaration));
+      expect(at, greaterThan(0), reason: '$declaration in $file');
+      final doc = <String>[];
+      for (var i = at - 1; i >= 0 && lines[i].startsWith('///'); i--) {
+        doc.insert(0, lines[i].substring(3).trim());
+      }
+      return doc.join(' ');
+    }
+
+    test('undoArchivePlan carries C28, C44 and C45', () {
+      final doc = docAbove(
+        'lib/src/finish/undo_plan.dart',
+        'Future<Map<String, Object?>> undoArchivePlan(',
+      );
+      expect(doc, contains('C28:'));
+      expect(
+        doc,
+        contains('`check clean` is emitted only for a committed archive'),
+      );
+      expect(doc, contains('C44:'));
+      expect(doc, contains('`for-each-ref` leaves out a broken ref'));
+      expect(doc, contains('reports `no_archive` rather than `vcs_error`'));
+      expect(doc, contains('C45:'));
+      expect(doc, contains('scans the whole index for assume-unchanged'));
+      expect(doc, contains('never collects the whole output'));
+    });
+
+    test('_Planner carries C34', () {
+      final doc = docAbove('lib/src/finish/undo_plan.dart', 'class _Planner');
+      expect(doc, contains('C34:'));
+      expect(doc, contains('never asks Git for a filtered read'));
+      expect(doc, contains('a user\'s own filter driver is their code'));
+      expect(
+        doc,
+        contains('Rejected: refusing every repository with a filter driver'),
+      );
+    });
+
+    test('_detectMain carries C43', () {
+      final doc = docAbove(
+        'lib/src/pr/settings_commands.dart',
+        'Future<String> _detectMain(',
+      );
+      expect(doc, contains('C43:'));
+      expect(doc, contains('keeps today\'s rule'));
+      expect(doc, contains('no emitted guard catches it'));
+      expect(doc, contains('Rejected: a strict lookup on the planner\'s path'));
     });
   });
 
@@ -639,7 +716,9 @@ void main() {
           expect((s as Map)['cwd'], top);
         }
         List<String> u(List<String> rest) => undoStep(top, rest);
+        final parent = git(repo, ['rev-parse', '$a^']);
         expect(argvsOf(doc['steps']), [
+          preflightStep(repo),
           u(['check', 'branch', 'feat/x']),
           u(['check', 'tip', 'HEAD', a]),
           u(['check', 'index']),
@@ -651,19 +730,24 @@ void main() {
           ]),
           u(['write-blob', a, specA, '$backup/base/$specA']),
           u(['copy', specA, '$backup/amended/$specA']),
-          ['git', 'rm', '-r', '-q', '--cached', '--', ad],
-          ['git', 'read-tree', '--prefix=openspec/changes/add-x/', '$a:$ad'],
-          ['git', 'restore', '--source=$a^', '--staged', '--', specA],
-          ['git', 'commit', '-q', '-m', 'feat(add-x): undo archive of add-x'],
+          [..._g, 'rm', '-r', '-q', '--cached', '--', ad],
+          [..._g, 'read-tree', '--prefix=openspec/changes/add-x/', '$a:$ad'],
+          [..._g, 'restore', '--source=$parent', '--staged', '--', specA],
+          [..._g, 'commit', '-q', '-m', 'feat(add-x): undo archive of add-x'],
           u(['move', ad, 'openspec/changes/add-x']),
-          ['git', 'restore', '--source=$a^', '--worktree', '--', specA],
+          [..._g, 'restore', '--source=$parent', '--worktree', '--', specA],
         ]);
         expect(doc['warnings'], [
-          'Do not edit files while the steps run.',
-          'If a step fails after the steps began changing the index and before they '
-              'commit, run `git restore --staged -- $ad openspec/changes/add-x '
-              '$specA` and plan again; the working tree is untouched until the '
-              'commit.',
+          'Do not edit files or start a merge, cherry-pick, revert or rebase '
+              'while the steps run.',
+          'The index must not be changed by other commands or hooks while the '
+              'steps run.',
+          'If a step fails after the steps began changing the index and before '
+              'they commit, the index entries of $ad openspec/changes/add-x '
+              "$specA may be partly changed, and a resume plan's checkout may "
+              'already have happened. Unstage those paths yourself and move or '
+              'delete the backup directory $backup, then plan again; the '
+              'working tree is untouched until the commit.',
           'Base and amended copies of the synced main specs are saved in '
               '$backup; no step reads or deletes them.',
         ]);
@@ -815,7 +899,7 @@ void main() {
           'openspec/changes/add-y',
         ]),
         u(['remove', 'openspec/changes/add-y/specwright-change.yaml']),
-        ['git', 'restore', '--source=$head', '--worktree', '--', specA, specB],
+        [..._g, 'restore', '--source=$head', '--worktree', '--', specA, specB],
         u(['remove', 'openspec/specs/area/id/spec.md']),
         u(['rmdir-if-empty', 'openspec/specs/area/id']),
       ]);
@@ -831,7 +915,10 @@ void main() {
         'This archive holds add-x, add-y. The whole archive is undone, never '
             "only the deferred change's files; run the archive again without "
             'the deferred change.',
-        'Do not edit files while the steps run.',
+        'Do not edit files or start a merge, cherry-pick, revert or rebase '
+            'while the steps run.',
+        'The index must not be changed by other commands or hooks while the '
+            'steps run.',
         'Run after_rerun_steps after steps: they archive add-y again.',
       ]);
     }, skip: skip);
@@ -1061,13 +1148,13 @@ void main() {
       final head = git(repo, ['rev-parse', 'HEAD']);
       final marker = 'openspec/changes/add-x/specwright-change.yaml';
       final read = indexOfStep(steps, [
-        'git',
+        ..._g,
         'read-tree',
         '--prefix=openspec/changes/add-x/',
         '$head:$ad',
       ]);
       expect(read, greaterThan(0));
-      expect(steps[read + 1], ['git', 'rm', '-q', '--cached', '--', marker]);
+      expect(steps[read + 1], [..._g, 'rm', '-q', '--cached', '--', marker]);
       final move = indexOfStep(
         steps,
         undoStep(top, ['move', ad, 'openspec/changes/add-x']),
@@ -1089,7 +1176,7 @@ void main() {
       expect(
         steps,
         hasStep([
-          'git',
+          ..._g,
           'rm',
           '-q',
           '--cached',
@@ -1138,7 +1225,7 @@ void main() {
         expect(
           steps,
           hasStep([
-            'git',
+            ..._g,
             'commit',
             '-q',
             '-m',
@@ -1152,7 +1239,7 @@ void main() {
       expect(
         steps,
         hasStep([
-          'git',
+          ..._g,
           'commit',
           '-q',
           '-m',
@@ -1169,10 +1256,19 @@ void main() {
       final doc = await ok(repo, branch: 'feat/x');
       expect(doc['branch'], 'feat/x');
       expect(doc['head'], a);
-      expect(argvsOf(doc['steps']).take(5), [
+      expect(argvsOf(doc['steps']).take(6), [
+        preflightStep(repo),
         undoStep(top, ['check', 'clean']),
         undoStep(top, ['check', 'tip', 'refs/heads/feat/x', a]),
-        ['git', 'checkout', '-q', 'feat/x', '--'],
+        [
+          ..._g,
+          'checkout',
+          '-q',
+          '--no-overwrite-ignore',
+          '--no-recurse-submodules',
+          'feat/x',
+          '--',
+        ],
         undoStep(top, ['check', 'branch', 'feat/x']),
         undoStep(top, ['check', 'tip', 'HEAD', a]),
       ]);
@@ -1764,6 +1860,377 @@ void main() {
         );
         expectOneStop(r, 'git_error');
         expect(r.doc['message'], 'fatal: no branch');
+      }, skip: skip);
+    });
+
+    group('Git guards (D2, group 10)', () {
+      Map<String, String> envWith(Map<String, String> extra) => {
+        ...Platform.environment,
+        ...extra,
+      };
+
+      String gitDirOf(String repo) =>
+          git(repo, ['rev-parse', '--absolute-git-dir']);
+
+      ToolResult failed(int code, [List<int> stdout = const []]) =>
+          ToolResult(code, Uint8List.fromList(stdout), Uint8List(0));
+
+      FinishContext faking(
+        ToolResult? Function(List<String> command) answer, {
+        List<List<String>>? calls,
+      }) => FinishContext(
+        runner: (cwd, command, env) async {
+          calls?.add(command);
+          return answer(command) ??
+              await runTool(cwd, command, environment: env);
+        },
+      );
+
+      Future<void> refuses(
+        String repo,
+        String error, {
+        FinishContext? ctx,
+        String? branch,
+        String? says,
+      }) async {
+        final r = await plan(rq(repo, branch: branch), ctx);
+        expect(r.code, 1, reason: '${r.doc}');
+        expect(r.doc['error'], error, reason: '${r.doc}');
+        expect(r.doc.containsKey('steps'), isFalse);
+        if (says != null) expect(r.doc['message'], contains(says));
+      }
+
+      test('the first step is check preflight with the planned view', () async {
+        final repo = branchRepo();
+        archive(repo, ['add-x'], commitIt: true);
+        final gd = gitDirOf(repo);
+        final doc = await ok(repo);
+        expect(argvsOf(doc['steps']).first, [
+          Platform.resolvedExecutable,
+          '--project',
+          topOf(repo),
+          'finish',
+          'undo-step',
+          'check',
+          'preflight',
+          '--git-dir',
+          gd,
+          '--common-dir',
+          git(repo, [
+            'rev-parse',
+            '--path-format=absolute',
+            '--git-common-dir',
+          ]),
+          '--index',
+          git(repo, [
+            'rev-parse',
+            '--path-format=absolute',
+            '--git-path',
+            'index',
+          ]),
+          '--objects',
+          git(repo, [
+            'rev-parse',
+            '--path-format=absolute',
+            '--git-path',
+            'objects',
+          ]),
+        ]);
+      }, skip: skip);
+
+      test(
+        'emitted Git steps carry the safety options and the checkout flags',
+        () async {
+          final repo = branchRepo();
+          final a = archive(repo, ['add-x'], commitIt: true)!;
+          git(repo, ['checkout', '-q', 'main']);
+          final doc = await ok(repo, branch: 'feat/x');
+          const safe = ['git', '--literal-pathspecs', '--no-replace-objects'];
+          final git_ = [
+            for (final s in argvsOf(doc['steps']))
+              if (s.first == 'git') s,
+          ];
+          expect(git_, isNotEmpty);
+          for (final s in git_) {
+            expect(s.take(3), safe, reason: '$s');
+          }
+          expect(git_.first, [
+            ...safe,
+            'checkout',
+            '-q',
+            '--no-overwrite-ignore',
+            '--no-recurse-submodules',
+            'feat/x',
+            '--',
+          ]);
+          final restore = git_.firstWhere((s) => s[3] == 'restore');
+          final parent = git(repo, ['rev-parse', '$a^']);
+          expect(restore, contains('--source=$parent'));
+          expect(restore.any((x) => x.contains('^')), isFalse);
+        },
+        skip: skip,
+      );
+
+      for (final name in [
+        'GIT_GLOB_PATHSPECS',
+        'GIT_NOGLOB_PATHSPECS',
+        'GIT_ICASE_PATHSPECS',
+      ]) {
+        test('the plan refuses a true $name', () async {
+          final repo = branchRepo();
+          archive(repo, ['add-x'], commitIt: true);
+          await refuses(
+            repo,
+            'git_env',
+            ctx: context(environment: envWith({name: '1'})),
+            says: name,
+          );
+        });
+      }
+
+      for (final name in [
+        'GIT_NAMESPACE',
+        'GIT_ALTERNATE_OBJECT_DIRECTORIES',
+      ]) {
+        test('the plan refuses a non-empty $name', () async {
+          final repo = branchRepo();
+          archive(repo, ['add-x'], commitIt: true);
+          await refuses(
+            repo,
+            'git_env',
+            ctx: context(environment: envWith({name: 'x'})),
+            says: name,
+          );
+        });
+      }
+
+      test('the plan refuses an index routed elsewhere', () async {
+        final repo = branchRepo();
+        archive(repo, ['add-x'], commitIt: true);
+        final other = '${gitDirOf(repo)}/other-index';
+        File(
+          other,
+        ).writeAsBytesSync(File('${gitDirOf(repo)}/index').readAsBytesSync());
+        await refuses(
+          repo,
+          'git_env',
+          ctx: context(environment: envWith({'GIT_INDEX_FILE': other})),
+          says: 'index',
+        );
+      });
+
+      test('the plan refuses a grafts file, a partial clone and a sparse '
+          'checkout', () async {
+        final repo = branchRepo();
+        archive(repo, ['add-x'], commitIt: true);
+        final gd = gitDirOf(repo);
+        Directory('$gd/info').createSync(recursive: true);
+        File('$gd/info/grafts').writeAsStringSync('\n');
+        await refuses(repo, 'git_env', says: 'grafts');
+        File('$gd/info/grafts').deleteSync();
+        git(repo, ['config', 'remote.origin.promisor', 'true']);
+        await refuses(repo, 'git_env', says: 'partial clone');
+        git(repo, ['config', '--unset', 'remote.origin.promisor']);
+        git(repo, ['config', 'core.sparseCheckout', 'true']);
+        await refuses(repo, 'git_env', says: 'sparse checkout');
+      });
+
+      test('the plan refuses a workspace holding GitButler metadata', () async {
+        final repo = branchRepo();
+        archive(repo, ['add-x'], commitIt: true);
+        Directory('${gitDirOf(repo)}/gitbutler').createSync();
+        await refuses(repo, 'gitbutler_workspace');
+      });
+
+      for (final marker in ['MERGE_HEAD', 'rebase-merge', 'sequencer']) {
+        test('the plan refuses while $marker exists', () async {
+          final repo = branchRepo();
+          archive(repo, ['add-x'], commitIt: true);
+          final path = '${gitDirOf(repo)}/$marker';
+          if (marker == 'MERGE_HEAD') {
+            File(path)
+                .writeAsStringSync('${git(repo, ['rev-parse', 'HEAD'])}\n');
+          } else {
+            Directory(path).createSync();
+          }
+          await refuses(repo, 'operation_in_progress');
+        });
+      }
+
+      test(
+        'a staged gitlink that diff.ignoreSubmodules hides is staged_changes',
+        () async {
+          final repo = branchRepo();
+          archive(repo, ['add-x'], commitIt: true);
+          git(repo, ['config', 'diff.ignoreSubmodules', 'all']);
+          git(repo, [
+            'update-index',
+            '--add',
+            '--cacheinfo',
+            '160000,${git(repo, ['rev-parse', 'HEAD'])},sub',
+          ]);
+          await refuses(repo, 'staged_changes');
+        },
+        skip: skip,
+      );
+
+      test(
+        'a resume refuses an assume-unchanged file anywhere in the index',
+        () async {
+          final repo = branchRepo();
+          archive(repo, ['add-x'], commitIt: true);
+          git(repo, ['checkout', '-q', 'main']);
+          git(repo, ['update-index', '--assume-unchanged', 'README.md']);
+          File('$repo/README.md').writeAsStringSync('hidden edit\n');
+          await refuses(repo, 'git_env', branch: 'feat/x', says: 'README.md');
+          expect(File('$repo/README.md').readAsStringSync(), 'hidden edit\n');
+        },
+      );
+
+      test(
+        'a plan that does not switch branches scans only what it touches',
+        () async {
+          final repo = branchRepo();
+          archive(repo, ['add-x'], commitIt: true);
+          git(repo, ['update-index', '--assume-unchanged', 'README.md']);
+          await ok(repo);
+          git(repo, ['update-index', '--no-assume-unchanged', 'README.md']);
+          git(repo, [
+            'update-index',
+            '--skip-worktree',
+            'openspec/specs/a/spec.md',
+          ]);
+          await refuses(repo, 'git_env', says: 'openspec/specs/a/spec.md');
+        },
+      );
+
+      test('the tip lookup is an exact branch lookup', () async {
+        final repo = branchRepo();
+        archive(repo, ['add-x'], commitIt: true);
+        git(repo, ['checkout', '-q', 'main']);
+        git(repo, ['tag', 'refs/heads/feat/x', 'feat/x']);
+        git(repo, ['tag', 'feat/x', 'feat/x']);
+        git(repo, ['branch', '-D', 'feat/x']);
+        final r = await plan(rq(repo, branch: 'feat/x'));
+        expect(r.code, 1, reason: '${r.doc}');
+        expect(r.doc['error'], 'no_archive');
+      });
+
+      test('a failed archive-presence read is vcs_error', () async {
+        final repo = branchRepo();
+        archive(repo, ['add-x'], commitIt: true);
+        await refuses(
+          repo,
+          'vcs_error',
+          ctx: faking(
+            (c) =>
+                c.contains('ls-tree') &&
+                    c.contains('--name-only') &&
+                    !c.contains('-z')
+                ? failed(128)
+                : null,
+          ),
+        );
+      }, skip: skip);
+
+      test('a failed archive diff read is vcs_error', () async {
+        final repo = branchRepo();
+        archive(repo, ['add-x'], commitIt: true);
+        await refuses(
+          repo,
+          'vcs_error',
+          ctx: faking((c) => c.contains('diff-tree') ? failed(128) : null),
+        );
+      }, skip: skip);
+
+      test('a failed content read of a member file is vcs_error', () async {
+        final repo = branchRepo();
+        archive(repo, ['add-x'], commitIt: true);
+        await refuses(
+          repo,
+          'vcs_error',
+          ctx: faking(
+            (c) => c.contains('cat-file') && c.contains('blob')
+                ? failed(128)
+                : null,
+          ),
+        );
+      }, skip: skip);
+
+      test(
+        'a member replaced by a file is vcs_error naming the path',
+        () async {
+          final repo = branchRepo();
+          makeChange(repo, 'add-y', deltas: {'b': 'Other thing'});
+          archive(repo, ['add-x', 'add-y'], commitIt: true);
+          const dir = 'openspec/changes/archive/$_date-add-y';
+          git(repo, ['rm', '-r', '-q', dir]);
+          Directory('$repo/$dir').parent.createSync(recursive: true);
+          File('$repo/$dir').writeAsStringSync('now a file\n');
+          commitAll(repo, 'replace the member with a file');
+          await refuses(repo, 'vcs_error', says: dir);
+        },
+        skip: skip,
+      );
+
+      test('an unlistable delta directory is vcs_error (POSIX)', () async {
+        final repo = branchRepo();
+        archive(repo, ['add-x']);
+        final specs = '$repo/openspec/changes/archive/$_date-add-x/specs';
+        Process.runSync('chmod', ['000', specs]);
+        addTearDown(() => Process.runSync('chmod', ['755', specs]));
+        await refuses(repo, 'vcs_error');
+      }, skip: Platform.isWindows ? 'platform: no POSIX permissions' : false);
+
+      test('ignored content under the archive root is git_env', () async {
+        final repo = branchRepo();
+        archive(repo, ['add-x']);
+        File('$repo/.git/info/exclude').writeAsStringSync('*-add-y/\n');
+        put(repo, 'openspec/changes/archive/$_date-add-y/proposal.md', 'old\n');
+        await refuses(repo, 'git_env', says: '$_date-add-y');
+      }, skip: skip);
+
+      test('the plan warns about the index, edits and operations', () async {
+        final repo = branchRepo();
+        archive(repo, ['add-x'], commitIt: true);
+        final doc = await ok(repo);
+        final warnings = (doc['warnings']! as List).cast<String>();
+        expect(
+          warnings,
+          contains(
+            'Do not edit files or start a merge, cherry-pick, revert or '
+            'rebase while the steps run.',
+          ),
+        );
+        expect(
+          warnings,
+          contains(
+            'The index must not be changed by other commands or hooks while '
+            'the steps run.',
+          ),
+        );
+        final recovery = warnings.firstWhere(
+          (w) => w.startsWith('If a step fails after the steps began'),
+        );
+        expect(recovery, contains(backupOf(repo)));
+        expect(recovery, contains('openspec/changes/add-x'));
+        expect(recovery, isNot(contains('git restore')));
+        expect(recovery, isNot(contains('`')));
+      }, skip: skip);
+
+      test('a resume warns to check Git before switching back', () async {
+        final repo = branchRepo();
+        archive(repo, ['add-x'], commitIt: true);
+        git(repo, ['checkout', '-q', 'main']);
+        final doc = await ok(repo, branch: 'feat/x');
+        expect(
+          (doc['warnings']! as List).cast<String>(),
+          contains(
+            "If a step stops after the checkout, check Git's effective work "
+            'tree and index before switching back to main, never switch '
+            'blindly.',
+          ),
+        );
       }, skip: skip);
     });
 

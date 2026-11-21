@@ -10,6 +10,22 @@ String _git(String dir, List<String> args) {
   return (r.stdout as String).trim();
 }
 
+/// The doc comment directly above the declaration that starts with
+/// [signature] (leading spaces ignored) in [file], joined and unwrapped.
+String _docOf(
+  String signature, {
+  String file = 'lib/src/finish/undo_step.dart',
+}) {
+  final lines = File(file).readAsLinesSync();
+  final at = lines.indexWhere((l) => l.trimLeft().startsWith(signature));
+  expect(at, greaterThan(0), reason: '$signature in $file');
+  final doc = <String>[];
+  for (var i = at - 1; i >= 0 && lines[i].trimLeft().startsWith('///'); i--) {
+    doc.insert(0, lines[i].trimLeft().substring(3).trim());
+  }
+  return doc.join(' ');
+}
+
 void main() {
   late Directory tmp;
   late String repo;
@@ -37,13 +53,16 @@ void main() {
   Future<(int, Map<String, Object?>?)> step(
     List<String> args, {
     UndoStateReader? reader,
+    Map<String, String>? environment,
+    String? at,
   }) async {
     final out = <int>[];
     final code = await runUndoStep(
       args,
       writeOut: out.addAll,
-      cwd: repo,
+      cwd: at ?? repo,
       stateReader: reader,
+      environment: environment,
     );
     return (
       code,
@@ -334,7 +353,352 @@ void main() {
     }
   });
 
+  group('Git guards (D2)', () {
+    String gd() => _git(repo, ['rev-parse', '--absolute-git-dir']);
+
+    /// The view `check preflight` is given: what a plan records.
+    List<String> view({String? index}) => [
+      '--git-dir',
+      gd(),
+      '--common-dir',
+      gd(),
+      '--index',
+      index ?? '${gd()}/index',
+      '--objects',
+      '${gd()}/objects',
+    ];
+
+    Map<String, String> envWith(Map<String, String> extra) => {
+      ...Platform.environment,
+      ...extra,
+    };
+
+    Future<Map<String, Object?>> stops(
+      List<String> args,
+      String error, {
+      Map<String, String>? environment,
+      String? at,
+    }) async {
+      final (code, doc) = await step(args, environment: environment, at: at);
+      expect(code, 1, reason: '$args $doc');
+      expect(doc!['error'], error, reason: '$doc');
+      return doc;
+    }
+
+    void commit(String message) =>
+        _git(repo, ['commit', '-q', '-a', '-m', message]);
+
+    test('preflight passes in an ordinary checkout', () async {
+      await passes(['check', 'preflight', ...view()]);
+    });
+
+    for (final name in [
+      'GIT_GLOB_PATHSPECS',
+      'GIT_NOGLOB_PATHSPECS',
+      'GIT_ICASE_PATHSPECS',
+    ]) {
+      test('preflight refuses $name when Git reads it as true', () async {
+        for (final value in ['1', 'true', 'yes', 'on']) {
+          final doc = await stops(
+            ['check', 'preflight', ...view()],
+            'git_env',
+            environment: envWith({name: value}),
+          );
+          expect(doc['message'], contains(name));
+        }
+        for (final value in ['', '0', 'false', 'no', 'off']) {
+          final (code, _) = await step([
+            'check',
+            'preflight',
+            ...view(),
+          ], environment: envWith({name: value}));
+          expect(code, 0, reason: '$name=$value');
+        }
+      });
+    }
+
+    for (final name in ['GIT_NAMESPACE', 'GIT_ALTERNATE_OBJECT_DIRECTORIES']) {
+      test('preflight refuses a non-empty $name', () async {
+        final doc = await stops(
+          ['check', 'preflight', ...view()],
+          'git_env',
+          environment: envWith({name: 'x'}),
+        );
+        expect(doc['message'], contains(name));
+      });
+    }
+
+    test('preflight refuses an index routed elsewhere', () async {
+      File('${gd()}/undo-index')
+          .writeAsBytesSync(File('${gd()}/index').readAsBytesSync());
+      final doc = await stops(
+        ['check', 'preflight', ...view()],
+        'git_env',
+        environment: envWith({'GIT_INDEX_FILE': '${gd()}/undo-index'}),
+      );
+      expect(doc['message'], contains('index'));
+    });
+
+    test('preflight stops at the first recorded value that differs', () async {
+      final doc = await stops([
+        'check',
+        'preflight',
+        ...view(index: '${gd()}/other-index'),
+      ], 'git_env');
+      expect(doc['message'], contains('index'));
+      expect(doc['message'], contains('other-index'));
+    });
+
+    test('preflight refuses a work tree rerouted by configuration', () async {
+      final other = Directory('${tmp.path}/elsewhere')..createSync();
+      _git(repo, ['config', 'core.worktree', other.path]);
+      final doc = await stops(['check', 'preflight', ...view()], 'git_env');
+      expect(doc['message'], contains('work tree'));
+    });
+
+    test('preflight refuses a grafts file', () async {
+      Directory('${gd()}/info').createSync(recursive: true);
+      File('${gd()}/info/grafts').writeAsStringSync('\n');
+      final doc = await stops(['check', 'preflight', ...view()], 'git_env');
+      expect(doc['message'], contains('grafts'));
+    });
+
+    test('preflight refuses a partial clone however it shows', () async {
+      _git(repo, ['config', 'remote.origin.promisor', 'false']);
+      await passes(['check', 'preflight', ...view()]);
+      _git(repo, ['config', 'remote.origin.promisor', 'true']);
+      var doc = await stops(['check', 'preflight', ...view()], 'git_env');
+      expect(doc['message'], contains('partial clone'));
+      _git(repo, ['config', '--unset', 'remote.origin.promisor']);
+      _git(repo, ['config', 'extensions.partialClone', 'origin']);
+      doc = await stops(['check', 'preflight', ...view()], 'git_env');
+      expect(doc['message'], contains('partial clone'));
+      _git(repo, ['config', '--unset', 'extensions.partialClone']);
+      File('${gd()}/objects/pack/pack-x.promisor').writeAsStringSync('');
+      doc = await stops(['check', 'preflight', ...view()], 'git_env');
+      expect(doc['message'], contains('partial clone'));
+    });
+
+    test('preflight refuses a sparse checkout', () async {
+      _git(repo, ['config', 'core.sparseCheckout', 'true']);
+      final doc = await stops(['check', 'preflight', ...view()], 'git_env');
+      expect(doc['message'], contains('sparse checkout'));
+    });
+
+    test(
+      'preflight refuses GitButler metadata, whatever the settings say',
+      () async {
+        Directory('${gd()}/gitbutler').createSync();
+        await stops(['check', 'preflight', ...view()], 'gitbutler_workspace');
+      },
+    );
+
+    for (final marker in [
+      'MERGE_HEAD',
+      'CHERRY_PICK_HEAD',
+      'REVERT_HEAD',
+      'rebase-merge',
+      'rebase-apply',
+      'sequencer',
+    ]) {
+      test('preflight and check index refuse while $marker exists', () async {
+        final path = '${gd()}/$marker';
+        if (marker.startsWith('rebase') || marker == 'sequencer') {
+          Directory(path).createSync();
+        } else {
+          File(path)
+              .writeAsStringSync('${_git(repo, ['rev-parse', 'HEAD'])}\n');
+        }
+        await stops(['check', 'preflight', ...view()], 'operation_in_progress');
+        await stops(['check', 'index'], 'operation_in_progress');
+      });
+    }
+
+    test('preflight tests run in a fixed order', () async {
+      Directory('${gd()}/gitbutler').createSync();
+      File('${gd()}/MERGE_HEAD').writeAsStringSync('x\n');
+      await stops(['check', 'preflight', ...view()], 'gitbutler_workspace');
+      await stops(
+        ['check', 'preflight', ...view()],
+        'git_env',
+        environment: envWith({'GIT_NAMESPACE': 'x'}),
+      );
+    });
+
+    test(
+      'index sees a staged gitlink that diff.ignoreSubmodules hides',
+      () async {
+        _git(repo, ['config', 'diff.ignoreSubmodules', 'all']);
+        final oid = _git(repo, ['rev-parse', 'HEAD']);
+        _git(repo, ['update-index', '--add', '--cacheinfo', '160000,$oid,sub']);
+        final doc = await fails(['check', 'index']);
+        expect(doc['message'], contains('index'));
+      },
+    );
+
+    test('index sees a staged path that a diff helper would hide', () async {
+      _git(repo, ['config', 'diff.external', 'true']);
+      _git(repo, ['config', 'diff.trustExitCode', 'true']);
+      File('$repo/s.txt').writeAsStringSync('x');
+      _git(repo, ['add', 's.txt']);
+      await fails(['check', 'index']);
+    });
+
+    test('unchanged takes a bracketed path literally', () async {
+      File('$repo/a1.txt').writeAsStringSync('one\n');
+      _git(repo, ['add', '-A']);
+      _git(repo, ['commit', '-q', '-m', 'add a1']);
+      final head = _git(repo, ['rev-parse', 'HEAD']);
+      File('$repo/a1.txt').writeAsStringSync('two\n');
+      commit('change a1');
+      await passes(['check', 'unchanged', head, '--', 'a[1].txt']);
+      await fails(['check', 'unchanged', head, '--', 'a1.txt']);
+    });
+
+    test('unchanged compares a directory recursively', () async {
+      File('$repo/d/x.txt').createSync(recursive: true);
+      File('$repo/d/y.txt').createSync(recursive: true);
+      _git(repo, ['add', '-A']);
+      _git(repo, ['commit', '-q', '-m', 'add d']);
+      final head = _git(repo, ['rev-parse', 'HEAD']);
+      File('$repo/d/y.txt').writeAsStringSync('changed\n');
+      commit('change d/y');
+      await passes(['check', 'unchanged', head, '--', 'd/x.txt']);
+      await fails(['check', 'unchanged', head, '--', 'd']);
+    });
+
+    test('clean sees a submodule change that ignore = all hides', () async {
+      final sub = Directory('${tmp.path}/subsrc')..createSync();
+      _git(sub.path, ['init', '-q', '-b', 'main']);
+      for (final kv in [
+        ['user.name', 'T'],
+        ['user.email', 't@example.com'],
+        ['commit.gpgsign', 'false'],
+      ]) {
+        _git(sub.path, ['config', kv[0], kv[1]]);
+      }
+      File('${sub.path}/f.txt').writeAsStringSync('one\n');
+      _git(sub.path, ['add', '-A']);
+      _git(sub.path, ['commit', '-q', '-m', 'sub']);
+      _git(repo, [
+        '-c',
+        'protocol.file.allow=always',
+        'submodule',
+        'add',
+        '-q',
+        sub.path,
+        'sub',
+      ]);
+      _git(repo, ['commit', '-q', '-m', 'add the submodule']);
+      _git(repo, ['config', 'submodule.sub.ignore', 'all']);
+      await passes(['check', 'clean']);
+      File('$repo/sub/f.txt').writeAsStringSync('changed\n');
+      await fails(['check', 'clean']);
+    });
+
+    test(
+      'clean refuses an assume-unchanged edit, whole tree or scoped',
+      () async {
+        File('$repo/b.txt').writeAsStringSync('b\n');
+        _git(repo, ['add', 'b.txt']);
+        commit('b');
+        _git(repo, ['update-index', '--assume-unchanged', 'a.txt']);
+        File('$repo/a.txt').writeAsStringSync('hidden edit\n');
+        var doc = await stops(['check', 'clean'], 'git_env');
+        expect(doc['message'], contains('a.txt'));
+        doc = await stops(['check', 'clean', '--', 'a.txt'], 'git_env');
+        expect(doc['message'], contains('a.txt'));
+        await passes(['check', 'clean', '--', 'b.txt']);
+      },
+    );
+
+    test('clean refuses a skip-worktree entry', () async {
+      _git(repo, ['update-index', '--skip-worktree', 'a.txt']);
+      final doc = await stops(['check', 'clean'], 'git_env');
+      expect(doc['message'], contains('a.txt'));
+    });
+
+    test('tip on a branch ref is an exact branch lookup', () async {
+      final head = _git(repo, ['rev-parse', 'HEAD']);
+      _git(repo, ['branch', 'feat/x']);
+      await passes(['check', 'tip', 'refs/heads/feat/x', head]);
+      _git(repo, ['tag', 'refs/heads/feat/x']);
+      _git(repo, ['branch', '-D', 'feat/x']);
+      await fails(['check', 'tip', 'refs/heads/feat/x', head]);
+    });
+
+    test('branch on git stops with git_env when the settings select another '
+        'backend', () async {
+      File('$repo/openspec/specwright.yaml')
+        ..createSync(recursive: true)
+        ..writeAsStringSync('vcs: jj\n');
+      final doc = await stops([
+        'check',
+        'branch',
+        'main',
+        '--backend',
+        'git',
+      ], 'git_env');
+      expect(doc['message'], contains('jj'));
+      expect(doc['message'], contains('git'));
+    });
+
+    test('a store plan reads the store role from the code operand', () async {
+      final code = Directory('${tmp.path}/code')..createSync();
+      File('${code.path}/openspec/specwright.yaml')
+        ..createSync(recursive: true)
+        ..writeAsStringSync('vcs: jj\nplanning_store:\n  vcs: git\n');
+      await passes([
+        'check',
+        'branch',
+        'main',
+        '--backend',
+        'git',
+        '--code',
+        code.path,
+      ]);
+      File('${code.path}/openspec/specwright.yaml')
+          .writeAsStringSync('planning_store:\n  vcs: jj\n');
+      final doc = await stops([
+        'check',
+        'branch',
+        'main',
+        '--backend',
+        'git',
+        '--code',
+        code.path,
+      ], 'git_env');
+      expect(doc['message'], contains('jj'));
+    });
+
+    test('branch on git needs Git to read the branch', () async {
+      final outside = Directory('${tmp.path}/not-a-repo')..createSync();
+      await stops(
+        ['check', 'branch', 'main', '--backend', 'git'],
+        'vcs_error',
+        at: outside.path,
+      );
+    });
+  });
+
   group('doc comments', () {
+    test('checkIndex carries C19', () {
+      final doc = _docOf('Future<void> checkIndex(');
+      expect(doc, contains('C19'));
+      expect(doc, contains('uses `git diff-index --cached`'));
+      expect(doc, contains('`--literal-pathspecs` and `--no-replace-objects`'));
+    });
+
+    test('the index check carries C31', () {
+      final doc = _docOf('Future<void> checkIndex(');
+      expect(doc, contains('C31'));
+      expect(doc, contains('prints no recovery command'));
+      expect(
+        doc,
+        contains('Rejected: printing an executable recovery command'),
+      );
+    });
+
     test('runUndoStep carries C5', () {
       final src = File('lib/src/finish/undo_step.dart').readAsStringSync();
       final at = src.indexOf('Future<int> runUndoStep(');

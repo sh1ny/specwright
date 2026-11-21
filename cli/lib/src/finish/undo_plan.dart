@@ -15,6 +15,7 @@ import '../vcs/codec.dart';
 import '../vcs/git_backend.dart';
 import '../vcs/stop.dart';
 import '../vcs/tool_runner.dart';
+import 'git_guard.dart';
 import 'script_text.dart';
 import 'settings_guard.dart';
 
@@ -150,6 +151,26 @@ typedef UndoPlanner = Future<Map<String, Object?>> Function(
 /// before switching back, never to switch blindly. Rejected: proving survival
 /// from tree and disk shapes, which four review rounds each found another case
 /// for.
+///
+/// C28: `check clean` is emitted only for a committed archive (on Git when the
+/// plan switches branches); an uncommitted undo gets none, because it moves the
+/// archive copy with its edits and backs up amended main specs, and a
+/// cleanliness guard would block that recovery.
+///
+/// C44: the archive-branch tip lookup treats a successful `for-each-ref`
+/// listing without the exact ref as a missing branch, and `for-each-ref` leaves
+/// out a broken ref, so a `refs/heads/<branch>` that exists as a symbolic ref to
+/// a deleted target reports `no_archive` rather than `vcs_error`. Such a ref is
+/// made only by hand (`git symbolic-ref`); no Specwright or Git workflow
+/// creates one, and telling it apart needs a second read for one case.
+///
+/// C45: an undo resume scans the whole index for assume-unchanged and
+/// skip-worktree entries, at planning and in the emitted `check clean`; a plan
+/// that does not switch branches scans only the member directories and touched
+/// main specs. The scan reads `ls-files -v -z` incrementally, one NUL record at
+/// a time, keeps no path list, and stops at the first flagged entry, naming it
+/// in its message; it never collects the whole output through the uncapped
+/// runner (`runTool`).
 Future<Map<String, Object?>> undoArchivePlan(
   UndoRequest request,
   FinishContext ctx,
@@ -182,9 +203,19 @@ bool _exists(String path) => _isFile(path) || _isDir(path);
 /// `files`. A name that is not UTF-8 stops the plan with `not_utf8`.
 List<WalkDirectory> _walkArchive(String top, String rel) {
   try {
-    return walkTree(_under(top, rel), policy: WalkPolicy.finish, prefix: rel);
+    return walkTree(
+      _under(top, rel),
+      policy: WalkPolicy.finish,
+      prefix: rel,
+      strictListing: true,
+    );
   } on NotUtf8 catch (e) {
     throw VcsStop.notUtf8(e);
+  } on FileSystemException catch (e) {
+    throw VcsStop(
+      'vcs_error',
+      'cannot list ${e.path ?? rel}: ${e.osError?.message ?? e.message}',
+    );
   }
 }
 
@@ -202,6 +233,20 @@ Uint8List? _readFile(String path) {
   }
 }
 
+/// The planner.
+///
+/// C34: the planner never asks Git for a filtered read it did not make before
+/// this change, and runs no filter to decide a rerun; Git itself may still run
+/// a clean filter the user configured inside the planner's `git status` reads
+/// (a tracked file with stale stat data), and the current-branch amended-spec
+/// comparison keeps today's `cat-file --filters`, as any `git status` or `git
+/// diff` the user runs does. The read-only contract is about the index and work
+/// tree, which `GIT_OPTIONAL_LOCKS=0` keeps unwritten; a user's own filter
+/// driver is their code. The planner uses no conversion to obtain rerun
+/// evidence: the existing filtered comparisons, the amended-spec one and the
+/// uncommitted carried-edits one, keep today's `cat-file --filters` and are not
+/// rerun evidence. Rejected: refusing every repository with a filter driver
+/// configured, which would refuse every Git LFS user.
 class _Planner {
   _Planner(this.request, this.ctx)
     : windows = ctx.windows ?? Platform.isWindows,
@@ -220,7 +265,7 @@ class _Planner {
   }) async {
     try {
       final run = ctx.runner;
-      final command = ['git', ...args];
+      final command = ['git', ...gitSafety, ...args];
       final callEnv = environment ?? env;
       return run != null
           ? await run(cwd, command, callEnv)
@@ -246,6 +291,7 @@ class _Planner {
           '--porcelain=v1',
           '-z',
           '--untracked-files=all',
+          '--ignore-submodules=none',
           if (paths.isNotEmpty) '--',
           ...paths,
         ],
@@ -259,7 +305,10 @@ class _Planner {
   String pathOf(ToolResult r, String what) =>
       pyStrip(decodeStrict(r.stdout, what));
 
-  List<String> nulList(ToolResult r) {
+  /// The NUL-ended names of a finished read; the read must be whole ([label]
+  /// names it when it is not).
+  List<String> nulList(ToolResult r, String label) {
+    checkRead(r, label);
     final out = <String>[];
     var start = 0;
     final bytes = r.stdout;
@@ -434,6 +483,7 @@ class _Planner {
       throw VcsStop('sw_mismatch', mismatch['message']! as String);
     }
 
+    refuseGitEnvironment(env);
     var r = await git(d, ['rev-parse', '--show-toplevel']);
     if (r.exitCode != 0 || textOf(r).isEmpty) {
       throw VcsStop('not_a_repo', '$d is not inside a git work tree');
@@ -443,6 +493,9 @@ class _Planner {
       await git(top, ['rev-parse', '--absolute-git-dir']),
       'git directory',
     );
+    // Git itself writes a hint about a grafts file, which a later read would
+    // report as its own failure: say what is wrong first
+    refuseGrafts(derivedView(top)?.commonDir ?? gitdir);
     r = await git(top, ['rev-parse', '--verify', '-q', 'HEAD^{commit}']);
     if (r.exitCode != 0) {
       throw VcsStop('not_a_repo', 'the repository has no commit');
@@ -451,6 +504,10 @@ class _Planner {
     final vs = await vcsState(top, code, request.branch);
     final jj = vs['backend'] == 'jj';
     final gb = vs['backend'] == 'gitbutler';
+    // a Git undo's first guard, run now as the first step runs it later
+    final GitView? view = jj || gb
+        ? null
+        : await gitPreflight((args) => git(top, args), env, top);
     var headref = 'HEAD';
     final given = request.branch != null && request.branch!.isNotEmpty
         ? request.branch
@@ -498,6 +555,7 @@ class _Planner {
       '--',
       ad,
     ]);
+    checkRead(listed, 'git ls-tree');
     final adInHead = listed.stdout.any((b) => !_asciiSpace(b));
     final uncommitted = adInWd && !adInHead;
     final typ = request.type != null && request.type!.isNotEmpty
@@ -505,19 +563,36 @@ class _Planner {
         : _typeOf(branch);
     final backupDir = '$gitdir/specwright-undo/$archived';
 
+    // `<mode> <type> <oid>` of [path] in [tree], or null when it is not there;
+    // a failed listing is a `vcs_error`, never a missing entry
+    Future<List<String>?> entry(String tree, String path) async {
+      final r = await git(top, ['ls-tree', '-z', tree, '--', path]);
+      final records = readInventory(r, 'git ls-tree');
+      if (records.isEmpty) return null;
+      final text = decodeStrict(records.first.single, 'file name');
+      final tab = text.indexOf('\t');
+      final fields = (tab < 0 ? text : text.substring(0, tab)).split(' ');
+      return fields.length == 3 ? fields : null;
+    }
+
     Future<bool> has(String tree, String path) async =>
-        (await git(top, ['cat-file', '-e', '$tree:$path'])).exitCode == 0;
+        await entry(tree, path) != null;
 
     Future<Uint8List?> blob(String tree, String path) async {
+      final e = await entry(tree, path);
+      if (e == null || e[1] != 'blob') return null;
       final r = await git(top, ['cat-file', 'blob', '$tree:$path']);
-      return r.exitCode == 0 ? r.stdout : null;
+      checkRead(r, 'git cat-file blob');
+      return r.stdout;
     }
 
     // The blob as a checkout writes it (eol and filter attributes,
     // core.autocrlf), to compare with working-tree bytes.
     Future<Uint8List?> blobWd(String tree, String path) async {
+      if (!await has(tree, path)) return null;
       final r = await git(top, ['cat-file', '--filters', '$tree:$path']);
-      return r.exitCode == 0 ? r.stdout : null;
+      checkRead(r, 'git cat-file --filters');
+      return r.stdout;
     }
 
     Uint8List? wdBytes(String path) => _readFile(_under(top, path));
@@ -528,6 +603,7 @@ class _Planner {
       final r = await git(top, [
         'diff-index',
         '--cached',
+        '--ignore-submodules=none',
         '--name-only',
         '-z',
         'HEAD',
@@ -619,7 +695,37 @@ class _Planner {
             '--',
             '$archiveBase/',
           ]),
+          'git ls-files',
         );
+        // an ignored directory under the archive root would be moved with the
+        // archive or hide a member the plan cannot see
+        final ignored = nulList(
+          await git(top, [
+            'ls-files',
+            '-z',
+            '--others',
+            '--ignored',
+            '--exclude-standard',
+            '--directory',
+            '--',
+            '$archiveBase/',
+          ]),
+          'git ls-files --ignored',
+        );
+        final under = '$archiveBase/';
+        for (final path in ignored) {
+          final rest = path.startsWith(under)
+              ? path.substring(under.length)
+              : '';
+          if (rest.endsWith('/') && rest.indexOf('/') == rest.length - 1) {
+            throw VcsStop(
+              'git_env',
+              '$path is ignored by Git, so the plan cannot see what it '
+                  'holds; remove or move it, or stop ignoring it, then plan '
+                  'again',
+            );
+          }
+        }
       }
       final base = '$archiveBase/';
       for (final path in others) {
@@ -749,8 +855,7 @@ class _Planner {
     } else {
       mode = 'committed';
       planBranch = branch;
-      r = await git(top, ['rev-parse', '--verify', '-q', 'refs/heads/$branch']);
-      t = r.exitCode == 0 ? textOf(r) : '';
+      t = await branchTip((args) => git(top, args), 'refs/heads/$branch');
       var adds = <String>[];
       if (t.isNotEmpty) {
         r = await git(top, [
@@ -762,6 +867,7 @@ class _Planner {
           '--',
           _joinAll([ad, 'review.md']),
         ]);
+        checkRead(r, 'git log');
         adds = _pySplit(textOf(r));
       }
       if (adds.isEmpty) {
@@ -834,7 +940,7 @@ class _Planner {
         '-z',
         arch,
       ]);
-      final changes = nulList(r);
+      final changes = nulList(r, 'git diff-tree');
       final added = <String>[];
       final mod = <String>[];
       final created = <String>[];
@@ -878,7 +984,17 @@ class _Planner {
       final goneDirs = <String>[];
       for (final dn in dnames) {
         final dir = _joinAll([archiveBase, dn]);
-        if (!await has(t, dir)) goneDirs.add(dir);
+        final held = await entry(t, dir);
+        if (held == null) {
+          goneDirs.add(dir);
+        } else if (held[1] != 'tree') {
+          throw VcsStop(
+            'vcs_error',
+            '$dir is not a directory on $branch (a later commit replaced it '
+                'with a ${held[1]}); restore it, then plan again',
+            extra: {'path': dir},
+          );
+        }
       }
       if (goneDirs.isNotEmpty) {
         // restoring the synced specs would drop those members' requirements
@@ -995,6 +1111,33 @@ class _Planner {
       }
     }
 
+    // an assume-unchanged or skip-worktree entry hides an edit from every Git
+    // guard: a resume that switches branches scans the whole index, any other
+    // plan what it touches (C45)
+    if (!jj && !gb) {
+      final switching = mode == 'committed' && branch != cb;
+      final flagged = await firstFlaggedEntry(
+        cwd: top,
+        environment: env,
+        paths: switching
+            ? const []
+            : [
+                for (final m in members) m.dir,
+                for (final m in members) _joinAll([prefix, 'changes', m.name]),
+                ...mainMod,
+                ...mainNew,
+              ],
+      );
+      if (flagged != null) {
+        throw VcsStop(
+          'git_env',
+          '$flagged is flagged assume-unchanged or skip-worktree, so Git does '
+              'not report its edits and no guard can see them; clear the flag, '
+              'then plan again',
+        );
+      }
+    }
+
     final namesAll = [for (final m in members) m.name];
     if (members.length > 1) {
       warnings.add(
@@ -1003,7 +1146,18 @@ class _Planner {
         'again without the deferred change.',
       );
     }
-    warnings.add('Do not edit files while the steps run.');
+    if (jj || gb) {
+      warnings.add('Do not edit files while the steps run.');
+    } else {
+      warnings.add(
+        'Do not edit files or start a merge, cherry-pick, revert or rebase '
+        'while the steps run.',
+      );
+      warnings.add(
+        'The index must not be changed by other commands or hooks while the '
+        'steps run.',
+      );
+    }
 
     // a resume that switches the checkout holding the project root may change
     // the stamp the later steps read: one cheap early refusal (C36)
@@ -1040,6 +1194,19 @@ class _Planner {
       ...mainNew,
     ];
     final committed = mode == 'committed';
+    List<String> gitArgv(List<String> rest) => ['git', ...gitSafety, ...rest];
+    // the archive commit's parent, named by its OID in the emitted steps
+    String parent = '';
+    if (committed && !jj && !gb) {
+      final pr = await git(top, ['rev-parse', '--verify', '-q', '$a^']);
+      parent = pr.exitCode == 0 ? textOf(pr) : '';
+      if (parent.isEmpty) {
+        throw VcsStop(
+          'vcs_error',
+          'the archive commit $a has no parent commit to restore from',
+        );
+      }
+    }
     String rev = '';
     List<String> fileset = [];
     if (gb) {
@@ -1084,10 +1251,32 @@ class _Planner {
       if (committed) undo(['check', 'clean', '--jj', '--', ...fileset]);
       undo(['check', 'absent', backupDir]);
     } else {
+      final v = view!;
+      undo([
+        'check',
+        'preflight',
+        '--git-dir',
+        v.gitDir,
+        '--common-dir',
+        v.commonDir,
+        '--index',
+        v.index,
+        '--objects',
+        v.objects,
+      ]);
       if (committed && branch != cb) {
         undo(['check', 'clean']);
         undo(['check', 'tip', 'refs/heads/$branch', t]);
-        step(['git', 'checkout', '-q', branch, '--']);
+        step(
+          gitArgv([
+            'checkout',
+            '-q',
+            '--no-overwrite-ignore',
+            '--no-recurse-submodules',
+            branch,
+            '--',
+          ]),
+        );
       }
       undo(['check', 'branch', planBranch]);
       undo(['check', 'tip', headref, t]);
@@ -1113,27 +1302,36 @@ class _Planner {
     if (committed && !jj && !gb) {
       for (final m in members) {
         final changeDir = _joinAll([prefix, 'changes', m.name]);
-        step(['git', 'rm', '-r', '-q', '--cached', '--', m.dir]);
-        step(['git', 'read-tree', '--prefix=$changeDir/', '$t:${m.dir}']);
+        step(gitArgv(['rm', '-r', '-q', '--cached', '--', m.dir]));
+        step(gitArgv(['read-tree', '--prefix=$changeDir/', '$t:${m.dir}']));
         if (markerDirs[m.name]!) {
-          step([
-            'git',
-            'rm',
-            '-q',
-            '--cached',
-            '--',
-            '$changeDir/specwright-change.yaml',
-          ]);
+          step(
+            gitArgv([
+              'rm',
+              '-q',
+              '--cached',
+              '--',
+              '$changeDir/specwright-change.yaml',
+            ]),
+          );
         }
       }
       if (mainMod.isNotEmpty) {
-        step(['git', 'restore', '--source=$a^', '--staged', '--', ...mainMod]);
+        step(
+          gitArgv([
+            'restore',
+            '--source=$parent',
+            '--staged',
+            '--',
+            ...mainMod,
+          ]),
+        );
       }
       if (mainNew.isNotEmpty) {
-        step(['git', 'rm', '-q', '--cached', '--', ...mainNew]);
+        step(gitArgv(['rm', '-q', '--cached', '--', ...mainNew]));
       }
       final subject = '$typ($change): undo archive of ${namesAll.join(', ')}';
-      step(['git', 'commit', '-q', '-m', subject]);
+      step(gitArgv(['commit', '-q', '-m', subject]));
     }
     for (final m in members) {
       final changeDir = _joinAll([prefix, 'changes', m.name]);
@@ -1158,14 +1356,15 @@ class _Planner {
         undo(['write-blob', baseRev, f, f]);
       }
     } else if (mainMod.isNotEmpty) {
-      step([
-        'git',
-        'restore',
-        committed ? '--source=$a^' : '--source=$t',
-        '--worktree',
-        '--',
-        ...mainMod,
-      ]);
+      step(
+        gitArgv([
+          'restore',
+          committed ? '--source=$parent' : '--source=$t',
+          '--worktree',
+          '--',
+          ...mainMod,
+        ]),
+      );
     }
     if (mainNew.isNotEmpty) {
       undo(['remove', ...mainNew]);
@@ -1244,11 +1443,22 @@ class _Planner {
         'plan again.',
       );
     } else if (committed) {
+      // no command: a reset could follow GIT_INDEX_FILE into another index
       warnings.add(
-        'If a step fails after the steps began changing the index and before they '
-        'commit, run `git restore --staged -- ${touchedAll.join(' ')}` and '
-        'plan again; the working tree is untouched until the commit.',
+        'If a step fails after the steps began changing the index and before '
+        'they commit, the index entries of ${touchedAll.join(' ')} may be '
+        "partly changed, and a resume plan's checkout may already have "
+        'happened. Unstage those paths yourself and move or delete the backup '
+        'directory $backupDir, then plan again; the working tree is untouched '
+        'until the commit.',
       );
+      if (branch != cb) {
+        warnings.add(
+          "If a step stops after the checkout, check Git's effective work "
+          'tree and index before switching back to '
+          '${cb.isEmpty ? 'the previous HEAD' : cb}, never switch blindly.',
+        );
+      }
     }
     if (backupFiles.isNotEmpty && committed) {
       warnings.add(
@@ -1281,6 +1491,7 @@ class _Planner {
             '--',
             _joinAll([m.dir, 'specs']),
           ]),
+          'git ls-tree',
         );
         for (final p in listing) {
           final rel = _dropPoints(p, m.dir.runes.length + 1);

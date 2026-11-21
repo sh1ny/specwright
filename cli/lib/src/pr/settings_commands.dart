@@ -74,6 +74,19 @@ Future<bool> _hasRef(PrContext ctx, String d, String ref) async =>
     (await ctx.git(d, ['show-ref', '--verify', '--quiet', ref])).code == 0;
 
 /// `detect_main(d)`: `main`, else `master`, as a local or origin branch; `main` when neither exists.
+///
+/// C43: default main detection (run eagerly by `readVcsSettings` for every role
+/// and used only when that role sets no `main_branch`) keeps today's rule: a
+/// `git show-ref --verify --quiet` that does not succeed counts as no such ref,
+/// whether the ref is missing, malformed or unreadable. A failed lookup of an
+/// existing `main` can therefore make a plan take `master` as main, and no
+/// emitted guard catches it: `check branch` compares the current branch and
+/// backend, not the detected main. Setting `main_branch` makes the plan use
+/// that name instead of the detected one, though the lookups still run. The
+/// finish delta names default main detection as an exception to the failed-read
+/// rule. Rejected: a strict lookup on the planner's path, which two review
+/// rounds showed cannot tell a malformed ref from a missing one through
+/// `show-ref` and would stop plans on a role's detection they do not use.
 Future<String> _detectMain(PrContext ctx, String d) async {
   for (final name in const ['main', 'master']) {
     if (await _hasRef(ctx, d, 'refs/heads/$name') ||

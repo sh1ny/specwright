@@ -405,16 +405,16 @@ Verification: never run an eval suite locally. Locally run only the module being
 
 ## 10. Undo planner: Git environment, index and guards (D2)
 
-- [ ] 10.1 Write failing tests for the red rows of the change-finish index, submodule, ignored-file, literal-path, Git-environment, operation-in-progress and failed-index-step requirements, the guard and warning rows of "Fixed undo-plan defects are exceptions to the script's refusals", the Git rows of "The undo plan stops when a read it relies on fails" not taken by groups 8, 9 and 11, and native-cli "The undo plan's Git steps carry their safety options", in `evals/finish/test_undo_plan.py`, `evals/finish/test_undo_steps.py` and `cli/test/finish/undo_plan_test.dart`. Move the argv-pinning tests (`evals/finish/test_undo_steps.py:236`, `:256`, the `evals/finish/test_undo_jj.py` step-program checks, the `undo_plan_test.dart` lines C19 lists) to the new argv. Verify they fail for the right reason.
-- [ ] 10.2 Implement D2's Git-side guards: `diff-index --cached --ignore-submodules=none` for both index checks and `--ignore-submodules=none` on cleanliness checks; checkout `-q --no-overwrite-ignore --no-recurse-submodules`; `--literal-pathspecs` and `--no-replace-objects` on every planner and emitted Git command; the `git_env`, partial-clone, sparse, grafts and GitButler-metadata refusals in the planner and `check preflight`; the operation-in-progress check; the exact `for-each-ref` tip lookup; the role-aware `check branch --backend`; the index-flag scan; the recovery warning. Verify: the 10.1 tests pass (Dart locally, evals in PR CI on three OSes) and their rows turn green.
-- [ ] 10.3 Re-run the green rows "No archive of the change", "Branch moved after the plan", "A staged change on the change branch" and "Any other refusal". Verify: `evals/finish/test_undo_plan.py` and `evals/finish/test_parity.py` pass in PR CI.
-- [ ] 10.4 C19: doc comment of `checkIndex` in `cli/lib/src/finish/undo_step.dart`.
-- [ ] 10.5 C28: doc comment of `undoArchivePlan` in `cli/lib/src/finish/undo_plan.dart`.
-- [ ] 10.6 C31: doc comment at the index check in `cli/lib/src/finish/undo_step.dart`.
-- [ ] 10.7 C34: doc comment of `_Planner` in `cli/lib/src/finish/undo_plan.dart`.
-- [ ] 10.8 C43: doc comment of `_detectMain` in `cli/lib/src/pr/settings_commands.dart`.
-- [ ] 10.9 C44: doc comment of `undoArchivePlan` in `cli/lib/src/finish/undo_plan.dart`.
-- [ ] 10.10 C45: doc comment of `undoArchivePlan` in `cli/lib/src/finish/undo_plan.dart`.
+- [x] 10.1 Write failing tests for the red rows of the change-finish index, submodule, ignored-file, literal-path, Git-environment, operation-in-progress and failed-index-step requirements, the guard and warning rows of "Fixed undo-plan defects are exceptions to the script's refusals", the Git rows of "The undo plan stops when a read it relies on fails" not taken by groups 8, 9 and 11, and native-cli "The undo plan's Git steps carry their safety options", in `evals/finish/test_undo_plan.py`, `evals/finish/test_undo_steps.py` and `cli/test/finish/undo_plan_test.dart`. Move the argv-pinning tests (`evals/finish/test_undo_steps.py:236`, `:256`, the `evals/finish/test_undo_jj.py` step-program checks, the `undo_plan_test.dart` lines C19 lists) to the new argv. Verify they fail for the right reason.
+- [x] 10.2 Implement D2's Git-side guards: `diff-index --cached --ignore-submodules=none` for both index checks and `--ignore-submodules=none` on cleanliness checks; checkout `-q --no-overwrite-ignore --no-recurse-submodules`; `--literal-pathspecs` and `--no-replace-objects` on every planner and emitted Git command; the `git_env`, partial-clone, sparse, grafts and GitButler-metadata refusals in the planner and `check preflight`; the operation-in-progress check; the exact `for-each-ref` tip lookup; the role-aware `check branch --backend`; the index-flag scan; the recovery warning. Verify: the 10.1 tests pass (Dart locally, evals in PR CI on three OSes) and their rows turn green.
+- [x] 10.3 Re-run the green rows "No archive of the change", "Branch moved after the plan", "A staged change on the change branch" and "Any other refusal". Verify: `evals/finish/test_undo_plan.py` and `evals/finish/test_parity.py` pass in PR CI.
+- [x] 10.4 C19: doc comment of `checkIndex` in `cli/lib/src/finish/undo_step.dart`.
+- [x] 10.5 C28: doc comment of `undoArchivePlan` in `cli/lib/src/finish/undo_plan.dart`.
+- [x] 10.6 C31: doc comment at the index check in `cli/lib/src/finish/undo_step.dart`.
+- [x] 10.7 C34: doc comment of `_Planner` in `cli/lib/src/finish/undo_plan.dart`.
+- [x] 10.8 C43: doc comment of `_detectMain` in `cli/lib/src/pr/settings_commands.dart`.
+- [x] 10.9 C44: doc comment of `undoArchivePlan` in `cli/lib/src/finish/undo_plan.dart`.
+- [x] 10.10 C45: doc comment of `undoArchivePlan` in `cli/lib/src/finish/undo_plan.dart`.
 
 ## 11. Undo planner: rerun eligibility from the restored copy (D2)
 

@@ -291,12 +291,14 @@ class TestUndoPlan(Base):
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertEqual(index.read_bytes(), before, "the plan rewrote the index")
         calls = shim.calls()
-        status = [c for c in calls if c["action"] == "status"]
-        others = [c for c in calls if c["action"] != "status"]
+        # the planner's read-only reads: its status reads and its index-flag scan (`ls-files -v`, C45)
+        quiet = lambda c: c["action"] == "status" or (c["action"] == "ls-files" and "-v" in c["argv"])
+        status = [c for c in calls if quiet(c)]
+        others = [c for c in calls if not quiet(c)]
         # the settings reader's `show-ref` (detect_main) runs on every plan, `main_branch` set or not
         for action in ("rev-parse", "show-ref"):
             self.assertTrue(status and any(c["action"] == action for c in others), f"the shim saw no {action} call of the plan")
-        # every status runs with the optional locks off; every other call keeps the caller's environment
+        # every read-only read runs with the optional locks off; every other call keeps the caller's environment
         self.assertEqual({c["optional_locks"] for c in status}, {"0"}, status)
         self.assertEqual({c["optional_locks"] for c in others}, {"1"}, others)
 
@@ -1001,6 +1003,123 @@ class TestUndoPlan(Base):
         self.assertEqual(doc["error"], "vcs_error", raw)
         self.assertIn("tasks.md", doc["message"])
         self.assertNotIn("steps", doc)
+
+
+class TestGitGuards(Base):
+    """The Git-side guards of the plan (change fix-sw-port-gaps, group 10)."""
+
+    def refused(self, error, *needles, **kw):
+        self.assertStops(fx.run_plan(self.work, "add-x", **kw), error, *needles)
+
+    def committed(self):
+        self.single({"a": "New thing"})
+        fx.archive(self.work, "add-x", commit_it=True)
+
+    def test_a_true_pathspec_mode_variable_is_refused(self):
+        self.committed()
+        for name in ("GIT_GLOB_PATHSPECS", "GIT_NOGLOB_PATHSPECS", "GIT_ICASE_PATHSPECS"):
+            self.assertStops(fx.run_plan(self.work, "add-x", env={name: "1"}), "git_env", name)
+
+    def test_a_namespace_or_alternate_objects_is_refused(self):
+        self.committed()
+        for name in ("GIT_NAMESPACE", "GIT_ALTERNATE_OBJECT_DIRECTORIES"):
+            self.assertStops(fx.run_plan(self.work, "add-x", env={name: "x"}), "git_env", name)
+
+    def test_an_index_routed_elsewhere_is_refused(self):
+        self.committed()
+        other = self.work / ".git" / "other-index"
+        shutil.copyfile(self.work / ".git" / "index", other)
+        self.assertStops(fx.run_plan(self.work, "add-x", env={"GIT_INDEX_FILE": str(other)}), "git_env", "index")
+
+    def test_grafts_partial_clone_and_sparse_checkout_are_refused(self):
+        self.committed()
+        (self.work / ".git" / "info").mkdir(exist_ok=True)
+        grafts = self.work / ".git" / "info" / "grafts"
+        grafts.write_text("\n", encoding="utf-8")
+        self.refused("git_env", "grafts")
+        grafts.unlink()
+        self.git("config", "remote.origin.promisor", "true")
+        self.refused("git_env", "partial clone")
+        self.git("config", "--unset", "remote.origin.promisor")
+        self.git("config", "core.sparseCheckout", "true")
+        self.refused("git_env", "sparse checkout")
+
+    def test_a_gitbutler_directory_is_refused(self):
+        self.committed()
+        (self.work / ".git" / "gitbutler").mkdir()
+        self.refused("gitbutler_workspace")
+
+    def test_an_operation_in_progress_is_refused(self):
+        self.committed()
+        (self.work / ".git" / "MERGE_HEAD").write_text(self.git("rev-parse", "HEAD") + "\n", encoding="utf-8")
+        self.refused("operation_in_progress")
+
+    def test_a_staged_gitlink_hidden_by_configuration_is_staged_changes(self):
+        """An update of a gitlink HEAD already has: `diff.ignoreSubmodules=all` hides it from `git diff --cached`, so the
+        old staged read saw a clean index. A newly added gitlink would show anyway and prove nothing."""
+        self.git("update-index", "--add", "--cacheinfo", f"160000,{self.git('rev-parse', 'HEAD')},sub")
+        self.git("commit", "-q", "-m", "chore: add a gitlink")
+        (self.work / "sub").mkdir()  # an uninitialized submodule: without its directory `git add -A` stages a deletion
+        self.committed()
+        self.git("config", "diff.ignoreSubmodules", "all")
+        self.git("update-index", "--cacheinfo", f"160000,{self.git('rev-parse', 'HEAD')},sub")
+        self.assertEqual(self.git("diff", "--cached", "--name-only"), "", "the configuration does not hide the update")
+        self.refused("staged_changes")
+
+    def test_a_resume_refuses_an_assume_unchanged_file_anywhere(self):
+        self.committed()
+        self.git("checkout", "-q", "main")
+        self.git("update-index", "--assume-unchanged", "src/app.py")
+        fx.edit(self.work, "src/app.py", "v1", "hidden edit")
+        self.refused("git_env", "src/app.py", branch=BRANCH)
+
+    def test_the_tip_lookup_is_exact(self):
+        self.committed()
+        self.git("checkout", "-q", "main")
+        self.git("tag", f"refs/heads/{BRANCH}", BRANCH)
+        self.git("tag", BRANCH, BRANCH)
+        self.git("branch", "-D", BRANCH)
+        self.refused("no_archive", branch=BRANCH)
+
+    def test_a_member_replaced_by_a_file_is_a_vcs_error(self):
+        self.pair()
+        fx.archive(self.work, ["add-x", "add-y"], commit_it=True)
+        member = ad("add-y")
+        self.git("rm", "-r", "-q", member)
+        (self.work / member).write_text("now a file\n", encoding="utf-8")
+        fx.commit(self.work, "chore: replace a member with a file")
+        self.refused("vcs_error", member)
+
+    def test_ignored_content_under_the_archive_root_is_refused(self):
+        self.single({"a": "New thing"})
+        fx.archive(self.work, "add-x")
+        exclude = self.work / ".git" / "info" / "exclude"
+        exclude.write_text(exclude.read_text(encoding="utf-8") + "*-add-y/\n", encoding="utf-8")
+        fx.write(self.work, f"{ad('add-y')}/proposal.md", "never committed\n")
+        self.refused("git_env", ad("add-y"))
+
+    @unittest.skipIf(os.name == "nt", "platform: no POSIX permission bits")
+    def test_an_unlistable_delta_directory_is_a_vcs_error(self):
+        self.single({"a": "New thing"})
+        fx.archive(self.work, "add-x")
+        specs = self.work / ad("add-x") / "specs"
+        specs.chmod(0)
+        self.addCleanup(specs.chmod, 0o755)
+        if os.geteuid() == 0:
+            self.skipTest("platform: root reads every directory")
+        self.refused("vcs_error")
+
+    def test_the_plan_warns_about_the_index_and_prints_no_recovery_command(self):
+        self.committed()
+        code, doc, raw = fx.run_plan(self.work, "add-x")
+        self.assertEqual(code, 0, raw)
+        warnings = doc["warnings"]
+        self.assertIn("Do not edit files or start a merge, cherry-pick, revert or rebase while the steps run.", warnings)
+        self.assertIn("The index must not be changed by other commands or hooks while the steps run.", warnings)
+        recovery = next(w for w in warnings if w.startswith("If a step fails after the steps began"))
+        self.assertIn(doc["backup_dir"], recovery)
+        self.assertNotIn("git restore", recovery)
+        self.assertNotIn("`", recovery)
 
 
 if __name__ == "__main__":

@@ -22,6 +22,19 @@ sys.path.insert(0, str(ROOT / "evals" / "vcs"))
 import vcs_test_support  # noqa: E402
 
 
+GIT_SAFETY = ["--literal-pathspecs", "--no-replace-objects"]
+
+
+def git_subcommand(argv):
+    """The Git subcommand of an emitted step after its global options (the safety options come first), or None."""
+    if argv[:1] != ["git"]:
+        return None
+    rest = argv[1:]
+    while rest and rest[0].startswith("-"):
+        rest = rest[1:]
+    return rest[0] if rest else None
+
+
 def _load(name, filename):
     spec = importlib.util.spec_from_file_location(name, HERE / filename)
     module = importlib.util.module_from_spec(spec)
@@ -119,6 +132,99 @@ class StepsCase(tp.Base):
 
 
 class TestUndoSteps(StepsCase):
+    def test_every_emitted_git_step_carries_the_safety_options(self):
+        doc = self.restores(build_single)
+        git_steps = [s for s in doc["steps"] if s["argv"][0] == "git"]
+        self.assertTrue(git_steps, doc)
+        for step in git_steps:
+            self.assertEqual(step["argv"][1:3], GIT_SAFETY, step)
+        # the first guard is the preflight, whatever else follows
+        self.assertEqual(doc["steps"][0]["argv"][3:7], ["finish", "undo-step", "check", "preflight"], doc["steps"][0])
+
+    def test_check_index_sees_a_staged_gitlink_that_ignore_submodules_hides(self):
+        """An update of a gitlink HEAD already has, staged after planning: `diff.ignoreSubmodules=all` hides it from
+        `git diff --cached --quiet`."""
+        fx.git(self.work, "update-index", "--add", "--cacheinfo", f"160000,{fx.git(self.work, 'rev-parse', 'HEAD')},sub")
+        fx.git(self.work, "commit", "-q", "-m", "chore: add a gitlink")
+        (self.work / "sub").mkdir()  # an uninitialized submodule: without its directory `git add -A` stages a deletion
+        build_single(self.work)
+        code, doc, raw = fx.run_plan(self.work, "add-x")
+        self.assertEqual(code, 0, raw)
+        fx.git(self.work, "config", "diff.ignoreSubmodules", "all")
+        head = fx.git(self.work, "rev-parse", "HEAD")
+        fx.git(self.work, "update-index", "--cacheinfo", f"160000,{head},sub")
+        self.assertEqual(fx.git(self.work, "diff", "--cached", "--name-only"), "", "the configuration does not hide the update")
+        r = fx.run_steps(self.scripts, doc["steps"])
+        self.assertNotEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(git_subcommand(r.ran[-1]["argv"]), None, r.ran[-1])
+        self.assertIn("index", r.stdout + r.stderr)
+        self.assertTrue((self.work / tp.ad("add-x")).is_dir(), "a step ran after the index check")
+
+    def test_resume_with_submodule_recurse_leaves_submodule(self):
+        """`submodule.recurse=true`, a clean submodule on a local branch, and an archive branch that records another
+        gitlink for it: the resume checkout leaves the submodule's HEAD, branch and files alone. No guard refuses the
+        fixture: on main the submodule sits at the commit main records (a clean tree), and the gitlink difference is
+        outside every member directory."""
+        src = self.tmp / "subsrc"
+        src.mkdir()
+        sub_git = ["-c", "user.name=T", "-c", "user.email=t@example.com", "-c", "commit.gpgsign=false"]
+        fx.git(src, "init", "-q", "-b", "main")
+        (src / "f.txt").write_text("one\n", encoding="utf-8")
+        fx.git(src, "add", "-A")
+        fx.git(src, *sub_git, "commit", "-q", "-m", "first")
+        first = fx.git(src, "rev-parse", "HEAD")
+        fx.git(self.work, "-c", "protocol.file.allow=always", "submodule", "add", "-q", str(src), "sub")
+        fx.git(self.work, "commit", "-q", "-m", "chore: add a submodule")
+        build_single(self.work)
+        # the archive branch records a newer commit of the submodule, which the submodule already holds as an object
+        (src / "f.txt").write_text("two\n", encoding="utf-8")
+        fx.git(src, *sub_git, "commit", "-q", "-a", "-m", "second")
+        second = fx.git(src, "rev-parse", "HEAD")
+        sub = self.work / "sub"
+        fx.git(sub, "-c", "protocol.file.allow=always", "fetch", "-q", "origin")
+        fx.git(self.work, "update-index", "--cacheinfo", f"160000,{second},sub")
+        fx.git(self.work, "commit", "-q", "-m", "chore: move the submodule")
+        fx.git(self.work, "checkout", "-q", "main")
+        fx.git(sub, "checkout", "-q", "-b", "local", first)
+        fx.git(self.work, "config", "submodule.recurse", "true")
+        before = (fx.git(sub, "rev-parse", "HEAD"), fx.git(sub, "branch", "--show-current"),
+                  (sub / "f.txt").read_bytes())
+        self.assertEqual(before[:2], (first, "local"))
+        code, doc, raw = fx.run_plan(self.work, "add-x", branch=BRANCH)
+        self.assertEqual(code, 0, raw)
+        steps = doc["steps"]
+        checkout = next(i for i, s in enumerate(steps) if git_subcommand(s["argv"]) == "checkout")
+        self.assertIn("--no-recurse-submodules", steps[checkout]["argv"])
+        r = fx.run_steps(self.scripts, steps[:checkout + 1])
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(fx.git(self.work, "branch", "--show-current"), BRANCH)
+        after = (fx.git(sub, "rev-parse", "HEAD"), fx.git(sub, "branch", "--show-current"),
+                 (sub / "f.txt").read_bytes())
+        self.assertEqual(after, before)
+
+    def test_a_merge_in_progress_stops_the_steps_at_the_first_guard(self):
+        build_single(self.work)
+        code, doc, raw = fx.run_plan(self.work, "add-x")
+        self.assertEqual(code, 0, raw)
+        gitdir = Path(fx.git(self.work, "rev-parse", "--absolute-git-dir"))
+        (gitdir / "MERGE_HEAD").write_text(fx.git(self.work, "rev-parse", "HEAD") + "\n", encoding="utf-8")
+        r = fx.run_steps(self.scripts, doc["steps"])
+        self.assertNotEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(len(r.ran), 1, "a step ran after the first guard")
+        self.assertIn("operation_in_progress", r.stdout)
+        self.assertTrue((self.work / tp.ad("add-x")).is_dir())
+
+    def test_the_preflight_refuses_an_index_routed_elsewhere(self):
+        build_single(self.work)
+        code, doc, raw = fx.run_plan(self.work, "add-x")
+        self.assertEqual(code, 0, raw)
+        other = self.work / ".git" / "other-index"
+        shutil.copyfile(self.work / ".git" / "index", other)
+        r = fx.run_steps(self.scripts, doc["steps"], env={"GIT_INDEX_FILE": str(other)})
+        self.assertNotEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(len(r.ran), 1)
+        self.assertIn("git_env", r.stdout)
+
     def test_committed_archive_plan_prints_steps(self):
         doc = self.restores(build_single)
         self.assertNotIn("script", doc)
@@ -234,7 +340,7 @@ class TestUndoSteps(StepsCase):
         hook.chmod(0o755)
         r = fx.run_steps(self.scripts, doc["steps"])
         self.assertNotEqual(r.returncode, 0, r.stdout + r.stderr)
-        self.assertEqual(r.ran[-1]["argv"][:2], ["git", "commit"], r.ran[-1])
+        self.assertEqual(git_subcommand(r.ran[-1]["argv"]), "commit", r.ran[-1])
         self.assertLess(len(r.ran), len(doc["steps"]), "a step ran after the failing one")
         self.assertTrue((self.work / tp.ad("add-x")).is_dir(), "the move ran after the failed commit")
         self.assertFalse((self.work / tp.cd("add-x")).exists())
@@ -254,7 +360,7 @@ class TestUndoSteps(StepsCase):
         steps = doc["steps"]
         copy = next(i for i, s in enumerate(steps) if s["argv"][3:6] == ["finish", "undo-step", "copy"]
                     and s["argv"][6:] == [SPEC_A, backup])
-        restore = next(i for i, s in enumerate(steps) if s["argv"][:2] == ["git", "restore"] and SPEC_A in s["argv"])
+        restore = next(i for i, s in enumerate(steps) if git_subcommand(s["argv"]) == "restore" and SPEC_A in s["argv"])
         self.assertLess(copy, restore)
         self.assertTrue((Path(doc["backup_dir"]) / "amended" / SPEC_A).is_file())
 
