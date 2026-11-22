@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <img alt="version" src="https://img.shields.io/badge/version-0.39.0-blue">
+  <img alt="version" src="https://img.shields.io/badge/version-0.39.1-blue">
   <img alt="OpenSpec" src="https://img.shields.io/badge/OpenSpec-1.16.0-8A2BE2">
   <img alt="agents" src="https://img.shields.io/badge/agents-Claude%20Code%20%7C%20Codex%20%7C%20OMP-555">
   <a href="./LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-green"></a>
@@ -127,7 +127,8 @@ Ask which agents this project uses (several may apply) and confirm the paths:
   user-level `specwright-*` copies to 0.14.0 or newer, or remove them once no
   other project on the machine relies on them, and to restart agent sessions;
   an older user-level copy stops every `vcs.sh` call with
-  `scripts_in_workspace` once in-repo copies exist.
+  `scripts_in_workspace` once in-repo copies exist (that is a copy from before
+  0.14.0, a version that still had `vcs.sh`).
   This is a warning only: install where the user chooses.
 - GitButler (`vcs: gitbutler`, already set in `openspec/specwright.yaml` or
   chosen now; ask when unsure): every applied branch shares the work tree, so
@@ -320,9 +321,11 @@ installed agent file (say so in Step 8).
     `rolled back to <prev>`, followed by its `sw_note` when that is not null
     (no `sw` binary serves `<prev>`). A `journal` still listed afterwards in phase
     `swapped` with this download's `to` is a swap that finished before the
-    stamp: set `swapped` to true, skip `stage` and `swap`, and go on with
-    Steps 5-7. No `swap` report exists then: take `store_written` from
-    `recovered.store_written` in `plan`'s document, in place of `swap`'s.
+    stamp: set `swapped` to true, skip `stage` and `swap`, and, when this
+    `plan` lists no `refusals`, ask the orphan question below and go on with
+    Steps 5-7; a refusal is handled as below first, removing nothing. No `swap` report exists then:
+    take `store_written` from `recovered.store_written` in `plan`'s document,
+    in place of `swap`'s.
   - A refusal (exit 1, `"error": "refused"`, listed in `refusals`): a change
     in flight that fails validation against the new schema, a store another
     project owns, a busy store, and so on. Tell the user each refusal as
@@ -338,9 +341,13 @@ installed agent file (say so in Step 8).
       unchanged. Say that `<to>`'s files are installed but not stamped, give
       the restart notice (Step 8), and say that rerunning this prompt once the
       refusal is resolved completes the update.
-  - `orphans` are installed `specwright-*` names with no downloaded
-    counterpart (`sw update` never touches them): list them and ask before
-    removing them, and remove only those the user agrees to, after `swap`.
+  - `orphans` lists what is installed with no downloaded counterpart:
+    `specwright-*` skill directories, `specwright-*.md` agent files and the
+    skills an enabled pack installed before and no longer ships (`sw update`
+    never touches them; a disabled pack's skills are a `swap` removal, not
+    orphans):
+    list them all and ask before removing them, as the orphan question below
+    says.
   - Keep `warnings` for Step 8 (a change in flight found only on a remote
     branch is not validated), and the changes validated against `<to>`.
   - Keep the adopted pack skills (an identical hand copy that the install now
@@ -357,6 +364,15 @@ installed agent file (say so in Step 8).
   stays false: STOP and report that the installed version is unchanged. When
   it fails part-way (an error that is not a refusal), tell the user to rerun
   this prompt: `recover` resumes or rolls back the swap.
+- Orphan skills, settled before Step 5: ask about each `specwright-*` skill
+  directory among the current plan's `orphans` that this update does not
+  install, after a new `swap` and on a rerun whose plan shows a completed swap
+  (once that swap is confirmed, as above). Remove only those the user agrees to
+  remove. A declined orphan stays, passes Step 7 as kept, and Step 8 lists it
+  as an orphan kept. List the other `orphans` entries this update does not
+  install (agent files, pack
+  skills) too, ask before removing them, and remove only those the user
+  agrees to, after `swap`; Step 7 does not check them.
 - Legacy openspec-git-flow: if `openspec-git-branch`, `openspec-git-commit` or
   `openspec-git-merge` skill directories exist in a chosen skills directory,
   or `openspec/.git-flow/` exists, list them and ask before removing them.
@@ -432,12 +448,27 @@ Step 6 - Settings (openspec/specwright.yaml in the code checkout)
   - Entries under `pr.reviewers.` and `planning_store.reviewers.` are
     user data (one per reviewer login): never compared, added or listed as
     removed.
-  - Every key under `packs.` is user data too: never compared, added or
-    listed as removed. The template holds only a commented `packs:` example.
+  - Every key under `packs.` and every entry under `release.version_files.`
+    is user data too: never compared, added or listed as removed, never merged
+    into an existing mapping, and kept in order. The template holds only a
+    commented `packs:` example.
+  - `release.version_files` itself is compared like any key. When the user's
+    file lacks it and the template sets it, offer the template's whole
+    mapping, in order, as one default, and list it as added when the user
+    keeps it. The user may keep or decline it; a declined mapping is not
+    written.
   List each added key with its default and its comment from the downloaded
   `templates/openspec/specwright.yaml`, and ask whether to keep the default.
   If the user's file has keys the downloaded file no longer has (uncommented
-  or commented out), list them and ask before removing them.
+  or commented out), list them and ask before removing them. A key removed
+  with the user's consent may take its comment with it. When the user
+  declines, the key and its comment stay unchanged, and Step 8 lists it
+  neither as added nor as removed.
+  The merge keeps the user's values and the comments of every key it keeps: it
+  never rewrites, adds or removes a comment on a key the user's file keeps, and
+  asks nothing about a comment that differs from the template's. It copies the
+  template's comment only with a key it adds, when the user accepts that key's
+  default.
 - GitButler's agent skill, only when `vcs: gitbutler` is set in
   `openspec/specwright.yaml` (just chosen, or already there). It is GitButler's
   own skill and the tool guidance on that backend; Specwright ships none. For
@@ -454,9 +485,17 @@ Step 6 - Settings (openspec/specwright.yaml in the code checkout)
 Step 7 - Verify, stamp the version, finish, clean up
 - Run `openspec schema validate specwright` inside `<root>`.
 - Every file of the downloaded `skills/specwright-*` directories exists,
-  with the same content, in every chosen skills directory, and nothing else
-  is in them (a `gitbutler` directory that `but skill install` created at the
-  user's yes in Step 6 is not Specwright's: leave it and do not count it).
+  with the same content, in every chosen skills directory. Check each
+  `specwright-*` directory there by itself. One with a downloaded counterpart
+  holds no extra file: a file the download lacks fails the check, naming it.
+  One with no downloaded counterpart (an orphan) passes when the user kept it
+  in Step 4, and Step 8 reports it as an orphan kept. An orphan the user agreed
+  in Step 4 to remove that is still there fails the check, naming it, and no
+  stamp is written. The check allows no other `specwright-*` directory than the
+  downloaded ones and the orphans the user kept. Other directories (OpenSpec's
+  `openspec-*`, the user's own, and a `gitbutler` directory that `but skill
+  install` created at the user's yes in Step 6) do not count: leave them and
+  report nothing about them.
 - The pack skills of every enabled pack exist in every chosen skills
   directory, and `sw update` `pack-verify` passes. Skip the `pack-verify`
   check when Step 5 was skipped (no pack is enabled on a store, and the
@@ -471,7 +510,11 @@ Step 7 - Verify, stamp the version, finish, clean up
   version is still stamped.
 - `openspec/specwright.yaml` has every uncommented dotted path in the
   downloaded `templates/openspec/specwright.yaml` (commented-out paths are
-  optional), unless the user chose otherwise in Step 6.
+  optional), unless the user chose otherwise in Step 6: a template default the
+  user declined is not added, and the check passes without it. Skip every entry
+  under `pr.reviewers.`, `planning_store.reviewers.`, `packs.` and
+  `release.version_files.`: those are user data. Check `release.version_files`
+  itself like any other key.
 - If every check passes, copy `VERSION` to `openspec/.specwright/VERSION` (the
   stamp), then run `sw update` `finish`: it removes the previous copies, the
   staging directories and the journal (run it again if it was interrupted).
@@ -481,7 +524,8 @@ Step 7 - Verify, stamp the version, finish, clean up
   interrupted.
   If any check fails, do not write the stamp: report each failed check and how
   to fix it, and never claim success. Say the update is swapped but not
-  stamped: after the fix, rerun this prompt (it goes straight to Steps 5-7),
+  stamped: after the fix, rerun this prompt (it goes to Step 4's orphan
+  question, then to Steps 5-7),
   or roll back with `sw update` `recover --rollback` (it reports
   `rolled back to <prev>`, plus an `sw_note` when no `sw` serves `<prev>`, and
   stops when the store is busy or no longer this project's).
@@ -518,7 +562,9 @@ Then check whether the installed skills can run: the file
 running it with `version --json` and a 10-second timeout must exit 0, print one
 JSON object, report the installed `VERSION`, and report the interface the
 installed skills require. That interface is the `interface <n>` line in the
-installed `specwright-pr/SKILL.md`; for a tag whose skills carry no such line,
+installed `specwright-pr/SKILL.md`: the line that holds only `interface <n>`
+and nothing else, with `<n>` the number. A sentence that mentions an interface
+inside a paragraph is not that line. For a tag whose skills carry no such line,
 it is the `SW_INTERFACE=` value in the installed `scripts/sw-path.sh`. If the
 file is missing, the command does not exit 0 in time, or the version or the
 interface differs (as after a `main` install whose build was removed, or
@@ -546,7 +592,7 @@ Treat `openspec/.specwright/packs.json` like `VERSION`: commit both or ignore bo
 Step 2 offers the repo (`.claude/skills/`, `.agents/skills/`) or your user directory (`~/.claude/skills/`, `~/.agents/skills/`, and the matching agents directories), on every backend. Specwright installs where you choose and never refuses to run because of it. It is a warning, not a check: Specwright neither detects nor refuses a mixed install.
 
 - **User level.** A user-level install is shared by every project on the machine: one Specwright version, and an update from one project updates all. In Claude Code a user-level `specwright-*` skill overrides an in-repo skill of the same name (personal over project), while agents resolve project over user. For Claude Code the skills' location is in effect a per-machine choice, and a mixed install runs the user-level skills.
-- **Moving to an in-repo install.** Update the user-level `specwright-*` copies to 0.14.0 or newer, or remove them once no other project on the machine relies on them, then restart your agent sessions. An older user-level copy stops every `vcs.sh` call with `scripts_in_workspace` once in-repo copies exist; that message is the symptom.
+- **Moving to an in-repo install.** Update the user-level `specwright-*` copies to 0.14.0 or newer, or remove them once no other project on the machine relies on them, then restart your agent sessions. An older user-level copy stops every `vcs.sh` call with `scripts_in_workspace` once in-repo copies exist; that message is the symptom. Such a copy is from before 0.14.0, a version that still had `vcs.sh`.
 - **OpenSpec's own files.** OpenSpec's `openspec-*` skills and `/opsx:*` commands are always in the repo: `openspec init` has no user-level option.
 - **GitButler.** Every applied branch shares the work tree, so a branch that changes in-repo skills changes them for every applied branch, and keeping them consistent is your job. An in-repo install leaves its files as unassigned changes in that tree: commit them through a GitButler branch of your own. The branch gate's "commit on main" offer does not apply there.
 

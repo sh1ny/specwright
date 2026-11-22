@@ -142,7 +142,7 @@ With `release.enabled` true, the pre-ship brief SHALL ask the reviewer to check 
 - **THEN** the review returns a P1 `docs` finding naming that item, and ship waits for a fix or a waiver
 
 #### Scenario: Shipped change with no item
-- **WHEN** `release.enabled` is true and the diff adds a new `release.sh` subcommand that no item mentions
+- **WHEN** `release.enabled` is true and the diff adds a new `sw release` subcommand that no item mentions
 - **THEN** the review returns a P2 `docs` finding, and the review can still pass
 
 #### Scenario: Section missing with releases on

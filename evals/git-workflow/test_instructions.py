@@ -1296,6 +1296,10 @@ class InstallSettingsKeys(unittest.TestCase):
         s7 = step(read(README), "Step 7")
         self.assertTrue(s7, "README install prompt has no Step 7")
         self.assertRegex(s7, r"(?is)every uncommented (dotted )?path", "Step 7 requires keys the template only has commented out")
+        self.assertRegex(s7, r"(?is)every uncommented (dotted )?path.{0,200}unless the user chose otherwise in Step 6",
+                         "Step 7's compared-path rule lost the consent exemption")
+        self.assertRegex(s7, r"(?is)(skip|do not check).{0,200}user data.{0,120}`release\.version_files\.`|`release\.version_files\.`.{0,120}user data",
+                         "Step 7's compared-path rule does not exempt the user data entries")
 
     def test_install_step6_asks_before_removing(self):
         s6 = self.s6()
@@ -2590,8 +2594,10 @@ class Packs(unittest.TestCase):
 
     def test_readme_step6_packs_are_user_data(self):
         s6 = self.s(6)
-        self.assertRegex(s6, r"(?is)`packs\.`.{0,300}user data.{0,200}never compared, added or listed as removed",
+        self.assertRegex(s6, r"(?is)`packs\.`.{0,300}user data.{0,300}never compared, added.{0,100}listed as removed",
                          "Step 6 does not treat packs. as user data")
+        self.assertRegex(s6, r"(?is)`packs\.`.{0,100}`release\.version_files\.`.{0,100}user data",
+                         "the user-data sentence does not also name release.version_files.")
 
     def test_readme_step6_never_adds_packs_keys(self):
         t = read(ROOT / "templates" / "openspec" / "specwright.yaml")

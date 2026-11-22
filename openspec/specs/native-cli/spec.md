@@ -521,7 +521,7 @@ For its own work `sw` SHALL start each external tool (`git`, `gh`, `jj`, `but`, 
 - **THEN** no shell process is started by `sw` for its own work, as the launch-site test and a process trace of the eval run show
 
 #### Scenario: A fenced shell command the caller asked for
-- **WHEN** `as.sh sh1ny bash -c 'exit 7'` runs after the identity check passes
+- **WHEN** `sw as sh1ny bash -c 'exit 7'` runs after the identity check passes
 - **THEN** `bash` starts as the fenced command and the exit status is 7
 
 ### Requirement: Tool lookup, exit status and stdin keep their contract
@@ -536,7 +536,7 @@ The native launcher SHALL find a command as `sw run --bounded` finds it, resolvi
 - **THEN** the recorder in `sw`'s directory did not run and the `git` found later on `PATH` ran in B
 
 #### Scenario: A fenced batch command keeps the caller's stdio
-- **WHEN** on Windows `as.sh sh1ny fake.cmd` runs after the identity check passes, where `fake.cmd` reads one line from stdin, prints it and whether `GH_TOKEN` is set, and exits 3
+- **WHEN** on Windows `sw as sh1ny fake.cmd` runs after the identity check passes, where `fake.cmd` reads one line from stdin, prints it and whether `GH_TOKEN` is set, and exits 3
 - **THEN** the line the caller wrote on stdin appears on the caller's stdout with `GH_TOKEN` set, no helper frame appears on stderr, and the exit status is 3
 
 #### Scenario: A missing tool
@@ -919,3 +919,15 @@ For every project command, `sw` SHALL resolve an existing version-check start (`
 #### Scenario: A project path through a link and `..`
 - **WHEN** on POSIX `sw --project /A/link/.. vcs state --repo /C --role code` runs, `link` points to `/B/subdir`, and only `/B`'s `VERSION` matches the running `sw`
 - **THEN** the version check reads `/B`, the command proceeds, and the state document's `head` is `/C`'s
+
+### Requirement: A command shown without its required options means the workflow's call
+Where a requirement or scenario shows an `sw` command without options it requires (`--download` for `sw update` reads of the download, `--code` for `sw pr context`, `--repo` and `--role` for `sw vcs`, the task and change options of `sw commit task-cover`, the change options of `sw review run`), it SHALL mean the call the workflow makes with them, and its asserted outcome SHALL be that call's. A usage stop for a missing option is meant only where the text says the option is missing.
+
+#### Scenario: A shortened call
+- **WHEN** a scenario says `sw pr context --branch feat/add-c` stops with `settings_not_pinned`
+- **THEN** it means `sw pr context --code <code> --branch feat/add-c` run as the workflow runs it, and that call stops with `settings_not_pinned`
+
+#### Scenario: A missing option named on purpose
+- **WHEN** a scenario says `sw update plan` runs without `--download`
+- **THEN** it means that call, which prints a `usage` document and exits 2
+

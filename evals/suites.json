@@ -15,6 +15,7 @@
     {"paths": ["agents/**"], "suites": ["git-workflow", "update"]},
     {"paths": ["agents/*/specwright-reviewer.md"], "suites": ["review-routes"]},
     {"paths": ["README.md"], "suites": ["git-workflow", "release", "update/test_bootstrap.py"]},
+    {"paths": ["evals/git-workflow/test_install_prompt_242.py"], "suites": ["git-workflow/test_install_prompt_242.py"]},
     {"paths": ["CONTRIBUTING.md"], "suites": ["git-workflow", "runner"]},
     {"paths": ["VERSION"], "suites": ["release", "review-routes"]},
     {"paths": ["OPENSPEC_VERSION", ".gitignore"], "suites": ["git-workflow", "finish/test_undo_steps.py"]},

@@ -138,7 +138,7 @@ When **close** promotes a Next milestone with a `Split agreed:` line, it SHALL k
 - **THEN** close asks nothing, Now is M2 with those four changes in the same order, and the decision summary holds an agent row recording that choice
 
 ### Requirement: Close offers untagged releases
-With `release.enabled` true, roadmap **close** SHALL list the versions `release.sh untagged` lists (run fenced with the run login; a version is published when its tag is on origin, or with no origin remote a local tag), and offer to publish them oldest first. It SHALL NOT publish without the user's yes, and a refused or failed publish SHALL NOT block the close.
+With `release.enabled` true, roadmap **close** SHALL list the versions `sw release untagged` lists (run fenced with the run login; a version is published when its tag is on origin, or with no origin remote a local tag), and offer to publish them oldest first. It SHALL NOT publish without the user's yes, and a refused or failed publish SHALL NOT block the close.
 
 #### Scenario: Versions left untagged
 - **WHEN** close runs, `v0.5.0` is the latest tag on origin and main's version history reads 0.5.0, 0.5.1, 0.6.0 with no tag on origin for the last two

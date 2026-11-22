@@ -6,7 +6,7 @@ Keeps the PR scripts working on every Python version they accept, keeps their fa
 ## Requirements
 
 ### Requirement: Unexpected failures keep the JSON error contract
-`pr-pair.sh`, and each `sw pr` subcommand it hands a call to, SHALL report any unexpected exception as one JSON line on stdout with `"ok": false`, `"error": "internal_error"` and a `message` naming the exception type, and SHALL exit 1. Existing structured stops SHALL keep their own error codes and exit statuses.
+Each `sw pr` subcommand from `pr-pair.sh` (`identity`, `context`, `tier`, `vcs`, `discover`, `expected`, `ensure-pr`, `closing-check`, `closed-check`, `link`, `pair-state`, `rounds`, `pass`, `cleanup-plan`, `branch-check`, `merge`, `delete-remote`, `policy` and `item-issues`) SHALL report an unexpected exception as one stdout JSON line with `"ok": false`, `"error": "internal_error"` and a `message` naming its type, and exit 1. Structured stops SHALL keep their own codes and exit statuses.
 
 #### Scenario: Filesystem error during pass write
 - **WHEN** `pass write` runs and the record's parent directory path is an existing regular file
@@ -44,15 +44,15 @@ The README prerequisites and install Step 1 SHALL list `git` as the core require
 - **THEN** none names bash, a POSIX userland or Python as a requirement
 
 ### Requirement: PR scripts remove their temp files on every exit
-Every temp file a PR script creates SHALL be removed when the script exits, whether it succeeds, fails or stops on a structured error. A skill step that tells the agent to write a body or message to a temp file SHALL also tell it to remove that file once the command that reads it has run, whatever that command's outcome.
+Every temp file a `sw pr` command creates SHALL be removed when the command exits, whether it succeeds, fails or stops on a structured error. A skill step that tells the agent to write a body or message to a temp file SHALL also tell it to remove that file once the command that reads it has run, whatever that command's outcome.
 
 #### Scenario: Reply posted
-- **WHEN** `pr-reply.sh` posts a reply and exits 0
+- **WHEN** `sw pr reply` posts a reply and exits 0
 - **THEN** no temp file it created remains
 
 #### Scenario: Post fails
-- **WHEN** `pr-reply.sh` has written its reply temp file and the GitHub call that posts it fails
-- **THEN** the script exits non-zero and no temp file it created remains
+- **WHEN** `sw pr reply` has written its reply temp file and the GitHub call that posts it fails
+- **THEN** the command exits non-zero and no temp file it created remains
 
 #### Scenario: Pending review stop after the reply
 - **WHEN** a thread reply was posted and the following pending-review check exits 2
@@ -63,38 +63,38 @@ Every temp file a PR script creates SHALL be removed when the script exits, whet
 - **THEN** the same step tells the agent to remove that file after the command that reads it
 
 ### Requirement: Network commands have a deadline
-Every `gh` or `git` network command run by `pr-pair.sh`, `pr-snapshot.sh` or `pr-reply.sh`, and every credential or identity lookup `as.sh` makes before it runs the command it fences, SHALL run under a deadline: 120 seconds, or 300 seconds for a paginated read. When the deadline passes, the command and every process it started SHALL be stopped, and the script SHALL report `deadline_exceeded`, naming the command. It SHALL NOT wait for the command.
+Every `gh` or `git` network command run by the `sw pr` pair subcommands, `sw pr snapshot` or `sw pr reply`, and every credential or identity lookup `sw as` makes before it runs the command it fences, SHALL run under a deadline: 120 seconds, or 300 seconds for a paginated read. When the deadline passes, the command and every process it started SHALL be stopped, and `sw` SHALL report `deadline_exceeded`, naming the command. It SHALL NOT wait for the command.
 
 #### Scenario: GitHub answers in time
-- **WHEN** `pr-pair.sh closing-check` runs and every `gh` call answers within its deadline
+- **WHEN** `sw pr closing-check` runs and every `gh` call answers within its deadline
 - **THEN** the check reports its result as before this change, and no `deadline_exceeded` appears
 
 #### Scenario: Hung gh call in pr-pair.sh
-- **WHEN** `pr-pair.sh discover` runs and its `gh api` call never answers
-- **THEN** the script exits 3 within the deadline plus 10 seconds, with one JSON line holding `"error": "deadline_exceeded"` and a message naming `gh api`, and no `gh` process it started is still running
+- **WHEN** `sw pr discover` runs and its `gh api` call never answers
+- **THEN** the command exits 3 within the deadline plus 10 seconds, with one JSON line holding `"error": "deadline_exceeded"` and a message naming `gh api`, and no `gh` process it started is still running
 
 #### Scenario: Hung gh call in a bash PR script
-- **WHEN** `pr-reply.sh` posts a reply and its `gh api` call never answers
-- **THEN** the script exits non-zero within the deadline plus 10 seconds, stderr names `deadline_exceeded` and the command, and no temp file it created remains
+- **WHEN** `sw pr reply` posts a reply and its `gh api` call never answers
+- **THEN** the command exits non-zero within the deadline plus 10 seconds, stderr names `deadline_exceeded` and the command, and no temp file it created remains
 
 #### Scenario: Hung credential lookup in as.sh
-- **WHEN** `as.sh <login> gh ...` runs and its `gh auth token` lookup never answers
-- **THEN** as.sh exits 3 within the deadline plus 10 seconds, names `deadline_exceeded` on stderr, and does not run the fenced command
+- **WHEN** `sw as <login> gh ...` runs and its `gh auth token` lookup never answers
+- **THEN** `sw as` exits 3 within the deadline plus 10 seconds, names `deadline_exceeded` on stderr, and does not run the fenced command
 
 ### Requirement: GitHub responses are bounded
-`pr-pair.sh`, `pr-snapshot.sh` and `pr-reply.sh` SHALL read at most 32 MiB from any one `gh` or `git` network command they run, paginated reads included, and `as.sh` at most 32 MiB from any credential or identity lookup it makes; the PR scripts SHALL read at most 50 pages in any cursor loop they drive themselves. Passing either bound SHALL stop the command and be reported as `response_too_large`, naming the command. It SHALL NOT yield a partial result.
+The `sw pr` pair subcommands, `sw pr snapshot` and `sw pr reply` SHALL read at most 32 MiB from any one `gh` or `git` network command they run, paginated reads included, and `sw as` at most 32 MiB from any credential or identity lookup it makes; the `sw pr` commands SHALL read at most 50 pages in any cursor loop they drive themselves. Passing either bound SHALL stop the command and be reported as `response_too_large`, naming the command. It SHALL NOT yield a partial result.
 
 #### Scenario: Large but bounded list
-- **WHEN** `pr-pair.sh discover` reads a paginated list whose pages total 2 MiB
-- **THEN** the script reads all of it and answers as before this change
+- **WHEN** `sw pr discover` reads a paginated list whose pages total 2 MiB
+- **THEN** the command reads all of it and answers as before this change
 
 #### Scenario: Oversized paginated read
-- **WHEN** a paginated `gh api` read in `pr-pair.sh` prints more than 32 MiB
-- **THEN** the script exits 3 with `"error": "response_too_large"` naming the command, and reports no partial list as the answer
+- **WHEN** a paginated `gh api` read in a `sw pr` pair subcommand prints more than 32 MiB
+- **THEN** the command exits 3 with `"error": "response_too_large"` naming the command, and reports no partial list as the answer
 
 #### Scenario: Reaction loop past its page cap
 - **WHEN** `pass plan` looks for a reaction, and the reactions it pages through never contain it and have more than 50 pages
-- **THEN** the script exits 3 with `"error": "response_too_large"`, and does not report the reaction as absent
+- **THEN** the command exits 3 with `"error": "response_too_large"`, and does not report the reaction as absent
 
 ### Requirement: A command that exits before its deadline keeps its result
 A bounded network command that exits before its deadline SHALL return its own exit status and output, never `deadline_exceeded`, also when a process it started still holds its output open. Its exit SHALL be observed when it happens, not at a later poll. An exit first observed at or after the deadline SHALL be `deadline_exceeded`.
@@ -184,10 +184,10 @@ When a bounded network command is stopped, or exits while a process it started s
 - **THEN** it exits 2 naming `--reviewer-config`, before any `gh` call
 
 ### Requirement: Watch claims and head records stay shared across implementations
-`sw pr snapshot` SHALL read and write watch claims under `<state>/watch/v2/<owner>/<name>/<pr>/` (lower case) and head records under `<state>/heads/`, where `<state>` is `SPECWRIGHT_STATE_DIR`, else `$HOME/.cache/specwright`, with the file names and contents `pr-snapshot.sh` used before this change, so `pr-pair.sh` and a watcher of either implementation see each other's claims and records.
+`sw pr snapshot` SHALL read and write watch claims under `<state>/watch/v2/<owner>/<name>/<pr>/` (lower case) and head records under `<state>/heads/`, where `<state>` is `SPECWRIGHT_STATE_DIR`, else `$HOME/.cache/specwright`, with the file names and contents `pr-snapshot.sh` used before this change, so `sw pr` and a watcher of either implementation see each other's claims and records.
 
 #### Scenario: A newer sw watcher takes over an older script watcher
-- **WHEN** a watcher run by the `pr-snapshot.sh` from before this change waits on PR 12, and the new `pr-snapshot.sh 12 --wait` shim starts a `sw pr snapshot` watcher for the same PR
+- **WHEN** a watcher run by the `pr-snapshot.sh` from before this change waits on PR 12, and a `sw pr snapshot 12 --wait` watcher starts for the same PR
 - **THEN** the older watcher exits 4 before its next poll, and the new watcher owns the PR
 
 #### Scenario: Equal claim numbers across implementations (accepted gap)
@@ -195,7 +195,7 @@ When a bounded network command is stopped, or exits while a process it started s
 - **THEN** `sw` picks the owner by comparing the nonces as bytes, the old script compares them by the locale's collation, and the two may each see themselves as owner. This is accepted and is not a parity failure. If a duplicate owner is ever seen in a run, the gap is reconsidered
 
 #### Scenario: State directory cannot be created
-- **WHEN** `SPECWRIGHT_STATE_DIR` names a path under a regular file and `pr-snapshot.sh 12 --wait` runs
+- **WHEN** `SPECWRIGHT_STATE_DIR` names a path under a regular file and `sw pr snapshot 12 --wait` runs
 - **THEN** stderr says `pr-snapshot: cannot create the watch state directory; ownership is off for PR 12 (this watcher polls unowned)` and the watch goes on unowned
 
 ### Requirement: The ported pr-pair subcommands keep the script's contracts
@@ -218,18 +218,18 @@ When a bounded network command is stopped, or exits while a process it started s
 - **THEN** `sw pr` exits with the recorded status and makes the recorded `gh` calls for inputs retained by the native-cli contract; documented JSON/input and option refusals keep their explicit difference tests. Stderr lines match the record up to each line's prefix, and stdout parses to the recorded JSON value apart from free text compared by its prefix, `reviewer_config` digests and paths, which name `sw pr`'s own `"format": 2` file, the listed settings differences with their own outcome tests, and `cleanup-plan`'s printed commands, which this change moves from `bash .../as.sh`, `vcs.sh` and `pr-pair.sh` to `<sw> --project <code> ...`: their decisions, guards, order and `gh` calls match the record, and their argv, working directory and project selection are asserted on their own. Records hold no paths of the machine that made them. A run-generated feedback owner id in `pass write` stdout is checked to equal the owner in the record that run wrote and is then replaced by a placeholder before the comparison, and persisted write and adopt times are checked against the run, as the live matrix did. Fixture commits are made with a pinned author, committer and dates, so their ids repeat across runs and `lacking[].sha` is compared exactly; the final fake-gh state and each written comment body are recorded and compared byte for byte
 
 #### Scenario: A malformed settings file names its line
-- **WHEN** `openspec/specwright.yaml` holds a tab in its indentation on line 7 and `pr-pair.sh context --code <code>` runs
+- **WHEN** `openspec/specwright.yaml` holds a tab in its indentation on line 7 and `sw pr context --code <code>` runs
 - **THEN** it exits 2 with `"error": "bad_setting"` and a `message` naming `line 7`, and prints no settings values
 
 #### Scenario: Settings not pinned on GitButler
-- **WHEN** `vcs` is `gitbutler`, the work-tree `openspec/specwright.yaml` differs from the one committed on `feat/a`, and `pr-pair.sh context --code <code> --branch feat/a` runs
+- **WHEN** `vcs` is `gitbutler`, the work-tree `openspec/specwright.yaml` differs from the one committed on `feat/a`, and `sw pr context --code <code> --branch feat/a` runs
 - **THEN** it exits 1 with `"error": "settings_not_pinned"`, naming the file and the ref, as before this change
 
 ### Requirement: Message text of the ported subcommands may be reworded
 Free text in dispatched `sw pr` commands and `reviewers` MAY be reworded after stable prefixes. Other representations MAY change with their consuming skills when explicit contract tests prove the same workflow outcomes. Identity, mutation guards, ownership and recovery SHALL remain intact. Retained interfaces keep their existing values/statuses; persisted records remain interoperable. Incidental Python formatting and parser quirks SHALL NOT require byte-for-byte replicas.
 
 #### Scenario: A reworded stop keeps its code
-- **WHEN** `pr-pair.sh policy` reads a default-branch settings file whose content is not valid base64
+- **WHEN** `sw pr policy` reads a default-branch settings file whose content is not valid base64
 - **THEN** stdout has `"error": "lookup_failed"` and the exit status is 3, as before this change, and `message` starts with `merge policy unknown: unreadable openspec/specwright.yaml at <ref>:`
 
 #### Scenario: Workflow error keeps structured values
@@ -252,7 +252,7 @@ Free text in dispatched `sw pr` commands and `reviewers` MAY be reworded after s
 
 #### Scenario: Reviewer states decided in sw
 - **WHEN** `<sw> pr snapshot 12 --reviewer-config cfg.json` runs and `cfg.json` lists `chatgpt-codex-connector[bot]` as a reviewer that has posted its report
-- **THEN** that login's `reviewers` entry has the state `reviewers.py` decided before this change, `reviewer_config` holds the file's digest, and no `reviewers.py` process was started
+- **THEN** that login's `reviewers` entry has the state `reviewers.py` decided before this change, `reviewer_config` holds the file's digest, and the evaluation ran as the bounded `sw pr reviewers` child, with no Python interpreter started
 
 #### Scenario: A pattern that backtracks past the deadline
 - **WHEN** a reviewer's `report.ignore` backtracks on a comment body for longer than the evaluator's deadline
@@ -464,7 +464,7 @@ Native pass operations SHALL preserve record keys, version-2 JSON, LF encoding, 
 Every Specwright command that reads `openspec/specwright.yaml`, from the work tree, a committed ref or GitHub, SHALL read it with one YAML parser and apply the same refusals to every read. A file the reader refuses SHALL give no values: no command decides from part of a file. A refusal SHALL name the 1-based line it found and why. An empty, whitespace-only or comment-only file SHALL read as an empty mapping; any other top level that is not a mapping SHALL be refused.
 
 #### Scenario: The same file read locally and remotely
-- **WHEN** main's `openspec/specwright.yaml` is this repository's settings file and `pr-pair.sh context` reads the work-tree copy while `policy` reads the copy on GitHub
+- **WHEN** main's `openspec/specwright.yaml` is this repository's settings file and `sw pr context` reads the work-tree copy while `policy` reads the copy on GitHub
 - **THEN** both read the same values for `pr.merge`, `pr.merge_method`, `pr.delete_branch` and `pr.reviewers`, and `policy` reports no difference
 
 #### Scenario: A file the parser refuses
@@ -472,41 +472,41 @@ Every Specwright command that reads `openspec/specwright.yaml`, from the work tr
 - **THEN** every reader refuses it naming `line 7`, and none of them reads a value from the lines before or after it
 
 #### Scenario: A comment-only file
-- **WHEN** the work-tree settings hold only comments and blank lines and `pr-pair.sh context --code <code>` runs, and main's settings on GitHub are the same file when `policy` reads them
+- **WHEN** the work-tree settings hold only comments and blank lines and `sw pr context --code <code>` runs, and main's settings on GitHub are the same file when `policy` reads them
 - **THEN** `context` exits 0 with the defaults, and `policy` reads main's policy as `pr.merge: user`
 
 #### Scenario: A top level that is not a mapping
 - **WHEN** the settings file holds only `- pr`, a list, in the work tree and at the ready head
-- **THEN** `pr-pair.sh context` exits 2 with `bad_setting` naming `line 1`, and `policy` exits 3 with `lookup_failed`
+- **THEN** `sw pr context` exits 2 with `bad_setting` naming `line 1`, and `policy` exits 3 with `lookup_failed`
 
 ### Requirement: A refused settings file stops each reader
-A local read of a settings file the reader refuses SHALL stop the command before any git write, network call or file write: the `pr-pair.sh` subcommands that read the settings and `sw vcs` with `bad_setting` and exit 2, the review runner and the release subcommands with `bad_settings` and exit 1, and `policy`'s remote read with `lookup_failed` and exit 3. `tier` SHALL instead exit 0 with the cheap tier off and a `note` naming the line. A missing file SHALL stay an empty settings file.
+A local read of a settings file the reader refuses SHALL stop the command before any git write, network call or file write: the `sw pr` subcommands that read the settings and `sw vcs` with `bad_setting` and exit 2, the review runner and the release subcommands with `bad_settings` and exit 1, and `policy`'s remote read with `lookup_failed` and exit 3. `tier` SHALL instead exit 0 with the cheap tier off and a `note` naming the line. A missing file SHALL stay an empty settings file.
 
 #### Scenario: Ship stops on a refused file
-- **WHEN** the work-tree settings hold a duplicate `pr:` key on line 30 and ship runs `pr-pair.sh context --code <code>`
+- **WHEN** the work-tree settings hold a duplicate `pr:` key on line 30 and ship runs `sw pr context --code <code>`
 - **THEN** it exits 2 with `"error": "bad_setting"` and a `message` naming `openspec/specwright.yaml` and `line 30`, and ship pushes nothing
 
 #### Scenario: A VCS write stops on a refused file
-- **WHEN** the settings hold a tab in their indentation and `vcs.sh commit --branch feat/a --message-file m -- a.txt` runs
+- **WHEN** the settings hold a tab in their indentation and `sw vcs commit --branch feat/a --message-file m -- a.txt` runs
 - **THEN** it exits 2 with `"error": "bad_setting"` naming the line, and no commit is made
 
 #### Scenario: The cheap tier on a refused file
-- **WHEN** the settings hold a tab in their indentation and `pr-pair.sh tier --code <code>` runs
+- **WHEN** the settings hold a tab in their indentation and `sw pr tier --code <code>` runs
 - **THEN** it exits 0 with `"cheap_tier": false` and a `note` naming the line
 
 #### Scenario: No settings file
-- **WHEN** the code checkout has no `openspec/specwright.yaml` and `pr-pair.sh context --code <code>` runs
+- **WHEN** the code checkout has no `openspec/specwright.yaml` and `sw pr context --code <code>` runs
 - **THEN** it exits 0 with the defaults it gave before this change
 
 ### Requirement: Commands that read no settings keep their behaviour
-A command that reads no settings today, such as `pr-pair.sh identity`, SHALL keep its behaviour when the settings file is refused, and SHALL NOT start reading the settings in this change.
+A command that reads no settings today, such as `sw pr identity`, SHALL keep its behaviour when the settings file is refused, and SHALL NOT start reading the settings in this change.
 
 #### Scenario: Identity on a refused file
-- **WHEN** the settings hold a tab in their indentation and `pr-pair.sh identity <code>` runs
+- **WHEN** the settings hold a tab in their indentation and `sw pr identity <code>` runs
 - **THEN** it prints the repository identity it printed before this change and exits 0
 
 #### Scenario: Identity on a missing directory
-- **WHEN** `pr-pair.sh identity` is given a directory that does not exist
+- **WHEN** `sw pr identity` is given a directory that does not exist
 - **THEN** it stops with the error it gave before this change, and names no settings problem
 
 ### Requirement: A boolean written yes or no is refused
@@ -517,11 +517,11 @@ The reader SHALL refuse any unquoted value `yes` or `no`, in any letter case, an
 - **THEN** every reader reads `preship` as false and `react` as true
 
 #### Scenario: A yes boolean
-- **WHEN** line 12 of the settings is `  react: yes` and `pr-pair.sh context --code <code>` runs
+- **WHEN** line 12 of the settings is `  react: yes` and `sw pr context --code <code>` runs
 - **THEN** it exits 2 with `"error": "bad_setting"` and a `message` naming `line 12`, `yes`, `true` and `false`
 
 #### Scenario: A capitalised no
-- **WHEN** a settings line is `  enabled: No` under `release:` and `release.sh check` runs
+- **WHEN** a settings line is `  enabled: No` under `release:` and `sw release check` runs
 - **THEN** it exits 1 with `error: bad_settings` naming the line, `true` and `false`, and no git call is made
 
 #### Scenario: A quoted yes
@@ -536,7 +536,7 @@ The reader SHALL refuse a duplicate key in any mapping, an anchor, an alias, a t
 - **THEN** every reader refuses the file naming that line
 
 #### Scenario: A quoted empty value in a message
-- **WHEN** the settings hold `merge: agent` and `merge_method: ''` under `pr:` and `pr-pair.sh context --code <code>` runs
+- **WHEN** the settings hold `merge: agent` and `merge_method: ''` under `pr:` and `sw pr context --code <code>` runs
 - **THEN** it exits 2 with `bad_setting`, and its message names `pr.merge_method: ''`, the value as written
 
 #### Scenario: A duplicate key in a reviewer
@@ -555,7 +555,7 @@ The reader SHALL refuse a duplicate key in any mapping, an anchor, an alias, a t
 Wherever a reader expects a mapping (the top level, `pr`, `planning_store`, `github`, `github.review_request`, `cheap_tier`, `review`, `release`, `pr.reviewers`, `planning_store.reviewers`, each reviewer entry and its `report`), a present key with another value SHALL stop the read with that reader's settings error naming the key, never coerced. An absent or null key SHALL keep its default; only an absent or null `planning_store.reviewers` SHALL inherit the code reviewer set.
 
 #### Scenario: A reviewer written as a list
-- **WHEN** a reviewer under `pr.reviewers` is written as a block list (`guard:` followed by `- role: required`) and `pr-pair.sh context --code <code>` runs
+- **WHEN** a reviewer under `pr.reviewers` is written as a block list (`guard:` followed by `- role: required`) and `sw pr context --code <code>` runs
 - **THEN** it exits 2 with `bad_setting` naming `pr.reviewers.guard`, and no reviewer config is written
 
 #### Scenario: A reviewer written as a list, remotely
@@ -567,7 +567,7 @@ Wherever a reader expects a mapping (the top level, `pr`, `planning_store`, `git
 - **THEN** every reader stops with its settings error naming `report`
 
 #### Scenario: The cheap tier on a wrong shape
-- **WHEN** `pr:` is a list and `pr-pair.sh tier --code <code>` runs
+- **WHEN** `pr:` is a list and `sw pr tier --code <code>` runs
 - **THEN** it exits 0 with `"cheap_tier": false` and a `note` naming `pr`
 
 #### Scenario: A review section that is not a mapping
@@ -575,11 +575,11 @@ Wherever a reader expects a mapping (the top level, `pr`, `planning_store`, `git
 - **THEN** it exits 1 with `bad_settings` naming `review`, before any reviewer CLI is probed or run
 
 #### Scenario: A release or pr section that is not a mapping
-- **WHEN** `release:` or `pr:` is written as a block list, a flow list, a scalar or an empty string `''`, and `release.sh check` runs
+- **WHEN** `release:` or `pr:` is written as a block list, a flow list, a scalar or an empty string `''`, and `sw release check` runs
 - **THEN** it exits 1 with `bad_settings` naming the key, and no git call is made
 
 #### Scenario: A flow list in a message
-- **WHEN** the settings hold `reviewers: [a, b]` under `pr:` and `pr-pair.sh context --code <code>` runs
+- **WHEN** the settings hold `reviewers: [a, b]` under `pr:` and `sw pr context --code <code>` runs
 - **THEN** it exits 2 with `bad_setting`, and its message names `pr.reviewers` and `[a, b]`, as written
 
 ### Requirement: Deeply nested settings stop without a crash
@@ -590,7 +590,7 @@ A settings file nested beyond any depth a reader can hold SHALL be refused with 
 - **THEN** every reader reads the value
 
 #### Scenario: A local file nested 100,000 levels
-- **WHEN** the work-tree settings hold a flow mapping nested 100,000 levels deep and `pr-pair.sh context --code <code>` runs
+- **WHEN** the work-tree settings hold a flow mapping nested 100,000 levels deep and `sw pr context --code <code>` runs
 - **THEN** it exits 2 with `"error": "bad_setting"` naming a line, and no stack trace is printed
 
 #### Scenario: A remote file nested 100,000 levels

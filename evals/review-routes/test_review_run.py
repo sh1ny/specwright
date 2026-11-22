@@ -1624,6 +1624,7 @@ class RecordGateTests(Base):
         # the same shas mean nothing in the code repo: a git error stops (exit 1), never a false positive
         out = self.script("archive-only", "--base", base, "--head", self.head(self.store), "--change", CHANGE, expect=1)
         self.assertEqual(out["ok"], False)
+        self.assertEqual(out["error"], "git_error")
 
     # ---- rounds ----------------------------------------------------------------------------------------
     def round_commit(self, d, n, name):

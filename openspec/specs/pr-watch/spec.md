@@ -7,7 +7,7 @@ Keeps background PR watching owned by exactly one watcher per pull request on a 
 ## Requirements
 
 ### Requirement: The newest watcher owns a PR
-Each `pr-snapshot.sh --wait` SHALL claim ownership of its PR when it starts. Only the most recent claim SHALL own the PR. A watcher that no longer owns its PR SHALL exit 4 before its next poll. A watcher that exits SHALL give up only its own claim, so its exit never ends a newer watcher's ownership, whatever the order of the two watchers' steps.
+Each `sw pr snapshot --wait` SHALL claim ownership of its PR when it starts. Only the most recent claim SHALL own the PR. A watcher that no longer owns its PR SHALL exit 4 before its next poll. A watcher that exits SHALL give up only its own claim, so its exit never ends a newer watcher's ownership, whatever the order of the two watchers' steps.
 
 #### Scenario: Newer watcher takes over
 - **WHEN** watcher A is waiting on PR 5 and watcher B starts `--wait` on PR 5
@@ -68,7 +68,7 @@ With `pr.review_after_archive` `false` (the default), after a change's archive c
 - **THEN** the same rule applies to the store PR: no request is posted and their reports carry over
 
 ### Requirement: The watch timeout is elapsed time
-`pr-snapshot.sh --wait` SHALL measure `--timeout` as elapsed time from its start, polling included, and SHALL NOT sleep past it. Each poll, the first snapshot included, SHALL have one 120-second deadline for all its commands, so the timeout is reported within 130 seconds of passing (10 for process start and kill). A hung poll SHALL NOT block that report or the ownership checks before each poll and before the report.
+`sw pr snapshot --wait` SHALL measure `--timeout` as elapsed time from its start, polling included, and SHALL NOT sleep past it. Each poll, the first snapshot included, SHALL have one 120-second deadline for all its commands, so the timeout is reported within 130 seconds of passing (10 for process start and kill). A hung poll SHALL NOT block that report or the ownership checks before each poll and before the report.
 
 #### Scenario: Slow polls count toward the timeout
 - **WHEN** a watcher runs with `--timeout 60 --interval 20`, each poll takes 15 seconds, and nothing changes
@@ -87,7 +87,7 @@ With `pr.review_after_archive` `false` (the default), after a change's archive c
 - **THEN** the first snapshot stops at its 120-second deadline with `deadline_exceeded` named on stderr, and the watcher exits 1 no later than 160 seconds after it started
 
 ### Requirement: A wait can skip wakes that are only check progress
-With `--until attention`, `pr-snapshot.sh --wait` SHALL keep waiting while the snapshot differs from its first good snapshot only in checks or merge state, a CI check (`checks.ci_pending` above 0) is still pending, no check newly fails, and the merge state is not `DIRTY`. Any other difference SHALL wake `changed`. The output SHALL add `filtered`, the number of skipped polls. `incomplete`, `timeout` and ownership SHALL work as without the flag.
+With `--until attention`, `sw pr snapshot --wait` SHALL keep waiting while the snapshot differs from its first good snapshot only in checks or merge state, a CI check (`checks.ci_pending` above 0) is still pending, no check newly fails, and the merge state is not `DIRTY`. Any other difference SHALL wake `changed`. The output SHALL add `filtered`, the number of skipped polls. `incomplete`, `timeout` and ownership SHALL work as without the flag.
 
 #### Scenario: A check passes while others run
 - **WHEN** a wait with `--until attention` sees one of three pending CI checks pass, and two are still pending
@@ -119,7 +119,7 @@ With `--until attention`, `pr-snapshot.sh --wait` SHALL keep waiting while the s
 
 #### Scenario: Unknown mode or no wait
 - **WHEN** `--until` is given `quiet`, or `--until attention` is given without `--wait`
-- **THEN** `pr-snapshot.sh` exits 2 with a message naming `--until`, and makes no `gh` call
+- **THEN** `sw pr snapshot` exits 2 with a message naming `--until`, and makes no `gh` call
 
 ### Requirement: Watch waits for attention
 Watch SHALL run each of its waits with `--until attention`. A wait SHALL use `--timeout 1800`, except when the PR's latest snapshot meets every ready condition but the quiet window: then it SHALL use `pr.settle` in seconds (default `5m`). An archive head under "An archive-only head needs no further quiet window" SHALL first wait for the rest of `pr.settle` since its push. Any `timeout` wake SHALL count as the quiet window for the ready rule, even when it skipped check progress.
@@ -146,10 +146,10 @@ Watch SHALL run each of its waits with `--until attention`. A wait SHALL use `--
 
 #### Scenario: Bad settle value
 - **WHEN** `pr.settle` is `soon`, or a duration under `1m` or over `1h`
-- **THEN** `pr-pair.sh context` prints `settings_problem` naming `pr.settle`, and watch starts no wait
+- **THEN** `sw pr context` prints `settings_problem` naming `pr.settle`, and watch starts no wait
 
 ### Requirement: The quiet window is main's
-Watch SHALL take `pr.settle` from `pr-pair.sh policy` (the default branch's value), never from the PR branch or the work tree. `policy` SHALL compare `pr.settle` between main and the head like the other policy keys, so a PR that changes it is a difference the user confirms before an agent merge.
+Watch SHALL take `pr.settle` from `sw pr policy` (the default branch's value), never from the PR branch or the work tree. `policy` SHALL compare `pr.settle` between main and the head like the other policy keys, so a PR that changes it is a difference the user confirms before an agent merge.
 
 #### Scenario: PR shortens the window
 - **WHEN** main has `pr.settle: 30m` and the PR branch sets `pr.settle: 1m`
@@ -160,7 +160,7 @@ Watch SHALL take `pr.settle` from `pr-pair.sh policy` (the default branch's valu
 - **THEN** `policy` reports no difference
 
 ### Requirement: Ready accepts an unstable merge state once CI is done
-Ready SHALL accept `merge_state` CLEAN, or UNSTABLE when no check fails and `checks.ci_pending` is 0. `pr-pair.sh pair-state` SHALL apply the same rule.
+Ready SHALL accept `merge_state` CLEAN, or UNSTABLE when no check fails and `checks.ci_pending` is 0. `sw pr pair-state` SHALL apply the same rule.
 
 #### Scenario: Pending check makes the merge state unstable
 - **WHEN** CI passed, the only pending check is an advisory reviewer's named check that timed out, and `merge_state` is UNSTABLE

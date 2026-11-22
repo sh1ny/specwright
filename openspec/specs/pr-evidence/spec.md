@@ -38,7 +38,7 @@ A timestamp-based reviewer SHALL count as `reported` on a head only for output a
 - **THEN** that reviewer is `reported` on B
 
 ### Requirement: A reply is posted only for the revision that was judged
-`pr-reply.sh` SHALL accept the revision of the item being answered. Given one, it SHALL read the item from GitHub before it posts a reply or resolves a thread, and SHALL post nothing and resolve nothing when the item's current revision differs (exit 5, naming both revisions) or cannot be read (exit 3). Without a revision it SHALL behave as in 0.1.10.
+`sw pr reply` SHALL accept the revision of the item being answered. Given one, it SHALL read the item from GitHub before it posts a reply or resolves a thread, and SHALL post nothing and resolve nothing when the item's current revision differs (exit 5, naming both revisions) or cannot be read (exit 3). Without a revision it SHALL behave as in 0.1.10.
 
 #### Scenario: Item unchanged
 - **WHEN** feedback answers a thread with the `rev` from its snapshot and nobody has changed the thread since
@@ -50,10 +50,10 @@ A timestamp-based reviewer SHALL count as `reported` on a head only for output a
 
 #### Scenario: Item cannot be read
 - **WHEN** a revision is given and the item cannot be read from GitHub
-- **THEN** nothing is posted or resolved, and the script exits 3
+- **THEN** nothing is posted or resolved, and the command exits 3
 
 #### Scenario: Reply from an older session
-- **WHEN** `pr-reply.sh` is called without a revision
+- **WHEN** `sw pr reply` is called without a revision
 - **THEN** it posts and resolves as before, with no re-read
 
 ### Requirement: Handled markers are bound to a revision
@@ -87,7 +87,7 @@ The snapshot SHALL set `clipped: true` on every thread comment, PR comment and r
 - **THEN** the snapshot lists the whole body with `clipped: false`
 
 ### Requirement: Clipped items are read in full before they are judged
-`pr-snapshot.sh --full <item id>` SHALL print the item's full body and revision as one JSON line. Feedback SHALL read the full body of every clipped item before judging, answering or dropping it, and SHALL hand over to the user when it cannot be read.
+`sw pr snapshot --full <item id>` SHALL print the item's full body and revision as one JSON line. Feedback SHALL read the full body of every clipped item before judging, answering or dropping it, and SHALL hand over to the user when it cannot be read.
 
 #### Scenario: Finding after the cut
 - **WHEN** a review's actionable finding sits after its 1200th character
@@ -102,14 +102,14 @@ The snapshot SHALL set `clipped: true` on every thread comment, PR comment and r
 - **THEN** it prints `{"ok": false, "error": "not_found"}` and exits 1
 
 ### Requirement: A reply is never posted without its body
-`pr-reply.sh` SHALL check that the body file of a `thread` or `comment` reply exists, is readable and is not empty, and that the reply with its marker was written in full, before any GitHub call. When a check fails, it SHALL exit non-zero, name the body file on stderr, and post, resolve and react to nothing.
+`sw pr reply` SHALL check that the body file of a `thread` or `comment` reply exists, is readable and is not empty, and that the reply with its marker was written in full, before any GitHub call. When a check fails, it SHALL exit non-zero, name the body file on stderr, and post, resolve and react to nothing.
 
 #### Scenario: Body file present
 - **WHEN** feedback answers a thread with a non-empty, readable body file
 - **THEN** the reply holds that body followed by the handled marker, and the exit status is 0
 
 #### Scenario: Body file missing
-- **WHEN** `pr-reply.sh` is called with a body file path that does not exist
+- **WHEN** `sw pr reply` is called with a body file path that does not exist
 - **THEN** the exit status is non-zero, stderr names the path, and no GitHub request is made
 
 #### Scenario: Body file empty
@@ -175,19 +175,19 @@ An unknown `report` key, a pattern that does not compile, or a `sha_pattern` wit
 
 #### Scenario: Bad rule
 - **WHEN** `report.sha_pattern` is `([0-9a-f`
-- **THEN** `pr-snapshot.sh` exits 2 with a message naming the reviewer and `sha_pattern`, and prints no snapshot
+- **THEN** `sw pr snapshot` exits 2 with a message naming the reviewer and `sha_pattern`, and prints no snapshot
 
 #### Scenario: Unknown key
 - **WHEN** `report` sets `checks: Bot Code Review`
-- **THEN** `pr-snapshot.sh` exits 2 with a message naming the reviewer and `checks`
+- **THEN** `sw pr snapshot` exits 2 with a message naming the reviewer and `checks`
 
 #### Scenario: Python-only syntax is refused
 - **WHEN** `report.sha_pattern` is `\Areviewed (?P<sha>[0-9a-f]{7,40})`, or `report.ignore` is `(?i)in progress`
-- **THEN** `pr-snapshot.sh` exits 2 with a message naming the reviewer and the key, before any `gh` call, and no reviewer state is decided with that pattern
+- **THEN** `sw pr snapshot` exits 2 with a message naming the reviewer and the key, before any `gh` call, and no reviewer state is decided with that pattern
 
 #### Scenario: Sha pattern without a capture group
 - **WHEN** `report.sha_pattern` is `reviewed [0-9a-f]+`
-- **THEN** `pr-snapshot.sh` exits 2 with a message naming the reviewer and `sha_pattern`
+- **THEN** `sw pr snapshot` exits 2 with a message naming the reviewer and `sha_pattern`
 
 ### Requirement: The snapshot shows each reviewer's evidence
 Each reviewer entry SHALL carry `evidence`: the reviewer's reviews, comments and named check runs on the current head, at most 10, newest first, each with its kind, time, state or conclusion and a body excerpt of at most 300 characters. The snapshot SHALL carry GitHub's current time as `now`. `reported`, `waiting` and `timed_out` SHALL NOT depend on the excerpt length.
@@ -201,7 +201,7 @@ Each reviewer entry SHALL carry `evidence`: the reviewer's reviews, comments and
 - **THEN** its `evidence` is an empty list and it is `waiting` or `timed_out`
 
 ### Requirement: Reviewer settings reach the snapshot as a file
-`pr-snapshot.sh` SHALL read reviewers only from `--reviewer-config <file>`, a JSON file that `pr-pair.sh context` and `policy` write from the settings they read and whose path they print. `--reviewer` SHALL exit 2 naming `--reviewer-config`. A config file that is missing, unreadable or not the expected JSON SHALL exit 2. Both SHALL happen before any `gh` call. When the state directory is unwritable, the config file SHALL be written under the system temp directory instead.
+`sw pr snapshot` SHALL read reviewers only from `--reviewer-config <file>`, a JSON file that `sw pr context` and `policy` write from the settings they read and whose path they print. `--reviewer` SHALL exit 2 naming `--reviewer-config`. A config file that is missing, unreadable or not the expected JSON SHALL exit 2. Both SHALL happen before any `gh` call. When the state directory is unwritable, the config file SHALL be written under the system temp directory instead.
 
 #### Scenario: Policy writes main's reviewers
 - **WHEN** `policy` reads main's `pr.reviewers` with a `report.check` for one reviewer, and watch starts its wait with the printed `reviewer_config.main.code` path
@@ -255,7 +255,7 @@ The snapshot SHALL carry `reviewer_config`: the SHA-256 digest of the config fil
 
 #### Scenario: Config of the earlier format
 - **WHEN** `sw pr reviewers --check-config cfg.json` runs and `cfg.json` holds `"format": 1`
-- **THEN** it exits 2 with `reviewers.py: format must be 2` on stderr, and `pr-snapshot.sh --reviewer-config cfg.json` exits 2 before any `gh` call
+- **THEN** it exits 2 with `reviewers.py: cfg.json: format must be 2` on stderr, and `sw pr snapshot --reviewer-config cfg.json` exits 2 before any `gh` call
 
 ### Requirement: Report patterns are JavaScript regular expressions
 `report.sha_pattern` and `report.ignore` SHALL be read as JavaScript regular expressions in Unicode mode, as Dart's `RegExp(pattern, unicode: true)` reads them (ADR 0030). They SHALL be searched, so a match anywhere in a body counts, case-sensitive and not multiline.
