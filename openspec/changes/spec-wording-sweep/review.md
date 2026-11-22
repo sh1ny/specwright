@@ -2,10 +2,10 @@
 
 ## Metadata
 
-- **Round:** 7 (FULL)
-- **Prior round:** REVISE (round 6); guard dropped in fb3ef97
+- **Round:** 8 (FULL)
+- **Prior round:** APPROVE_WITH_CHANGES (round 7); pre-ship amendments f242d3c, e8beb61
 - **Reviewer:** OMP / openai-codex/gpt-6.2-sol
-- **Reviewed:** Round 6 review, proposal, design and Allowlist inventory, task map and groups 2 and 5, install-update delta, README Step 8, and the relevant evals and suite map. Confirmed `fb3ef97` in the local reflog; `git show --stat` was unavailable. Static review; no evals run. #243 excluded.
+- **Reviewed:** Proposal, design, tasks and test map, affected deltas and matching main-spec requirements, finish and PR skills, README Steps 4 and 6–8, and relevant CLI and eval code. Confirmed all four commit IDs in the local reflog; `git show` was unavailable. Static review; no evals run. #243, #249, and waived README regex gaps excluded.
 
 ## Findings
 
@@ -15,8 +15,10 @@ None.
 
 ### Moderate
 
-1. **Task 5.2 specifies a narrower warning rule than Step 8.** `tasks.md:368` says to test that the warning appears *only* when the version or interface differs. `README.md:560–569` and `specs/install-update/spec.md:65–82` also require it when the binary is missing or the probe fails. A test that enforced task 5.2 literally would reject correct prompt wording or encourage dropping those warnings. Map source selection to the new standalone-line test and the no-warning outcome to the existing `TestInstallSwWarning.test_matching_binary_gets_no_warning`. Make the standalone-only rule explicit in the requirement, and have the scenario's binary pass the full probe, not just report matching values.
-2. **The replacement milestone check disagrees with the roadmap it verifies.** `openspec/roadmap.md:13` allows only the name map and history. Design D1 also accepts five deferred requirements, including `change-finish`'s current instruction to run network steps through `as.sh` (`openspec/specs/change-finish/spec.md:277`). The close workflow walks the roadmap criteria, so a literal close can stop on wording this change intentionally leaves. Link the archived Allowlist inventory from the roadmap, explicitly account for the D3 exceptions, and name separate README evidence for the other half of the criterion. Carry issue IDs #244–#248 into the inventory before deleting the guard that records the mapping.
+1. **The archive-only fallback names the wrong exit code.** The “Check fails to run” scenario (`specs/change-finish/spec.md:85–87`) and ship instructions (`skills/specwright-pr/SKILL.md:102`) cite exit 3 for unreadable commits. The native command returns exit 1 with `git_error`; `evals/review-routes/test_review_run.py:1619–1626` expects exactly that when the commits cannot be read in the selected repo. An agent following the skill can treat exit 1 as a stop rather than report the error and run `pr.validate`. State that the check runs only with a handed-off planning ready head, and that every nonzero result, including exit 1, is reported and falls back to normal validation.
+2. **The undo amendment conflates the planner’s JSON with what finish shows.** `specs/change-finish/spec.md:40` calls `after_rerun_steps` optional in the JSON, but the retained main requirement (`openspec/specs/change-finish/spec.md:394–395`) requires both arrays, and `cli/lib/src/finish/undo_plan.dart:2357–2359` always emits them. Only *display* is conditional: on exit 0, finish shows each step’s `cwd` and `argv`, the after-rerun list if nonempty, and every warning (`skills/specwright-finish/SKILL.md:74`). Treating the JSON key as optional permits a producer to omit it and break consumers that index it directly. Separate the two contracts and make the success scenario assert the amended display.
+3. **Step 4 still defines `orphans` in a way that can bypass the restored consent prompt.** `README.md:343–345` defines the field as installed `specwright-*` names with no downloaded counterpart. Lines 367–369 then ask about other entries, including pack skills such as `web-ux`, which do not match that definition but can be returned by `plan` (`cli/lib/src/update/packs.dart:1073–1077`). An agent that filters the list using the earlier definition can leave a retired pack skill installed without ever asking; Step 7 does not check it. Describe the full list at first use and scope the every-path rule to the core-skill subset.
+4. **The test map credits planner tests with covering agent behavior.** `tasks.md:16–26` marks both finish reporting and archive-only ship validation green under `evals/finish/` as unchanged wording. Those tests exercise the undo planner, not the deferred-check display or ship’s validation decision. The existing display check is `test_finish_step0_runs_undo_plan_and_runs_nothing` in `evals/git-workflow/test_instructions.py:2068`; the archive-only classifier tests are in `evals/review-routes/test_review_run.py`, and do not prove which validation ship runs. As written, green planner and classifier tests can be mistaken for evidence that ship handles a moved code head or a classifier error correctly. Map the existing checks to what they prove, identify how the ship outcomes are verified, and record the user-approved display amendment in the design and task map rather than labeling it wording-only.
 
 ### Suggestions
 
@@ -30,9 +32,10 @@ VERDICT: APPROVE_WITH_CHANGES
 
 CHANGES_APPLIED: yes
 
-Align task 5.2 and its test map with the actual Step 8 contract. Make the milestone roadmap point to the manual check and state its accepted exceptions and README evidence.
+Align the archive-only fallback, undo JSON and display contracts, README orphan classification, and test map as described above.
 
 ## Rebuttals
 
-- **Round 6 Critical and Moderates 1–2:** Moot. The eval-runner delta is gone, the scanner adds no exemption, and task 5.1 removes both the guard and its suite-map target. Group 2's C1 reference records completed work; no remaining task enforces it.
-- **Round 6 Moderate 3:** The fixture now distinguishes prose interface 2 from standalone interface 3, and the README explicitly rejects prose as the source. The requirement and test-map gaps remain as noted above.
+- Round 7’s Step 8 warning finding is addressed: the delta requires the full probe, and the map separates interface-source wording from the matching-binary outcome.
+- Round 7’s milestone finding is addressed: the roadmap points to the inventory, the five exceptions have issue IDs, and D1 identifies the README CI evidence.
+- The Step 6 decline fix matches the delta: no mapping is written, and Step 7 passes without it.

@@ -51,8 +51,8 @@ Wording and behaviour:
 
 - `openspec/specs/**`: 77 reworded, 1 changed and 5 added requirements across 20 capabilities, through deltas that are synced at archive. Five requirements that cannot be reworded without changing what they assert are filed as issues instead (design D3).
 - `README.md`: install prompt Steps 6, 7 and 8, plus the in-repo migration warning at lines 129 and 549.
-- `evals/`: a new README test module, the README regexes that pin the edited wording (`evals/git-workflow/test_install_sw_warning.py`, `evals/git-workflow/test_instructions.py`), and `evals/suites.json` for the new test file.
-- No code, skill or binary changes. Skills, the `sw` CLI and the settings template stay as they are.
+- `evals/`: a new README test module, the README regexes that pin the edited wording (`evals/git-workflow/test_install_sw_warning.py`, `evals/git-workflow/test_instructions.py`), the skill-text pin of the archive-only fallback (`evals/pr-pair/test_skill_text.py`), and `evals/suites.json` for the new test file.
+- One skill line: `specwright-pr` ship runs `pr.validate` on any non-zero `sw review archive-only` exit, as the reworded change-finish requirement says (design D7). The `sw` CLI and the settings template stay as they are.
 
 ## Decision Making
 
@@ -132,3 +132,4 @@ A patch release that updates wording and fixes the install prompt. The main spec
 
 ### Fixed
 - Step 7 of the install prompt checks only `specwright-*` skill directories, and Step 4 asks about orphaned `specwright-*` skills on every path, a rerun included. Step 6 treats `release.version_files` entries as user data and keeps the user's comments as they are. Step 8 names the interface line exactly. The in-repo migration warning now says `vcs.sh` is how an older copy behaves (#242).
+- Ship runs the project's validate when `sw review archive-only` fails with any non-zero exit, not only exit 3, so a git error no longer stops an archive-only push.
