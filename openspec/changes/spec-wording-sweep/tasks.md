@@ -342,7 +342,7 @@ The 18 wording-only capabilities and the reworded `install-update` and `native-c
 
 ## 1. Issues for the requirements left out of the sweep
 
-- [ ] 1.1 File the five D3 issues as `KintsugiBot` through `sw as KintsugiBot gh issue create --repo sh1ny/specwright`, one for each requirement: change-finish "finish.sh runs no network command", eval-runner "Changed paths select the suites", pr-script-runtime "sw pr snapshot and sw pr reply keep the scripts' contracts", vcs-backends "The archive undo plan uses jj on a jj repo" and vcs-backends "The archive undo plan uses GitButler on a GitButler repo". Each issue says why rewording would change what the requirement asserts (design D3). Verify: `sw as KintsugiBot gh issue view <n> --repo sh1ny/specwright` shows each one open; note the five numbers for task 2.2.
+- [x] 1.1 File the five D3 issues as `KintsugiBot` through `sw as KintsugiBot gh issue create --repo sh1ny/specwright`, one for each requirement: change-finish "finish.sh runs no network command", eval-runner "Changed paths select the suites", pr-script-runtime "sw pr snapshot and sw pr reply keep the scripts' contracts", vcs-backends "The archive undo plan uses jj on a jj repo" and vcs-backends "The archive undo plan uses GitButler on a GitButler repo". Each issue says why rewording would change what the requirement asserts (design D3). Verify: `sw as KintsugiBot gh issue view <n> --repo sh1ny/specwright` shows each one open; note the five numbers for task 2.2.
 
 ## 2. Sweep guard (design D1)
 
