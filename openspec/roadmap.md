@@ -10,7 +10,7 @@ Specwright already exists (0.1.8), so M1 is not a walking skeleton: it closes th
 
 **Exit criteria:**
 - The defects kept or found by the M8 ports (#206, #209, #214, #215, #223, #224, #227, #231, #232, #235) are fixed or closed with a reason, with evals on the three CI platforms. (agent)
-- The main specs name `sw` commands instead of retired scripts, apart from the name-map requirement and the history it records (#234), and the README install prompt no longer stops, asks or fails a correct install on its Step 6 user-data list, its Step 7 file check or its Step 8 interface line (#242). (agent)
+- The main specs name `sw` commands instead of retired scripts, apart from the name-map requirement, the history it records and the five requirements deferred to #244 to #248, as listed in the Allowlist inventory of the archived `spec-wording-sweep` design (#234), and the README install prompt no longer stops, asks or fails a correct install on its Step 6 user-data list, its Step 7 file check or its Step 8 interface line (#242). (agent)
 - A push, fetch and PR flow works with an SSH GitHub remote, a GitHub Enterprise host, a token-only environment and a configurable remote name, covered by evals on the three CI platforms (#167, #168). (agent)
 - Reviewer routes accept a configured custom CLI and an opt-in user codex config, the OMP route runs on current OMP, and the pre-ship and design-review round caps are settings (#169, #172, #222). (agent)
 - Branch prefixes, the commit subject format and limit, and the version scheme are settings whose defaults keep today's behaviour (#171). (agent)

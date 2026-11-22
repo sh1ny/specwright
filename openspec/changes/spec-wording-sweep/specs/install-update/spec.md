@@ -63,7 +63,7 @@ The config merge SHALL remove each `[pack:<name>] ` line whose `<name>` is enabl
 - **THEN** the first is reported `kept` with its content unchanged and the second `created`
 
 ### Requirement: An install whose VCS steps need a missing sw says so
-Step 8 SHALL check that `<home>/.specwright/bin/<project VERSION>/sw[.exe]` exists and its `version --json` exits 0 in 10 s with that version and the installed skills' interface (`specwright-pr`'s `interface <n>` line, or an older tag's `SW_INTERFACE=`). On a failure it SHALL warn that branch, commit and finish steps stop until a matching `sw` is placed, that another version's `sw` stops with `sw_mismatch`, and name a tagged install and the `CONTRIBUTING.md` bootstrap; otherwise no warning.
+Step 8 SHALL check that `<home>/.specwright/bin/<project VERSION>/sw[.exe]` exists and its `version --json` exits 0 in 10 s with that version and the skills' interface (`specwright-pr`'s standalone `interface <n>` line, or an older tag's `SW_INTERFACE=`). On a failure it SHALL warn that branch, commit and finish steps stop until a matching `sw` is placed, that another version's `sw` stops with `sw_mismatch`, and name a tagged install and the `CONTRIBUTING.md` bootstrap; otherwise no warning.
 
 #### Scenario: A binary of the right version and an old interface
 - **WHEN** the installed skills require interface 2 and the pinned binary reports the project's version but interface 1
@@ -74,7 +74,7 @@ Step 8 SHALL check that `<home>/.specwright/bin/<project VERSION>/sw[.exe]` exis
 - **THEN** the Step 8 report gives no missing-binary warning
 
 #### Scenario: The interface named in prose and on its own line
-- **WHEN** the installed `specwright-pr/SKILL.md` says in a paragraph that an older `sw` reported interface 2, holds the line `interface 3` on its own, and the pinned binary reports the project's version and interface 3
+- **WHEN** the installed `specwright-pr/SKILL.md` says in a paragraph that an older `sw` reported interface 2, holds the line `interface 3` on its own, and the pinned binary exists and its `version --json` exits 0 in 10 s with the project's version and interface 3
 - **THEN** the Step 8 report holds no missing-`sw` warning and reports no `sw_mismatch`
 
 #### Scenario: main install with no binary

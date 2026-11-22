@@ -34,7 +34,7 @@ TIER: FULL
 
 ### D1: Check the sweep by search at the milestone close
 
-- **Choice:** no eval guards the sweep. At the milestone close the agent searches the main specs for the 14 names of the name map and checks that every block it finds is in the **Allowlist inventory** below. An allowlist eval was built in group 2 and is removed in task 5.1 (S8).
+- **Choice:** no eval guards the sweep. At the milestone close the agent searches the main specs for the 14 names of the name map and checks that every block it finds is in the **Allowlist inventory** below. The roadmap's exit criterion points to this inventory and names its five deferred entries (#244 to #248). The README half of the criterion is checked by evals/git-workflow/test_install_prompt_242.py on CI. An allowlist eval was built in group 2 and is removed in task 5.1 (S8).
 - **Rejected:** the allowlist eval, `evals/runner/test_spec_retired_names.py`. It read the main specs, overlaid the active changes' deltas in archive order and compared every block naming a retired script with a fixed list of exact lines. It needs an exemption in the removed-script check, which two review rounds found still let an executable use through. It also makes every later change to a listed block update the list by hand, to protect wording only.
 - **Reversal cost:** low. The eval is one file in the branch history.
 - **Important:** no. It binds no later change.
@@ -182,12 +182,12 @@ Each block that keeps a retired name after this change, with the number of times
 
 | Capability | Requirement | Names (count) | Kind |
 |---|---|---|---|
-| change-finish | finish.sh runs no network command | as.sh 1, finish.sh 5 | deferred (D3 issue) |
+| change-finish | finish.sh runs no network command | as.sh 1, finish.sh 5 | deferred (#244) |
 | change-finish | The undo plan runs in the project's sw | finish.sh 1 | kept |
 | change-finish | finish.sh finds the project from --code, then --dir | finish.sh 1 | kept |
 | change-finish | Undo steps do what the old script did | vcs.sh 1 | kept |
 | change-finish | Fixed undo-plan defects are exceptions to the script's refusals | finish.sh 5 | kept |
-| eval-runner | Changed paths select the suites | finish.sh 1, release.sh 1 | deferred (D3 issue) |
+| eval-runner | Changed paths select the suites | finish.sh 1, release.sh 1 | deferred (#245) |
 | eval-runner | A stopped test file's nested sessions are stopped too | bounded.py 2 | kept |
 | eval-runner | Frozen-oracle evals are migrated before the cutover | as.sh 1, bounded.py 1, sw-path.sh 1, vcs.sh 1 | kept |
 | github-identity | sw as keeps as.sh's contract | as.sh 5 | kept |
@@ -205,7 +205,7 @@ Each block that keeps a retired name after this change, with the number of times
 | pr-evidence | A snapshot names the reviewer rules it used | reviewers.py 1 | kept |
 | pr-script-runtime | Unexpected failures keep the JSON error contract | pr-pair.sh 1 | kept |
 | pr-script-runtime | Network commands have a deadline | as.sh 1, pr-pair.sh 1 | kept |
-| pr-script-runtime | sw pr snapshot and sw pr reply keep the scripts' contracts | pr-reply.sh 1, pr-snapshot.sh 1, reviewers.py 2 | deferred (D3 issue) |
+| pr-script-runtime | sw pr snapshot and sw pr reply keep the scripts' contracts | pr-reply.sh 1, pr-snapshot.sh 1, reviewers.py 2 | deferred (#246) |
 | pr-script-runtime | Watch claims and head records stay shared across implementations | pr-snapshot.sh 2 | kept |
 | pr-script-runtime | The ported pr-pair subcommands keep the script's contracts | as.sh 1, pr-pair.sh 2, vcs.sh 1 | kept |
 | pr-script-runtime | sw pr reviewers keeps the evaluator's contract | reviewers.py 4 | kept |
@@ -223,8 +223,8 @@ Each block that keeps a retired name after this change, with the number of times
 | vcs-backends | sw vcs reads settings and fences identity in process | as.sh 1, pr-pair.sh 1 | kept |
 | vcs-backends | sw vcs documents keep their values and refuse non-UTF-8 names | vcs.sh 1 | kept |
 | vcs-backends | Fixed commit defects are exceptions to the backends' unchanged outputs | vcs.sh 1 | kept |
-| vcs-backends | The archive undo plan uses jj on a jj repo | finish.sh 2 | deferred (D3 issue) |
-| vcs-backends | The archive undo plan uses GitButler on a GitButler repo | finish.sh 1 | deferred (D3 issue) |
+| vcs-backends | The archive undo plan uses jj on a jj repo | finish.sh 2 | deferred (#247) |
+| vcs-backends | The archive undo plan uses GitButler on a GitButler repo | finish.sh 1 | deferred (#248) |
 
 ## Risks / Trade-offs
 

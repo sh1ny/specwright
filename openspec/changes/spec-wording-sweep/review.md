@@ -2,22 +2,21 @@
 
 ## Metadata
 
-- **Round:** 6 (FULL)
-- **Prior round:** REVISE (round 5); fixes in 8808c6a
+- **Round:** 7 (FULL)
+- **Prior round:** REVISE (round 6); guard dropped in fb3ef97
 - **Reviewer:** OMP / openai-codex/gpt-6.2-sol
-- **Reviewed:** Amendment message, round 5 findings, proposal, design, task map, affected deltas and main specs, both guards, README Step 8 and its evals, and the finish skill. Static review; no evals run. #243 excluded.
+- **Reviewed:** Round 6 review, proposal, design and Allowlist inventory, task map and groups 2 and 5, install-update delta, README Step 8, and the relevant evals and suite map. Confirmed `fb3ef97` in the local reflog; `git show --stat` was unavailable. Static review; no evals run. #243 excluded.
 
 ## Findings
 
 ### Critical (blocking)
 
-1. **S8 still exempts executable uses of retired names.** `proposal.md` S8, `design.md:46`, and `tasks.md:372` narrow the exemption from all findings to retired-name findings, but still suppress that category across the entire file. **[INFERENCE]** Adding `shutil.copy("vcs.sh", destination)` to the sweep guard would produce only `script vcs.sh` in `test_oracle_migration.py:52–63`; the planned exemption would discard it. Neither new scenario catches that case. Exempt only the identified spec-text data sites at the exact path, and add a same-file fixture that reports a direct copy or run while allowing the legitimate data.
+None.
 
 ### Moderate
 
-1. **Task 5.1 still misses one path boundary and gives a misleading red step.** A same-basename file outside `runner/` catches a basename-wide exemption, but not one that suppresses retired-name findings throughout `runner/`. Add a renamed guard beside the real one and assert both controls are reported. With the current `scan()`, a hit in a temp tree outside the checkout raises `ValueError` at `test_oracle_migration.py:95` before either fixture can assert its result. Normalize paths first, then show that the exemption test fails on the unexpected guard finding. The scripts-directory and frozen-oracle controls should pass before and after the exemption.
-2. **The eval-runner requirement still overstates the scanner’s scope.** `specs/eval-runner/spec.md:6` now names the self-skip, but still says the check fails on “any eval naming a removed script.” The ordinary matcher omits `reviewers.py` (`test_oracle_migration.py:28–30`), and `evals/pr-pair/test_snapshot_native.py:128` legitimately names it in a diagnostic assertion. Define the actual matching scope in the requirement rather than making a valid diagnostic a contract violation.
-3. **The Step 8 scenario cannot distinguish the two sources.** `specs/install-update/spec.md:76–78` gives both the prose and the standalone line interface 3, so reading the wrong source produces the same result. Task 5.2 correctly pins the README’s standalone-line instruction, but its mapped test does not assert the no-warning outcome in the scenario. Make the standalone line normative, use a different number in the prose, and map the source-selection and matching-binary no-warning clauses to their respective README assertions.
+1. **Task 5.2 specifies a narrower warning rule than Step 8.** `tasks.md:368` says to test that the warning appears *only* when the version or interface differs. `README.md:560–569` and `specs/install-update/spec.md:65–82` also require it when the binary is missing or the probe fails. A test that enforced task 5.2 literally would reject correct prompt wording or encourage dropping those warnings. Map source selection to the new standalone-line test and the no-warning outcome to the existing `TestInstallSwWarning.test_matching_binary_gets_no_warning`. Make the standalone-only rule explicit in the requirement, and have the scenario's binary pass the full probe, not just report matching values.
+2. **The replacement milestone check disagrees with the roadmap it verifies.** `openspec/roadmap.md:13` allows only the name map and history. Design D1 also accepts five deferred requirements, including `change-finish`'s current instruction to run network steps through `as.sh` (`openspec/specs/change-finish/spec.md:277`). The close workflow walks the roadmap criteria, so a literal close can stop on wording this change intentionally leaves. Link the archived Allowlist inventory from the roadmap, explicitly account for the D3 exceptions, and name separate README evidence for the other half of the criterion. Carry issue IDs #244–#248 into the inventory before deleting the guard that records the mapping.
 
 ### Suggestions
 
@@ -25,17 +24,15 @@ None.
 
 ## Verdict
 
-VERDICT: REVISE
+VERDICT: APPROVE_WITH_CHANGES
 
 ## Required Changes
 
-CHANGES_APPLIED: n/a
+CHANGES_APPLIED: yes
 
-Limit S8 to spec-text data, prove its exact boundary with a behavioral red step, and align the eval-runner and Step 8 scenarios with what their tests assert.
+Align task 5.2 and its test map with the actual Step 8 contract. Make the milestone roadmap point to the manual check and state its accepted exceptions and README evidence.
 
 ## Rebuttals
 
-- **Round 5 Critical:** Partially fixed. The scripts-directory and frozen-oracle checks remain enabled, but direct uses of a retired basename still escape.
-- **Round 5 Moderates 1, 2 and 4:** Partially fixed. Root-relative diagnostics, the self-skip, and the dedicated README test are in the plan; the remaining gaps are above.
-- **Round 5 Moderate 3:** Fixed. Finish must show all plan output, including `after_rerun_steps` and warnings, consistent with `skills/specwright-finish/SKILL.md:74`.
-- **Round 5 Suggestion:** Fixed. The test-map introduction points to CI task 5.3, and the design counts 79 MODIFIED blocks.
+- **Round 6 Critical and Moderates 1–2:** Moot. The eval-runner delta is gone, the scanner adds no exemption, and task 5.1 removes both the guard and its suite-map target. Group 2's C1 reference records completed work; no remaining task enforces it.
+- **Round 6 Moderate 3:** The fixture now distinguishes prose interface 2 from standalone interface 3, and the README explicitly rejects prose as the source. The requirement and test-map gaps remain as noted above.
