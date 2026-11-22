@@ -321,8 +321,9 @@ installed agent file (say so in Step 8).
     `rolled back to <prev>`, followed by its `sw_note` when that is not null
     (no `sw` binary serves `<prev>`). A `journal` still listed afterwards in phase
     `swapped` with this download's `to` is a swap that finished before the
-    stamp: set `swapped` to true, skip `stage` and `swap`, ask the orphan
-    question below, and go on with Steps 5-7. No `swap` report exists then:
+    stamp: set `swapped` to true, skip `stage` and `swap`, and, when this
+    `plan` lists no `refusals`, ask the orphan question below and go on with
+    Steps 5-7; a refusal is handled as below first, removing nothing. No `swap` report exists then:
     take `store_written` from `recovered.store_written` in `plan`'s document,
     in place of `swap`'s.
   - A refusal (exit 1, `"error": "refused"`, listed in `refusals`): a change
@@ -342,7 +343,9 @@ installed agent file (say so in Step 8).
       refusal is resolved completes the update.
   - `orphans` lists what is installed with no downloaded counterpart:
     `specwright-*` skill directories, `specwright-*.md` agent files and the
-    skills of a pack no longer enabled (`sw update` never touches them):
+    skills an enabled pack installed before and no longer ships (`sw update`
+    never touches them; a disabled pack's skills are a `swap` removal, not
+    orphans):
     list them all and ask before removing them, as the orphan question below
     says.
   - Keep `warnings` for Step 8 (a change in flight found only on a remote
