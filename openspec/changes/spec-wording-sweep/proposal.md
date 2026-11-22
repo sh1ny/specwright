@@ -125,7 +125,7 @@ DECISION_MAKING: important
 
 ## Release Notes
 
-A patch release that updates wording and fixes the install prompt. The main specs now name the `sw` commands that replaced the retired shell scripts. The README install prompt no longer stops, asks or fails on a correct install. Ship now runs the project's validate when the archive-only check fails. `sw` behaves as before.
+A patch release that updates wording and fixes the install prompt. The main specs now name the `sw` commands that replaced the retired shell scripts. The README install prompt no longer stops, asks or fails on a correct install. Ship now runs the project's validate when the archive-only check fails with an error other than `sw_mismatch`. `sw` behaves as before.
 
 ### Changed
 - The main specs name `sw` commands (`sw vcs`, `sw as`, `sw pr`, `sw release` and others) where they named retired scripts. Behaviour is unchanged (#234).

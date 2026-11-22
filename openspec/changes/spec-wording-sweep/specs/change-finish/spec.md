@@ -37,11 +37,11 @@ With `release.enabled` true and `finish: local`, `specwright-finish` SHALL read 
 - **THEN** finish runs `sw release untagged --local`, resolves no login, runs no `git ls-remote` or other network call, and reports 0.5.0 as untagged from local tags, to publish after `main` is pushed
 
 ### Requirement: A deferred archive's undo is planned by a script that runs nothing
-When the deferred check stops on `VERDICT: DEFERRED`, finish SHALL run `sw finish undo-archive-plan` and show its `steps`, non-empty `after_rerun_steps` and warnings, running no step, commit, merge or push. The plan SHALL write no repo state but jj's snapshot and Git import; the GitButler probe's temp directory is outside it and removed. It SHALL print one JSON document: facts, `steps`, `after_rerun_steps` (maybe empty) and warnings. A runner of either list SHALL stop at the first failing step.
+When the deferred check stops on `VERDICT: DEFERRED`, finish SHALL run `sw finish undo-archive-plan`, run no step and make no commit, merge or push. The plan SHALL write no repo state but jj's snapshot and Git import; its GitButler probe's temp dir is removed. On exit 0 it SHALL print one JSON document: facts, `steps`, `after_rerun_steps` (maybe empty) and warnings; finish SHALL show all but the facts, `after_rerun_steps` only when not empty. A runner SHALL stop at the first failing step.
 
 #### Scenario: Deferred archive found
 - **WHEN** finish starts after a deferred change was archived
-- **THEN** finish shows the plan's `steps`, its `after_rerun_steps` when not empty and every warning, and `git status --porcelain`, `git rev-parse HEAD` and every ref are the same after finish as before it on Git; on jj every working-tree file is the same, and refs and the operation log change only by jj's own snapshot and import
+- **THEN** finish shows each of the plan's `steps` with its `cwd` and `argv`, its `after_rerun_steps` when not empty and every warning, and `git status --porcelain`, `git rev-parse HEAD` and every ref are the same after finish as before it on Git; on jj every working-tree file is the same, and refs and the operation log change only by jj's own snapshot and import
 
 #### Scenario: Plan run on a dirty unrelated path in a resume on main
 - **WHEN** the archive is committed on `bugfix/add-x`, finish resumes on `main`, and `main` has an uncommitted change to `README.md`
@@ -64,7 +64,7 @@ When the deferred check stops on `VERDICT: DEFERRED`, finish SHALL run `sw finis
 - **THEN** every working-tree file's bytes are unchanged; separately, the operation log gains only jj's own import and snapshot operations, and `feat/add-x` and its `refs/heads/` mirror move, or `feat/add-x` becomes conflicted and the plan stops with `ambiguous_branch`
 
 ### Requirement: An archive-only push skips the code validate
-Watch SHALL hand finish, and finish ship, the ready head of each repo (`ready head: <repo>=<sha>`). Before the push, ship SHALL run `sw review archive-only` from the code checkout, with `--dir` naming the planning repo, against its ready head. When it reports `archive_only: true`, ship SHALL skip `pr.validate` for the planning repo, and for a code repo still at its ready head; `planning_store.validate` SHALL still run. Any other result, a check error or no ready head SHALL run `pr.validate`.
+Watch SHALL hand finish, and finish ship, the ready head of each repo (`ready head: <repo>=<sha>`). Given the planning repo's, ship SHALL run `sw review archive-only` on it before the push, from the code checkout with `--dir` naming that repo. On `archive_only: true` it SHALL skip `pr.validate` for the planning repo, and for a code repo still at its ready head; `planning_store.validate` SHALL still run. `sw_mismatch` SHALL stop ship; any other outcome or no ready head SHALL run `pr.validate`.
 
 #### Scenario: Archive of a reviewed head
 - **WHEN** watch reported head `h1` ready and handed `ready head: h1`, the change is archived as commit `h2` whose only change is the archive move and the synced main specs, and `pr.validate` is `make test`

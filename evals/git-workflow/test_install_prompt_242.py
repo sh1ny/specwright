@@ -99,7 +99,7 @@ class Step4Orphans(unittest.TestCase):
         self.assertRegex(s4, r"(?is)orphan skills.{0,100}before Step 5", "Step 4 does not settle orphans before Step 5")
         self.assertRegex(s4, r"(?is)after a new `swap` and on a rerun whose plan shows a completed swap \(once that swap is confirmed, as above\)\. Remove only those the user agrees to remove\.",
                          "Step 4 does not remove the orphans the user agrees to remove on both swap paths, and only those")
-        self.assertRegex(s4, r"(?is)other `orphans` entries \(agent files, pack skills\).{0,60}ask before removing them.{0,60}remove only those the user agrees to",
+        self.assertRegex(s4, r"(?is)other `orphans` entries this update does not install \(agent files, pack skills\).{0,60}ask before removing them.{0,60}remove only those the user agrees to",
                          "Step 4 drops the consent path for agent-file and pack-skill orphans")
         self.assertRegex(s4, r"(?is)skip `stage` and `swap`, and, when this `plan` lists no `refusals`, ask the orphan question below and go on with Steps 5-7; a refusal is handled as below first, removing nothing",
                          "Step 4's resume may remove orphans while the plan lists a refusal")

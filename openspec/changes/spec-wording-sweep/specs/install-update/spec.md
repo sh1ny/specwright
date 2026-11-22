@@ -205,9 +205,13 @@ Step 7's skills check SHALL pass for a chosen skills directory when every downlo
 Step 4 SHALL ask about each `specwright-*` skill directory among the current plan's `orphans` that this update does not install, and remove those the user agrees to remove, after a new `swap` or, when the plan shows a completed swap and no refusal and Step 4 skips `stage` and `swap`, once that swap is confirmed. It SHALL do so before Step 5. Other `orphans` entries, such as agent files and pack skills, are outside this rule.
 
 #### Scenario: A rerun that removes an orphan kept before
-- **WHEN** the prompt is run again after a swap that kept `specwright-old`, the plan lists it among `orphans` with the swap already completed, and the user now agrees to remove it
+- **WHEN** the prompt is run again after a swap that kept `specwright-old`, the plan lists it among `orphans` with the swap already completed and lists no refusals, and the user now agrees to remove it
 - **THEN** Step 4 removes `specwright-old` before Step 5, Step 7's skills check passes, and with every other Step 7 check passing `VERSION` is stamped
 
 #### Scenario: A rerun that keeps it again
-- **WHEN** the same rerun's user declines the removal again
+- **WHEN** the same refusal-free rerun's user declines the removal again
 - **THEN** `specwright-old` stays, Step 7's skills check passes, and Step 8 lists it as an orphan kept
+
+#### Scenario: A rerun whose plan also lists a refusal
+- **WHEN** the plan shows the completed swap and lists `specwright-old` among `orphans`, and also lists a refusal
+- **THEN** Step 4 removes nothing, asks no orphan question and handles the refusal first
