@@ -360,7 +360,7 @@ The 18 wording-only capabilities and the reworded `install-update` and `native-c
 
 ## 4. Spec checks
 
-- [ ] 4.1 Run `openspec validate spec-wording-sweep --strict` and `python -m unittest evals/git-workflow/test_specs_strict.py`. Verify: both pass.
+- [x] 4.1 Run `openspec validate spec-wording-sweep --strict` and `python -m unittest evals/git-workflow/test_specs_strict.py`. Verify: both pass.
 
 ## 5. Integration and release
 
