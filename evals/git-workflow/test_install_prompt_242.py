@@ -33,6 +33,8 @@ class Step6Settings(unittest.TestCase):
     def test_step6_offers_version_files_mapping_whole(self):
         self.assertRegex(self.s6, r"(?is)`release\.version_files`.{0,200}compared.{0,300}whole mapping.{0,120}in order.{0,200}decline",
                          "Step 6 does not offer an absent release.version_files as the template's whole mapping, in order, to keep or decline")
+        self.assertRegex(self.s6, r"(?is)whole mapping, in order, as one default, and list it as added when the user keeps it",
+                         "Step 6 does not add a kept release.version_files mapping and list it as added")
 
     def test_step6_keeps_comments_of_kept_keys(self):
         self.assertRegex(self.s6, r"(?is)keeps the user's values and the comments of every key it keeps",
@@ -93,7 +95,10 @@ class Step4Orphans(unittest.TestCase):
         self.assertRegex(s4, r"(?is)orphan skills.{0,400}after a new `swap`.{0,200}completed swap.{0,200}confirmed",
                          "Step 4 does not ask about orphans after a new swap and after a confirmed completed swap")
         self.assertRegex(s4, r"(?is)orphan skills.{0,100}before Step 5", "Step 4 does not settle orphans before Step 5")
-        self.assertRegex(s4, r"(?is)remove only those the user agrees to remove", "Step 4 may remove an orphan the user kept")
+        self.assertRegex(s4, r"(?is)after a new `swap` and on a rerun whose plan shows a completed swap \(once that swap is confirmed, as above\)\. Remove only those the user agrees to remove\.",
+                         "Step 4 does not remove the orphans the user agrees to remove on both swap paths, and only those")
+        self.assertRegex(s4, r"(?is)other `orphans` entries \(agent files, pack skills\).{0,60}ask before removing them.{0,60}remove only those the user agrees to",
+                         "Step 4 drops the consent path for agent-file and pack-skill orphans")
         self.assertRegex(s4, r"(?is)skip `stage` and `swap`.{0,120}orphan question.{0,80}Steps 5-7",
                          "Step 4's resume of a finished swap does not go through the orphan question first")
         self.assertRegex(step("Step 7"), r"(?is)rerun this prompt.{0,60}orphan question.{0,40}Steps 5-7",

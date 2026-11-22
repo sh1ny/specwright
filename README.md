@@ -364,8 +364,9 @@ installed agent file (say so in Step 8).
   install, after a new `swap` and on a rerun whose plan shows a completed swap
   (once that swap is confirmed, as above). Remove only those the user agrees to
   remove. A declined orphan stays, passes Step 7 as kept, and Step 8 lists it
-  as an orphan kept. Other `orphans` entries (agent files, pack skills) are
-  outside this question.
+  as an orphan kept. List the other `orphans` entries (agent files, pack
+  skills) too, ask before removing them, and remove only those the user
+  agrees to, after `swap`; Step 7 does not check them.
 - Legacy openspec-git-flow: if `openspec-git-branch`, `openspec-git-commit` or
   `openspec-git-merge` skill directories exist in a chosen skills directory,
   or `openspec/.git-flow/` exists, list them and ask before removing them.
