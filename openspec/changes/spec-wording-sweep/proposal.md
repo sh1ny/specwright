@@ -125,10 +125,10 @@ DECISION_MAKING: important
 
 ## Release Notes
 
-The main specs now name the `sw` commands that replaced the retired shell scripts. The README install prompt no longer stops, asks or fails on a correct install.
+A patch release that updates wording and fixes the install prompt. The main specs now name the `sw` commands that replaced the retired shell scripts. The README install prompt no longer stops, asks or fails on a correct install. The skills and `sw` behave as before.
 
 ### Changed
 - The main specs name `sw` commands (`sw vcs`, `sw as`, `sw pr`, `sw release` and others) where they named retired scripts. Behaviour is unchanged (#234).
 
 ### Fixed
-- The install prompt's Step 7 checks only `specwright-*` skill directories. Step 6 treats `release.version_files` entries as user data and says comments are never merged. Step 8 names the interface line exactly. The in-repo migration warning describes `vcs.sh` as an older copy's behaviour (#242).
+- Step 7 of the install prompt checks only `specwright-*` skill directories, and Step 4 asks about orphaned `specwright-*` skills on every path, a rerun included. Step 6 treats `release.version_files` entries as user data and keeps the user's comments as they are. Step 8 names the interface line exactly. The in-repo migration warning now says `vcs.sh` is how an older copy behaves (#242).

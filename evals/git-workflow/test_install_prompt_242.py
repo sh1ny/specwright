@@ -104,5 +104,14 @@ class Step4Orphans(unittest.TestCase):
                          "Step 4 does not keep a declined orphan, passing Step 7 and listed by Step 8")
 
 
+class Step8Interface(unittest.TestCase):
+    def test_step8_interface_is_the_standalone_line(self):
+        s8 = step("Step 8")
+        self.assertRegex(s8, r"(?is)`interface <n>` line in the installed `specwright-pr/SKILL\.md`: the line that holds only `interface <n>` and nothing else",
+                         "Step 8 does not say the interface is the line holding only `interface <n>`")
+        self.assertRegex(s8, r"(?is)a sentence that mentions an interface inside a paragraph is not that line",
+                         "Step 8 does not say a paragraph naming an interface is not the interface line")
+
+
 if __name__ == "__main__":
     unittest.main()
