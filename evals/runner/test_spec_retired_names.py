@@ -323,7 +323,7 @@ ALLOWED = {
     ("pr-script-runtime", "Unexpected failures keep the JSON error contract", ""): (
         "kept history",
         [
-            "Each of the `sw pr` subcommands that `pr-pair.sh` carried (`identity`, `context`, `tier`, `vcs`, `discover`, `expected`, `ensure-pr`, `closing-check`, `closed-check`, `link`, `pair-state`, `rounds`, `pass`, `cleanup-plan`, `branch-check`, `merge`, `delete-remote`, `policy` and `item-issues`) SHALL report any unexpected exception as one JSON line on stdout with `\"ok\": false`, `\"error\": \"internal_error\"` and a `message` naming the exception type, and SHALL exit 1. Existing structured stops SHALL keep their own error codes and exit statuses.",
+            "Each `sw pr` subcommand from `pr-pair.sh` (`identity`, `context`, `tier`, `vcs`, `discover`, `expected`, `ensure-pr`, `closing-check`, `closed-check`, `link`, `pair-state`, `rounds`, `pass`, `cleanup-plan`, `branch-check`, `merge`, `delete-remote`, `policy` and `item-issues`) SHALL report an unexpected exception as one stdout JSON line with `\"ok\": false`, `\"error\": \"internal_error\"` and a `message` naming its type, and exit 1. Structured stops SHALL keep their own codes and exit statuses.",
         ],
     ),
     ("pr-script-runtime", "Watch claims and head records stay shared across implementations", ""): (

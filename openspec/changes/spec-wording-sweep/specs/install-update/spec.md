@@ -63,7 +63,7 @@ The config merge SHALL remove each `[pack:<name>] ` line whose `<name>` is enabl
 - **THEN** the first is reported `kept` with its content unchanged and the second `created`
 
 ### Requirement: An install whose VCS steps need a missing sw says so
-Step 8 SHALL check that `<home>/.specwright/bin/<project VERSION>/sw[.exe]` exists and its `version --json` exits 0 in 10 s with that version and the installed skills' interface (the line of the installed `specwright-pr/SKILL.md` that holds only `interface <n>`, or an older tag's `SW_INTERFACE=`). On a failure it SHALL warn that branch, commit and finish steps stop until a matching `sw` is placed, that another version's `sw` stops with `sw_mismatch`, and name a tagged install and the `CONTRIBUTING.md` bootstrap; otherwise no warning.
+Step 8 SHALL check that `<home>/.specwright/bin/<project VERSION>/sw[.exe]` exists and its `version --json` exits 0 in 10 s with that version and the installed skills' interface (`specwright-pr`'s `interface <n>` line, or an older tag's `SW_INTERFACE=`). On a failure it SHALL warn that branch, commit and finish steps stop until a matching `sw` is placed, that another version's `sw` stops with `sw_mismatch`, and name a tagged install and the `CONTRIBUTING.md` bootstrap; otherwise no warning.
 
 #### Scenario: A binary of the right version and an old interface
 - **WHEN** the installed skills require interface 2 and the pinned binary reports the project's version but interface 1
