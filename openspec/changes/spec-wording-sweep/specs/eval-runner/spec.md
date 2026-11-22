@@ -3,7 +3,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: Frozen-oracle evals are migrated before the cutover
-Every eval that runs a frozen script, a shim or the shipped scripts directory SHALL be moved, in the commits before the cutover, to one of: recorded CLI runs of the frozen side; recorded state in both directions; or outcome checks that run what `sw` prints. A CI check SHALL then fail on any eval naming a removed script. The one exception is the spec sweep guard, `evals/runner/test_spec_retired_names.py`: it names the retired scripts only to find them in spec text, and it runs none of them.
+Every eval that runs a frozen script, a shim or the shipped scripts directory SHALL be moved, in the commits before the cutover, to one of: recorded CLI runs of the frozen side; recorded state in both directions; or outcome checks that run what `sw` prints. A CI check SHALL then fail on any eval naming a removed script, apart from the check's own file and the retired-script names in `evals/runner/test_spec_retired_names.py`, which holds them only to find them in spec text.
 
 #### Scenario: Feedback records both ways after the cutover
 - **WHEN** the feedback-record interoperability cases run on the script-free tree
@@ -18,5 +18,9 @@ Every eval that runs a frozen script, a shim or the shipped scripts directory SH
 - **THEN** the CI check fails, naming the eval file and the script
 
 #### Scenario: The spec sweep guard names the retired scripts
-- **WHEN** the CI check scans `evals/runner/test_spec_retired_names.py`, whose name list and allowlist hold the retired names as string literals
-- **THEN** it reports nothing for that file, and any other eval file that names a removed script still fails the check
+- **WHEN** the CI check scans an eval tree whose `runner/test_spec_retired_names.py` holds retired-script names as string literals, and another file with the same base name elsewhere in the tree holds one too
+- **THEN** the check reports no retired-script name for `evals/runner/test_spec_retired_names.py` and reports the other file, naming the script
+
+#### Scenario: The sweep guard still may not reach a script
+- **WHEN** `evals/runner/test_spec_retired_names.py` also names the shipped scripts directory or a frozen oracle checkout
+- **THEN** the CI check reports that file with the scripts directory or the frozen oracle checkout

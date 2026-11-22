@@ -2,43 +2,39 @@
 
 ## Metadata
 
-- **Round:** 4 (FULL)
-- **Prior round:** REVISE. The revised specs reconcile kept orphans with completion, exclude pack and agent rows from orphan deletion, restore settings consent, narrow the usage-error rule, and correct the reviewer diagnostic. D1 now keys exceptions by scenario and covers rename collisions.
-- **Reviewer:** Codex (round 4 findings); user (USER_OVERRIDE)
-- **User decision:** "Fix M2+M3, file C1+M1 (Recommended)": fix the two real items, file the two inferred orphan-rerun cases as one issue, record them as rebuttals, and write tasks.md without a round 5. This came after rounds 1 to 4 were REVISE and rounds 2, 3 and 4 were escalated.
-- **Reviewed:** Proposal, design, all 20 delta specs and corresponding main-spec requirements, architecture and ADRs 0027/0040/0042, README, PR skill, CLI source, settings files, and cited evals. Static review; no evals run.
+- **Round:** 5 (FULL)
+- **Prior round:** USER_OVERRIDE after round 4; amendments 14b7799 and 2bbf08d since
+- **Reviewer:** OMP / openai-codex/gpt-6.2-sol
+- **Reviewed:** Proposal, design, tasks, prior review, all 21 deltas and matching main-spec requirements, both guards, README and its evals, and ADRs 0027/0040/0042. Static review only. The local reflog confirmed both amendments and the preceding task commits; no command tool was available to run `git show` or evals, so the shortened text was checked against the main specs and current implementation rather than the exact parent diff.
 
 ## Findings
 
 ### Critical (blocking)
 
-1. **A rerun against a newer tag can stamp the update that failed Step 7.** The new orphan rule withholds the stamp when an approved removal fails (`openspec/changes/spec-wording-sweep/specs/install-update/spec.md:200–209`). The README tells the user to rerun, but the rerun defaults to the latest tag and `plan` runs recovery before returning (`README.md:145–163,316–325,482–487`; `cli/lib/src/update/plan.dart:501–520`). When the download differs from the pending journal’s `to`, recovery writes that older `to` into `VERSION` and removes the journal before the prompt reaches orphan handling (`cli/lib/src/update/recover.dart:216–230`). This behavior is required by the existing different-version scenario and pinned by `evals/update/test_update.py:332–349`. **[INFERENCE]** If a new tag appears after a failed removal, rerunning with defaults can stamp the failed installation even if the new update then refuses. Define which recovery paths the no-stamp guarantee covers. To keep the guarantee, the prompt must resume with the pending journal’s download or require rollback before planning another version.
+1. **S8 exempts executable uses, not just the literals the guard needs.** `design.md:46` and `tasks.md:371` call for skipping the whole module. In `evals/runner/test_oracle_migration.py:76–95`, that bypasses all three checks: retired names, shipped script paths, and frozen-oracle references. **[INFERENCE]** A later edit that copies or runs a retired script from the exempt module would pass this check, even though the amended requirement says the module names scripts only to inspect spec text. Keep the user-selected exemption at that exact path, but allow only the data literals needed by the guard. Keep checking other references in the module and test that an executable use is rejected there.
 
 ### Moderate
 
-1. **The resume path can offer deletion in a directory the completed swap did not touch.** D2 and the Step 4 requirement take orphan rows from the current plan after confirming a completed swap (`design.md:56`; `specs/install-update/spec.md:204–213`, relative to this change). The README’s resume check matches only phase and version. Recovery uses the journal’s targets, but the planner discovers orphans in the directories passed on this run (`README.md:114–130,316–325`; `cli/lib/src/update/recover.dart:169–173,218–224`; `cli/lib/src/update/plan.dart:153–171,298–306`). **[INFERENCE]** A Claude-only swap followed by a same-tag rerun selecting `.agents/skills` can skip the swap and offer to remove an orphan from `.agents/skills` before Step 7 notices that directory was never updated. Require the resumed targets to match before offering deletion. The eval should check that an approved removal happens before Step 5, not just that the question does (`design.md:59–66`).
-
-2. **Two new scenarios promise a stamp after only one check passes.** The custom `release.version_files` scenario and the resumed orphan-removal scenario assert stamping without saying the other Step 7 checks passed (`specs/install-update/spec.md:158–160,207–209`, relative to this change). An invalid schema or a missing agent file still blocks the stamp (`README.md:454–482`). Assert the affected check’s result, or state that all other checks pass before asserting the stamp.
-
-3. **The guard overlays parked changes that will never sync to main.** D1 overlays every active change except archived ones (`design.md:36–41`). A parked change can land on main with its delta still under `changes/` and its main specs untouched (`openspec/specs/design-review-gate/spec.md:58–67`). **[INFERENCE]** A parked delta that removes a retired mention can hide that mention in main indefinitely; one that adds a mention can fail CI for text that never becomes a main spec. Exclude parked deltas using the workflow’s whole-line deferral marker and cover that case in the overlay fixture.
+1. **Task 5.1’s fixture does not pin the path boundary and cannot use `scan()` unchanged.** The two-file fixture at `tasks.md:371` can pass a basename-wide exclusion if the other file has a different name. Also, `scan(root=...)` formats findings relative to the real checkout (`test_oracle_migration.py:95`), so reporting a hit from a temp tree outside it raises `ValueError`. Compare the exact path relative to the supplied eval root, preserve the `evals/...` diagnostic, and assert that a same-basename file elsewhere and a renamed guard are both reported.
+2. **The new scenario promises more than the scanner checks.** `specs/eval-runner/spec.md:6,20–22` says “one exception” and “any other eval file.” The scanner already skips itself despite its retired-name literals (`test_oracle_migration.py:26–30,81`), and `reviewers.py` is not in its ordinary literal check. The existing snapshot eval legitimately asserts that name in a diagnostic (`evals/pr-pair/test_snapshot_native.py:128`). State the scanner’s actual scope and self-skip; do not promise rejection of every mention.
+3. **The shortened finish requirement lets finish omit recovery instructions.** `specs/change-finish/spec.md:39–44` requires finish to show only `steps`; it requires the planner to emit `after_rerun_steps` and warnings, but not finish to relay them. The skill explicitly shows both (`skills/specwright-finish/SKILL.md:74`). **[INFERENCE]** On a bulk undo, showing only `steps` leaves the user without the instructions to rearchive the non-deferred members and restore saved spec amendments. Require finish to display both lists when present and relay the warnings.
+4. **The new Step 8 scenario is marked green without a test for the distinction it adds.** `tasks.md:76` points to an unchanged `evals/update/` test. The actual README check in `evals/git-workflow/test_install_sw_warning.py:30–39` accepts the old interface phrase; it does not require the instruction to take the value from the standalone line rather than prose. Removing that clarification from `README.md:556–559` would leave the mapped verification green. Pin the standalone-line rule and map the scenario to that assertion.
 
 ### Suggestions
 
-None.
+1. **Fix the integration references.** `tasks.md:5` sends wording-only verification to 5.1, which now runs only the oracle-migration module; the PR CI check moved to 5.2. `design.md:247` still counts 78 modified blocks; S8 makes it 79, consistent with the proposal’s 77 reworded plus 2 changed requirements.
 
 ## Verdict
 
-VERDICT: USER_OVERRIDE
+VERDICT: REVISE
 
 ## Required Changes
 
 CHANGES_APPLIED: n/a
 
+Narrow S8 and verify its exact boundary; align the eval-runner contract, restore the finish display obligation, and correct the Step 8 test map.
+
 ## Rebuttals
 
-- **Critical 1 (rerun against a newer tag stamps a failed install):** not fixed here, by the user's decision. The behaviour comes from the existing different-version recovery, which this change does not touch. The change only adds the rule that Step 4 asks about orphans on a resume. Filed as #243.
-- **Moderate 1 (resumed run offers deletion in a directory the swap did not touch):** not fixed here, by the user's decision. It needs a rerun that selects different skills directories from the journal's. Filed as #243.
-- **Moderate 2 (stamp asserted after one check):** fixed after this round. Both scenarios now stamp `VERSION` only "with every other Step 7 check passing". Not re-reviewed.
-- **Moderate 3 (parked deltas in the overlay):** fixed after this round. D1 excludes changes whose `review.md` holds `VERDICT: DEFERRED`, and the overlay fixture covers one. Not re-reviewed.
-
-Open findings at override: Critical 1 and Moderate 1 (#243).
+- **Round 4 Moderate 2:** Both stamp scenarios now require every other Step 7 check to pass, consistent with `README.md:510`.
+- **Round 4 Moderate 3:** The sweep overlay excludes the exact parked verdict. Fixtures cover both the parked case and a nonmatching verdict suffix (`evals/runner/test_spec_retired_names.py:844–854`).

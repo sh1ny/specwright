@@ -43,7 +43,7 @@ TIER: FULL
 
   A new mention fails, even a second mention of a name the block already allows. So does a removed mention, which tells the next change to shrink the list. The inventory below gives counts for review; the test holds the lines.
   - `evals/suites.json` adds the test to the `openspec/**` rule, so a spec-only change runs it on `--changed`.
-  - The removed-script check in evals/runner/test_oracle_migration.py skips the guard's file, as it skips itself, and a test there pins that the guard's file is the only exemption. The eval-runner delta names the exception (S8). The guard runs no retired script, so the check's goal holds.
+  - The removed-script check in evals/runner/test_oracle_migration.py ignores retired-script names in the guard's file, matched by its exact path relative to the scanned eval root, and keeps its scripts-directory and frozen-oracle checks there. `scan()` reports paths relative to the eval root it is given (as `evals/...`), so its fixtures run on a temp tree. Fixture tests pin the boundary: a same-base-name file elsewhere is still reported, and the guard's file is reported for a scripts-directory path or a frozen-oracle reference. The eval-runner delta names the exception (S8). An edit that makes the guard reach a script still fails the check.
 - **Rejected:** reading only `openspec/specs`, because that goes green only after archive and the task could not be verified during apply. No guard, because the names would creep back with no check in CI.
 - **Reversal cost:** low. It is one test file.
 - **Important:** yes, it binds future changes: a later spec that names a retired script must update the allowlist.
@@ -124,7 +124,7 @@ TIER: FULL
 | S5 | Specify #242 in install-update | README plus install-update requirements | README only | low | yes | user |
 | S6 | Step 8 interface line | Reword the README only | Change the skill | low | no | agent |
 | S7 | Narrow the sweep | Add a reading rule; move the undo blocks out | Spell every option out | low | yes | user |
-| S8 | Guard vs removed-script check | Exempt the sweep guard's file; eval-runner delta | Move the names to JSON data | low | yes | user |
+| S8 | Guard vs removed-script check | Ignore retired-script names in the guard's file only; eval-runner delta | Move the names to JSON data | low | yes | user |
 | D1 | Sweep guard | Allowlist eval with active-delta overlay | Main specs only; no guard | low | yes | user |
 | D2 | README #242 wording | Edit Steps 6-8 and the warnings, keeping pinned phrases | A new interface line in the skill | low | yes | agent |
 | D3 | Unsweepable requirements | File five issues and allowlist them | Rewrite them here | low | no | agent |
@@ -244,7 +244,7 @@ The guard's allowlist (D1): each block that keeps a retired name after this chan
 ## Risks / Trade-offs
 
 - [The swept wording drifts from what `sw` accepts] → Every rewritten command was checked against cli/lib/src during drafting. Pre-ship review sees the whole delta.
-- [78 MODIFIED blocks make a large diff] → Wording only. The guard and `openspec validate --strict` cover structure, and `review.max_diff_kb` is 1400.
+- [79 MODIFIED blocks make a large diff] → Wording only. The guard and `openspec validate --strict` cover structure, and `review.max_diff_kb` is 1400.
 - [README phrase pins break] → D2 keeps the pinned phrases, and the README tasks update the regexes in the same group.
 
 ## ADRs

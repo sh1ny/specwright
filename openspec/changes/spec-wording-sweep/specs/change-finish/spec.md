@@ -37,7 +37,7 @@ With `release.enabled` true and `finish: local`, `specwright-finish` SHALL read 
 - **THEN** finish runs `sw release untagged --local`, resolves no login, runs no `git ls-remote` or other network call, and reports 0.5.0 as untagged from local tags, to publish after `main` is pushed
 
 ### Requirement: A deferred archive's undo is planned by a script that runs nothing
-When the deferred check stops on `VERDICT: DEFERRED`, finish SHALL run `sw finish undo-archive-plan` and show the undo `steps` it prints, without running them or making a commit, merge or push. The plan SHALL write no repo state but jj's snapshot and Git import; the GitButler probe's temp directory is outside it and removed. It SHALL print one JSON document: the facts found, `steps`, optional `after_rerun_steps`, and warnings. A runner of either list SHALL stop at its first failing step.
+When the deferred check stops on `VERDICT: DEFERRED`, finish SHALL run `sw finish undo-archive-plan` and show all it prints, running no step and making no commit, merge or push. The plan SHALL write no repo state but jj's snapshot and Git import; the GitButler probe's temp directory is outside it and removed. It SHALL print one JSON document: the facts found, `steps`, optional `after_rerun_steps`, and warnings. A runner of either list SHALL stop at its first failing step.
 
 #### Scenario: Deferred archive found
 - **WHEN** finish starts after a deferred change was archived
