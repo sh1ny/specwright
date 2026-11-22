@@ -202,7 +202,7 @@ Step 7's skills check SHALL pass for a chosen skills directory when every downlo
 - **THEN** Step 7's skills check fails naming `specwright-old`, and `VERSION` is not stamped
 
 ### Requirement: Step 4 settles the plan's orphans on every path
-Step 4 SHALL ask about each `specwright-*` skill directory among the current plan's `orphans` that this update does not install, and remove those the user agrees to remove, after a new `swap` or, when the plan shows a completed swap and Step 4 skips `stage` and `swap`, once that swap is confirmed. It SHALL do so before Step 5. Other `orphans` entries, such as agent files and pack skills, are outside this rule.
+Step 4 SHALL ask about each `specwright-*` skill directory among the current plan's `orphans` that this update does not install, and remove those the user agrees to remove, after a new `swap` or, when the plan shows a completed swap and no refusal and Step 4 skips `stage` and `swap`, once that swap is confirmed. It SHALL do so before Step 5. Other `orphans` entries, such as agent files and pack skills, are outside this rule.
 
 #### Scenario: A rerun that removes an orphan kept before
 - **WHEN** the prompt is run again after a swap that kept `specwright-old`, the plan lists it among `orphans` with the swap already completed, and the user now agrees to remove it

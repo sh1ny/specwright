@@ -64,7 +64,7 @@ When the deferred check stops on `VERDICT: DEFERRED`, finish SHALL run `sw finis
 - **THEN** every working-tree file's bytes are unchanged; separately, the operation log gains only jj's own import and snapshot operations, and `feat/add-x` and its `refs/heads/` mirror move, or `feat/add-x` becomes conflicted and the plan stops with `ambiguous_branch`
 
 ### Requirement: An archive-only push skips the code validate
-Watch SHALL hand finish, and finish ship, the ready head of each repo (`ready head: <repo>=<sha>`). Before the push, ship SHALL run `sw review archive-only` from the code checkout, with `--dir` naming the planning repo, against its ready head. When it reports `archive_only: true`, ship SHALL skip `pr.validate` for the planning repo, and for a code repo still at its ready head; `planning_store.validate` SHALL still run. Any other result, a non-zero exit or no ready head SHALL run `pr.validate`.
+Watch SHALL hand finish, and finish ship, the ready head of each repo (`ready head: <repo>=<sha>`). Before the push, ship SHALL run `sw review archive-only` from the code checkout, with `--dir` naming the planning repo, against its ready head. When it reports `archive_only: true`, ship SHALL skip `pr.validate` for the planning repo, and for a code repo still at its ready head; `planning_store.validate` SHALL still run. Any other result, a check error or no ready head SHALL run `pr.validate`.
 
 #### Scenario: Archive of a reviewed head
 - **WHEN** watch reported head `h1` ready and handed `ready head: h1`, the change is archived as commit `h2` whose only change is the archive move and the synced main specs, and `pr.validate` is `make test`
@@ -83,5 +83,9 @@ Watch SHALL hand finish, and finish ship, the ready head of each repo (`ready he
 - **THEN** `pr.validate` runs before the push
 
 #### Scenario: Check fails to run
-- **WHEN** `archive-only` exits non-zero, such as exit 1 with `git_error` because git cannot read the commits
+- **WHEN** `archive-only` exits 1 with `git_error` because git cannot read the commits
 - **THEN** `pr.validate` runs before the push, and the report names the `archive-only` error
+
+#### Scenario: The binary does not match the project
+- **WHEN** `archive-only` prints a `sw_mismatch` document
+- **THEN** ship stops before any validate or push and shows its `message`

@@ -108,7 +108,8 @@ TIER: FULL
 
 - **Choice:** two reworded change-finish requirements now state what the workflow does, after the pre-ship review and design review round 8:
   - The undo plan's JSON always holds `steps` and `after_rerun_steps`, which may be empty (openspec/specs/change-finish/spec.md:395). Finish shows the `steps`, a non-empty `after_rerun_steps` and the warnings, as skills/specwright-finish/SKILL.md:74 does, not all the plan prints. The user approved this as a behaviour change.
-  - `sw review archive-only` runs from the code checkout with `--dir` naming the planning repo, and a failure exits 1 with `git_error` (evals/review-routes/test_review_run.py:1619-1626), not 3. Ship runs `pr.validate` on any non-zero exit. The main text and skills/specwright-pr/SKILL.md said exit 3, so the skill line changes in task 6.1.
+  - `sw review archive-only` runs from the code checkout with `--dir` naming the planning repo, and a failure exits 1 with `git_error` (evals/review-routes/test_review_run.py:1619-1626), not 3. Ship runs `pr.validate` on any failure of the check, but a `sw_mismatch` document still stops the step, as every `<sw>` call does. The main text and skills/specwright-pr/SKILL.md said exit 3, so the skill line changes in task 6.1, and pre-ship round 3 keeps the `sw_mismatch` stop and says ship runs the check from the code checkout.
+  - On a rerun that confirms a completed swap, Step 4 asks the orphan question only when the plan lists no refusal, so nothing is removed while the plan says to stop (pre-ship round 3).
   - The test map names the tests that prove each part: the skill-text tests for ship's decision and finish's display, the classifier and planner tests for `sw`.
 - **Rejected:** leaving the skill on exit 3. An agent following it would stop on exit 1 where the spec says validate runs.
 - **Reversal cost:** low
@@ -133,7 +134,7 @@ TIER: FULL
 | D4 | Release | Patch 0.39.1 | Minor | low | no | agent |
 | D5 | Swept wording that hid a difference | State sw's actual behaviour | Literal name swap | low | no | agent |
 | D6 | Shortened commands | native-cli reading rule; undo blocks out of the sweep | Spell every option out; rewrite the undo blocks | low | yes | user |
-| D7 | Pre-ship spec findings | State finish's display and any non-zero archive-only exit; fix the skill line | Keep exit 3 in the skill | low | no | user, agent |
+| D7 | Pre-ship spec findings | State finish's display, the archive-only fallback with its `sw_mismatch` stop, and the resume's refusal check; fix the skill line | Keep exit 3 in the skill | low | no | user, agent |
 
 ## Assumptions
 
