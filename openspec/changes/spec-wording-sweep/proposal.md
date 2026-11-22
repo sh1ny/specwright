@@ -29,6 +29,7 @@ This change serves M9 (Adoption and configuration). It advances these exit crite
   - Step 8 says the interface is the line that holds only `interface <n>` in the installed `specwright-pr/SKILL.md`, and names no number, so the wording cannot go stale. That line already exists (`skills/specwright-pr/SKILL.md:14`), so the skill does not change.
   - The `vcs.sh` / `scripts_in_workspace` warning (README.md:129, README.md:549) says this is how an older user-level copy behaves. It no longer reads as a current part.
 - An eval guards the sweep: no main-spec requirement names a retired script, apart from the allowed exceptions. Evals also cover the #242 wording.
+- The older guard that fails on any eval naming a removed script (`evals/runner/test_oracle_migration.py`, eval-runner "Frozen-oracle evals are migrated before the cutover") exempts the sweep guard, which has to name the retired scripts to find them in spec text and runs none of them (S8).
 
 ## Capabilities
 
@@ -44,12 +45,15 @@ Wording only, retired script names replaced by `sw` commands:
 Wording and one added reading rule:
 - `native-cli`: the retired-name wording is swept, and one requirement says how a command shown without its required options is read.
 
+One exemption:
+- `eval-runner`: the CI check that fails on any eval naming a removed script exempts the sweep guard.
+
 Wording and behaviour:
 - `install-update`: the retired-name wording is swept. Entries under `release.version_files` become user data in the settings merge. Step 7's skills-directory check covers only `specwright-*` directories, and Step 4 settles orphans on every path. The settings merge says it never rewrites a comment.
 
 ## Impact
 
-- `openspec/specs/**`: 77 reworded, 1 changed and 5 added requirements across 20 capabilities, through deltas that are synced at archive. `eval-runner` gets no delta. Its one requirement that cannot be swept is filed as an issue, and so are the two `vcs-backends` archive-undo requirements for jj and GitButler (design D3).
+- `openspec/specs/**`: 77 reworded, 2 changed and 5 added requirements across 21 capabilities, through deltas that are synced at archive. `eval-runner` gets one delta, the sweep guard's exemption (S8). Its one requirement that cannot be swept is filed as an issue, and so are the two `vcs-backends` archive-undo requirements for jj and GitButler (design D3).
 - `README.md`: install prompt Steps 6, 7 and 8, plus the in-repo migration warning at lines 129 and 549.
 - `evals/`: the new sweep guard, the README regexes that pin the edited wording (`evals/git-workflow/test_install_sw_warning.py`, `evals/git-workflow/test_instructions.py`), and `evals/suites.json` for any new test file.
 - No code, skill or binary changes. Skills, the `sw` CLI and the settings template stay as they are.
@@ -114,6 +118,14 @@ DECISION_MAKING: important
 - **Reversal cost:** low
 - **Important:** yes, it binds future changes: the reading rule applies to every spec that shows a shortened `sw` call.
 - **Chosen by:** user ("Narrow + map")
+
+### S8: Exempt the sweep guard from the removed-script check
+
+- **Choice:** `evals/runner/test_oracle_migration.py` skips `evals/runner/test_spec_retired_names.py`, as it already skips itself, and the eval-runner requirement "Frozen-oracle evals are migrated before the cutover" names that one exception. Found during apply: the PR CI run failed the `runner` suite on all three OSes because the new guard's name list and allowlist hold the retired names as string literals.
+- **Rejected:** moving the names, the allowlist lines and the fixture spec text to JSON data files, which the older check does not scan. That moves D1's allowlist out of the test constant that C1 names as its home and makes the guard harder to read.
+- **Reversal cost:** low
+- **Important:** yes, it narrows a CI check that a requirement states.
+- **Chosen by:** user ("Exempt the sweep guard")
 
 ## Release Notes
 

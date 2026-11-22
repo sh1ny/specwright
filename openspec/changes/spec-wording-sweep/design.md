@@ -16,7 +16,8 @@ TIER: FULL
 ## Context
 
 - **The name map.** The native-cli requirement "Retired script names map to sw commands" gives each retired script its `sw` command: openspec/specs/native-cli/spec.md:799-812. ADR 0040 calls it the reference for people who scripted the old names: docs/adr/0040-skills-call-the-projects-sw-directly.md:33.
-- **Scale.** Before this change, 109 requirements in 21 capabilities named a retired script, about 292 times (counted with the same regex the guard uses). The deltas rewrite 77 of them in 20 capabilities. `install-update` changes one more (its update-completion scenario now allows kept orphans) and adds 4 requirements, and `native-cli` adds 1. `eval-runner` gets no delta.
+- **Scale.** Before this change, 109 requirements in 21 capabilities named a retired script, about 292 times (counted with the same regex the guard uses). The deltas rewrite 77 of them in 20 capabilities. `install-update` changes one more (its update-completion scenario now allows kept orphans) and adds 4 requirements, and `native-cli` adds 1. `eval-runner` changes one: its removed-script check exempts the sweep guard (D1, S8).
+- **The removed-script check.** evals/runner/test_oracle_migration.py fails on any eval file whose string literals name a removed script, and skips only itself (eval-runner "Frozen-oracle evals are migrated before the cutover"). The sweep guard has to hold the retired names as literals. The first PR CI run of this change failed the `runner` suite on all three OSes for that reason.
 - **Strings `sw` still prints.** Some retired names are part of the output contract and are not stale wording:
   - `as.sh: unrepresentable …`: cli/lib/src/fence/fence.dart:588
   - `fit-subject.sh: could not rewrite …`: cli/lib/src/commit/fit_subject.dart:111
@@ -42,6 +43,7 @@ TIER: FULL
 
   A new mention fails, even a second mention of a name the block already allows. So does a removed mention, which tells the next change to shrink the list. The inventory below gives counts for review; the test holds the lines.
   - `evals/suites.json` adds the test to the `openspec/**` rule, so a spec-only change runs it on `--changed`.
+  - The removed-script check in evals/runner/test_oracle_migration.py skips the guard's file, as it skips itself, and a test there pins that the guard's file is the only exemption. The eval-runner delta names the exception (S8). The guard runs no retired script, so the check's goal holds.
 - **Rejected:** reading only `openspec/specs`, because that goes green only after archive and the task could not be verified during apply. No guard, because the names would creep back with no check in CI.
 - **Reversal cost:** low. It is one test file.
 - **Important:** yes, it binds future changes: a later spec that names a retired script must update the allowlist.
@@ -122,6 +124,7 @@ TIER: FULL
 | S5 | Specify #242 in install-update | README plus install-update requirements | README only | low | yes | user |
 | S6 | Step 8 interface line | Reword the README only | Change the skill | low | no | agent |
 | S7 | Narrow the sweep | Add a reading rule; move the undo blocks out | Spell every option out | low | yes | user |
+| S8 | Guard vs removed-script check | Exempt the sweep guard's file; eval-runner delta | Move the names to JSON data | low | yes | user |
 | D1 | Sweep guard | Allowlist eval with active-delta overlay | Main specs only; no guard | low | yes | user |
 | D2 | README #242 wording | Edit Steps 6-8 and the warnings, keeping pinned phrases | A new interface line in the skill | low | yes | agent |
 | D3 | Unsweepable requirements | File five issues and allowlist them | Rewrite them here | low | no | agent |

@@ -43,6 +43,10 @@ The 18 wording-only capabilities and the reworded `install-update` and `native-c
 | domain-packs → The download ships the ui-prototyping, gamedev and godot packs | godot on its own | evals/packs/ | existing test of this scenario, unchanged: wording-only rewrite | green |
 | eval-grading → Every seeded PR body for an issue check has a recorded rendering | Finish fixtures' body | evals/git-workflow/ | existing test of this scenario, unchanged: wording-only rewrite | green |
 | eval-grading → Every seeded PR body for an issue check has a recorded rendering | A new fixture body without a recording | evals/git-workflow/ | existing test of this scenario, unchanged: wording-only rewrite | green |
+| eval-runner → Frozen-oracle evals are migrated before the cutover | Feedback records both ways after the cutover | evals/pr-pair/ | existing test of this scenario, unchanged | green |
+| eval-runner → Frozen-oracle evals are migrated before the cutover | Finish parity becomes outcome checks | evals/finish/ | existing test of this scenario, unchanged | green |
+| eval-runner → Frozen-oracle evals are migrated before the cutover | An eval left on a removed script | evals/runner/test_oracle_migration.py | test_eval_naming_a_removed_script_fails | red |
+| eval-runner → Frozen-oracle evals are migrated before the cutover | The spec sweep guard names the retired scripts | evals/runner/test_oracle_migration.py | test_sweep_guard_is_the_only_exemption | red |
 | github-identity → Main refreshes and pulls from GitHub are fenced | Cleanup pull after merge | evals/pr-pair/ | existing test of this scenario, unchanged: wording-only rewrite | green |
 | github-identity → Main refreshes and pulls from GitHub are fenced | Branch gate fetch over SSH | evals/pr-pair/ | existing test of this scenario, unchanged: wording-only rewrite | green |
 | github-identity → Main refreshes and pulls from GitHub are fenced | Origin that pushes to a fork | evals/pr-pair/ | existing test of this scenario, unchanged: wording-only rewrite | green |
@@ -364,5 +368,6 @@ The 18 wording-only capabilities and the reworded `install-update` and `native-c
 
 ## 5. Integration and release
 
-- [ ] 5.1 Confirm on the PR's CI run (`.github/workflows/evals.yml`, three OSes) that the suites holding the `green` rows pass: finish, git-workflow, packs, pr-pair, release, review-routes, runner, update, vcs and cli. Verify: the run is green, its URL is noted in the PR description, and no row needed a code change.
-- [ ] 5.2 Run `sw release bump --to 0.39.1` and rewrite the summary of the proposal's `## Release Notes` to describe the whole release. Verify: `sw release check` reports `0.39.1` for every version file, and `sw release notes --proposal openspec/changes/spec-wording-sweep/proposal.md` prints the notes.
+- [ ] 5.1 S8: in `evals/runner/test_oracle_migration.py`, skip `evals/runner/test_spec_retired_names.py` in `scan()` as the module skips itself, and add `test_sweep_guard_is_the_only_exemption`: a temp tree whose sweep-guard file and one other eval file both name a removed script reports only the other file. Verify: `python -m unittest evals/runner/test_oracle_migration.py` first fails (the new test, and `test_eval_naming_a_removed_script_fails` on the real tree), then passes; flip both rows to green.
+- [ ] 5.2 Confirm on the PR's CI run (`.github/workflows/evals.yml`, three OSes) that the suites holding the `green` rows pass: finish, git-workflow, packs, pr-pair, release, review-routes, runner, update, vcs and cli. Verify: the run is green, its URL is noted in the PR description, and no row needed a code change.
+- [ ] 5.3 Run `sw release bump --to 0.39.1` and rewrite the summary of the proposal's `## Release Notes` to describe the whole release. Verify: `sw release check` reports `0.39.1` for every version file, and `sw release notes --proposal openspec/changes/spec-wording-sweep/proposal.md` prints the notes.
