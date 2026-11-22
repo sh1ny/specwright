@@ -1239,6 +1239,7 @@ class ShipArchiveOnly(unittest.TestCase):
         self.assertRegex(a, r"(?is)`pr\.validate` runs as above\. A `sw_mismatch` document still stops the step", "a sw_mismatch from archive-only falls back to validate instead of stopping")
         self.assertRegex(a, r"(?is)first run, from the code checkout, the `specwright-review` skill's `<sw> review archive-only", "ship does not run archive-only from the code checkout")
         self.assertRegex(a, r"(?is)names? the `archive-only` error", "the report does not name the archive-only error")
+        self.assertRegex(a, r"(?is)first run, from the code checkout, the `specwright-review` skill's `<sw> review archive-only [^`]*--dir <planning repo toplevel>", "ship's archive-only call does not name the planning repo with --dir")
 
     def test_watch_and_finish_hand_the_ready_head_on(self):
         archive = step3_bullet("**Archive before merge:**")

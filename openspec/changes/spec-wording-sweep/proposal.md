@@ -131,5 +131,5 @@ A patch release that updates wording and fixes the install prompt. The main spec
 - The main specs name `sw` commands (`sw vcs`, `sw as`, `sw pr`, `sw release` and others) where they named retired scripts. Behaviour is unchanged (#234).
 
 ### Fixed
-- Step 7 of the install prompt checks only `specwright-*` skill directories, and Step 4 asks about orphaned `specwright-*` skills on every path, a rerun included. Step 6 treats `release.version_files` entries as user data and keeps the user's comments as they are. Step 8 names the interface line exactly. The in-repo migration warning now says `vcs.sh` is how an older copy behaves (#242).
+- Step 7 of the install prompt compares only `specwright-*` skill directories with the download, and still checks every enabled pack's skills; Step 4 asks about orphaned `specwright-*` skills on every path, a rerun included. Step 6 treats `release.version_files` entries as user data and keeps the user's comments as they are. Step 8 names the interface line exactly. The in-repo migration warning now says `vcs.sh` is how an older copy behaves (#242).
 - Ship runs the project's validate when `sw review archive-only` fails, such as exit 1 `git_error`, not only on exit 3, so a git error no longer stops an archive-only push. A `sw_mismatch` still stops it.
