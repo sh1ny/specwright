@@ -2,27 +2,26 @@
 
 ## Metadata
 
-- **Round:** 5 (FULL)
-- **Prior round:** USER_OVERRIDE after round 4; amendments 14b7799 and 2bbf08d since
+- **Round:** 6 (FULL)
+- **Prior round:** REVISE (round 5); fixes in 8808c6a
 - **Reviewer:** OMP / openai-codex/gpt-6.2-sol
-- **Reviewed:** Proposal, design, tasks, prior review, all 21 deltas and matching main-spec requirements, both guards, README and its evals, and ADRs 0027/0040/0042. Static review only. The local reflog confirmed both amendments and the preceding task commits; no command tool was available to run `git show` or evals, so the shortened text was checked against the main specs and current implementation rather than the exact parent diff.
+- **Reviewed:** Amendment message, round 5 findings, proposal, design, task map, affected deltas and main specs, both guards, README Step 8 and its evals, and the finish skill. Static review; no evals run. #243 excluded.
 
 ## Findings
 
 ### Critical (blocking)
 
-1. **S8 exempts executable uses, not just the literals the guard needs.** `design.md:46` and `tasks.md:371` call for skipping the whole module. In `evals/runner/test_oracle_migration.py:76–95`, that bypasses all three checks: retired names, shipped script paths, and frozen-oracle references. **[INFERENCE]** A later edit that copies or runs a retired script from the exempt module would pass this check, even though the amended requirement says the module names scripts only to inspect spec text. Keep the user-selected exemption at that exact path, but allow only the data literals needed by the guard. Keep checking other references in the module and test that an executable use is rejected there.
+1. **S8 still exempts executable uses of retired names.** `proposal.md` S8, `design.md:46`, and `tasks.md:372` narrow the exemption from all findings to retired-name findings, but still suppress that category across the entire file. **[INFERENCE]** Adding `shutil.copy("vcs.sh", destination)` to the sweep guard would produce only `script vcs.sh` in `test_oracle_migration.py:52–63`; the planned exemption would discard it. Neither new scenario catches that case. Exempt only the identified spec-text data sites at the exact path, and add a same-file fixture that reports a direct copy or run while allowing the legitimate data.
 
 ### Moderate
 
-1. **Task 5.1’s fixture does not pin the path boundary and cannot use `scan()` unchanged.** The two-file fixture at `tasks.md:371` can pass a basename-wide exclusion if the other file has a different name. Also, `scan(root=...)` formats findings relative to the real checkout (`test_oracle_migration.py:95`), so reporting a hit from a temp tree outside it raises `ValueError`. Compare the exact path relative to the supplied eval root, preserve the `evals/...` diagnostic, and assert that a same-basename file elsewhere and a renamed guard are both reported.
-2. **The new scenario promises more than the scanner checks.** `specs/eval-runner/spec.md:6,20–22` says “one exception” and “any other eval file.” The scanner already skips itself despite its retired-name literals (`test_oracle_migration.py:26–30,81`), and `reviewers.py` is not in its ordinary literal check. The existing snapshot eval legitimately asserts that name in a diagnostic (`evals/pr-pair/test_snapshot_native.py:128`). State the scanner’s actual scope and self-skip; do not promise rejection of every mention.
-3. **The shortened finish requirement lets finish omit recovery instructions.** `specs/change-finish/spec.md:39–44` requires finish to show only `steps`; it requires the planner to emit `after_rerun_steps` and warnings, but not finish to relay them. The skill explicitly shows both (`skills/specwright-finish/SKILL.md:74`). **[INFERENCE]** On a bulk undo, showing only `steps` leaves the user without the instructions to rearchive the non-deferred members and restore saved spec amendments. Require finish to display both lists when present and relay the warnings.
-4. **The new Step 8 scenario is marked green without a test for the distinction it adds.** `tasks.md:76` points to an unchanged `evals/update/` test. The actual README check in `evals/git-workflow/test_install_sw_warning.py:30–39` accepts the old interface phrase; it does not require the instruction to take the value from the standalone line rather than prose. Removing that clarification from `README.md:556–559` would leave the mapped verification green. Pin the standalone-line rule and map the scenario to that assertion.
+1. **Task 5.1 still misses one path boundary and gives a misleading red step.** A same-basename file outside `runner/` catches a basename-wide exemption, but not one that suppresses retired-name findings throughout `runner/`. Add a renamed guard beside the real one and assert both controls are reported. With the current `scan()`, a hit in a temp tree outside the checkout raises `ValueError` at `test_oracle_migration.py:95` before either fixture can assert its result. Normalize paths first, then show that the exemption test fails on the unexpected guard finding. The scripts-directory and frozen-oracle controls should pass before and after the exemption.
+2. **The eval-runner requirement still overstates the scanner’s scope.** `specs/eval-runner/spec.md:6` now names the self-skip, but still says the check fails on “any eval naming a removed script.” The ordinary matcher omits `reviewers.py` (`test_oracle_migration.py:28–30`), and `evals/pr-pair/test_snapshot_native.py:128` legitimately names it in a diagnostic assertion. Define the actual matching scope in the requirement rather than making a valid diagnostic a contract violation.
+3. **The Step 8 scenario cannot distinguish the two sources.** `specs/install-update/spec.md:76–78` gives both the prose and the standalone line interface 3, so reading the wrong source produces the same result. Task 5.2 correctly pins the README’s standalone-line instruction, but its mapped test does not assert the no-warning outcome in the scenario. Make the standalone line normative, use a different number in the prose, and map the source-selection and matching-binary no-warning clauses to their respective README assertions.
 
 ### Suggestions
 
-1. **Fix the integration references.** `tasks.md:5` sends wording-only verification to 5.1, which now runs only the oracle-migration module; the PR CI check moved to 5.2. `design.md:247` still counts 78 modified blocks; S8 makes it 79, consistent with the proposal’s 77 reworded plus 2 changed requirements.
+None.
 
 ## Verdict
 
@@ -32,9 +31,11 @@ VERDICT: REVISE
 
 CHANGES_APPLIED: n/a
 
-Narrow S8 and verify its exact boundary; align the eval-runner contract, restore the finish display obligation, and correct the Step 8 test map.
+Limit S8 to spec-text data, prove its exact boundary with a behavioral red step, and align the eval-runner and Step 8 scenarios with what their tests assert.
 
 ## Rebuttals
 
-- **Round 4 Moderate 2:** Both stamp scenarios now require every other Step 7 check to pass, consistent with `README.md:510`.
-- **Round 4 Moderate 3:** The sweep overlay excludes the exact parked verdict. Fixtures cover both the parked case and a nonmatching verdict suffix (`evals/runner/test_spec_retired_names.py:844–854`).
+- **Round 5 Critical:** Partially fixed. The scripts-directory and frozen-oracle checks remain enabled, but direct uses of a retired basename still escape.
+- **Round 5 Moderates 1, 2 and 4:** Partially fixed. Root-relative diagnostics, the self-skip, and the dedicated README test are in the plan; the remaining gaps are above.
+- **Round 5 Moderate 3:** Fixed. Finish must show all plan output, including `after_rerun_steps` and warnings, consistent with `skills/specwright-finish/SKILL.md:74`.
+- **Round 5 Suggestion:** Fixed. The test-map introduction points to CI task 5.3, and the design counts 79 MODIFIED blocks.

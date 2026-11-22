@@ -74,7 +74,7 @@ Step 8 SHALL check that `<home>/.specwright/bin/<project VERSION>/sw[.exe]` exis
 - **THEN** the Step 8 report gives no missing-binary warning
 
 #### Scenario: The interface named in prose and on its own line
-- **WHEN** the installed `specwright-pr/SKILL.md` says in a paragraph that `sw` reports interface 3, holds the line `interface 3` on its own, and the pinned binary reports the project's version and interface 3
+- **WHEN** the installed `specwright-pr/SKILL.md` says in a paragraph that an older `sw` reported interface 2, holds the line `interface 3` on its own, and the pinned binary reports the project's version and interface 3
 - **THEN** the Step 8 report holds no missing-`sw` warning and reports no `sw_mismatch`
 
 #### Scenario: main install with no binary

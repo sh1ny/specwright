@@ -12,7 +12,7 @@ The README install prompt has the same problem, and worse (#242). Three of its i
 It also still describes `vcs.sh` as if it were a current part.
 
 This change serves M9 (Adoption and configuration). It advances these exit criteria:
-- "The main specs name `sw` commands instead of retired scripts, apart from the name-map requirement and the history it records (#234), and the README install prompt no longer stops, asks or fails a correct install on its Step 6 user-data list, its Step 7 file check or its Step 8 interface line (#242)". This one is agent-verified. The sweep's own eval checks it on main.
+- "The main specs name `sw` commands instead of retired scripts, apart from the name-map requirement and the history it records (#234), and the README install prompt no longer stops, asks or fails a correct install on its Step 6 user-data list, its Step 7 file check or its Step 8 interface line (#242)". This one is agent-verified: at the milestone close the agent searches the main specs for the 14 retired names and checks each hit against the design's Allowlist inventory.
 - "All M9 changes are archived on main and their releases are published".
 
 ## What Changes
@@ -28,8 +28,7 @@ This change serves M9 (Adoption and configuration). It advances these exit crite
   - Step 6 says it keeps the user's values and comments as they are. It never rewrites a comment, so an older file can keep comments the template has since changed.
   - Step 8 says the interface is the line that holds only `interface <n>` in the installed `specwright-pr/SKILL.md`, and names no number, so the wording cannot go stale. That line already exists (`skills/specwright-pr/SKILL.md:14`), so the skill does not change.
   - The `vcs.sh` / `scripts_in_workspace` warning (README.md:129, README.md:549) says this is how an older user-level copy behaves. It no longer reads as a current part.
-- An eval guards the sweep: no main-spec requirement names a retired script, apart from the allowed exceptions. Evals also cover the #242 wording.
-- The older guard that fails on any eval naming a removed script (`evals/runner/test_oracle_migration.py`, eval-runner "Frozen-oracle evals are migrated before the cutover") ignores the retired-script names in the sweep guard, which has to hold them to find them in spec text. Its scripts-directory and frozen-oracle checks still apply there (S8).
+- Evals cover the #242 wording. No eval guards the sweep itself (S8).
 
 ## Capabilities
 
@@ -45,17 +44,14 @@ Wording only, retired script names replaced by `sw` commands:
 Wording and one added reading rule:
 - `native-cli`: the retired-name wording is swept, and one requirement says how a command shown without its required options is read.
 
-One exemption:
-- `eval-runner`: the CI check that fails on any eval naming a removed script ignores the retired-script names in the sweep guard.
-
 Wording and behaviour:
 - `install-update`: the retired-name wording is swept. Entries under `release.version_files` become user data in the settings merge. Step 7's skills-directory check covers only `specwright-*` directories, and Step 4 settles orphans on every path. The settings merge says it never rewrites a comment.
 
 ## Impact
 
-- `openspec/specs/**`: 77 reworded, 2 changed and 5 added requirements across 21 capabilities, through deltas that are synced at archive. `eval-runner` gets one delta, the sweep guard's exemption (S8). Its one requirement that cannot be swept is filed as an issue, and so are the two `vcs-backends` archive-undo requirements for jj and GitButler (design D3).
+- `openspec/specs/**`: 77 reworded, 1 changed and 5 added requirements across 20 capabilities, through deltas that are synced at archive. Five requirements that cannot be reworded without changing what they assert are filed as issues instead (design D3).
 - `README.md`: install prompt Steps 6, 7 and 8, plus the in-repo migration warning at lines 129 and 549.
-- `evals/`: the new sweep guard, the README regexes that pin the edited wording (`evals/git-workflow/test_install_sw_warning.py`, `evals/git-workflow/test_instructions.py`), and `evals/suites.json` for any new test file.
+- `evals/`: a new README test module, the README regexes that pin the edited wording (`evals/git-workflow/test_install_sw_warning.py`, `evals/git-workflow/test_instructions.py`), and `evals/suites.json` for the new test file.
 - No code, skill or binary changes. Skills, the `sw` CLI and the settings template stay as they are.
 
 ## Decision Making
@@ -119,13 +115,13 @@ DECISION_MAKING: important
 - **Important:** yes, it binds future changes: the reading rule applies to every spec that shows a shortened `sw` call.
 - **Chosen by:** user ("Narrow + map")
 
-### S8: Exempt the sweep guard from the removed-script check
+### S8: No eval guards the sweep
 
-- **Choice:** `evals/runner/test_oracle_migration.py` ignores retired-script names in `evals/runner/test_spec_retired_names.py`, matched by its exact path, and still applies its scripts-directory and frozen-oracle checks to that file. The eval-runner requirement "Frozen-oracle evals are migrated before the cutover" names that exception beside the check's own file. The design review (round 5) narrowed a whole-file skip to this. Found during apply: the PR CI run failed the `runner` suite on all three OSes because the new guard's name list and allowlist hold the retired names as string literals.
-- **Rejected:** moving the names, the allowlist lines and the fixture spec text to JSON data files, which the older check does not scan. That moves D1's allowlist out of the test constant that C1 names as its home and makes the guard harder to read.
-- **Reversal cost:** low
-- **Important:** yes, it narrows a CI check that a requirement states.
-- **Chosen by:** user ("Exempt the sweep guard")
+- **Choice:** drop the sweep guard of D1 (`evals/runner/test_spec_retired_names.py`, built in group 2) and the exemption it needed in the older removed-script check. The milestone close checks the exit criterion by search instead. Found during apply: the guard holds the retired names as string literals, so the PR CI run failed the `runner` suite on all three OSes on `evals/runner/test_oracle_migration.py`.
+- **Rejected:** keeping the guard and exempting it from the older check, which two design-review rounds found still let an executable use of a retired name through. Moving the names to JSON data files, which keeps a 900-line test and an allowlist every later change to a listed block must update by hand.
+- **Reversal cost:** low. The guard is one file in the branch history.
+- **Important:** no. The scripts are gone and the older check keeps every eval off them, so a retired name in a later spec misleads a reader but breaks nothing. Review can still catch it.
+- **Chosen by:** user ("why do we need the new guard? To protect from something that doesn't exist anymore?"), reversing the planning-round choice in D1
 
 ## Release Notes
 

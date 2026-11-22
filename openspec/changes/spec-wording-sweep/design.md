@@ -4,11 +4,11 @@
 
 | Trigger | Applies? | Evidence |
 |---|---|---|
-| T1 Components (new component, or 3+ with directed relationships) | no | One new eval module. The README prompt and the specs are existing text. |
-| T2 State (persistent state, caches, 3+ state machine) | no | No state. The guard's allowlist is a constant in the test. |
+| T1 Components (new component, or 3+ with directed relationships) | no | One new README test module. The README prompt and the specs are existing text. |
+| T2 State (persistent state, caches, 3+ state machine) | no | No state. |
 | T3 Concurrency (background work, workers/isolates, async, retries) | no | None. |
 | T4 Boundaries (data format, migration, shared interface, IPC, external) | yes | The settings merge's user-data rule is a contract with every project's `openspec/specwright.yaml`: README.md:432-436, openspec/specs/install-update/spec.md:347-348. |
-| T5 Volume (grows without a fixed bound) | no | The guard reads the fixed set of main specs. |
+| T5 Volume (grows without a fixed bound) | no | Nothing reads input that grows. |
 | T6 Risk (security, money, data loss, unrecoverable user data) | no | Treating `release.version_files` entries as user data removes a prompt that could delete them. No new write. |
 
 TIER: FULL
@@ -16,8 +16,8 @@ TIER: FULL
 ## Context
 
 - **The name map.** The native-cli requirement "Retired script names map to sw commands" gives each retired script its `sw` command: openspec/specs/native-cli/spec.md:799-812. ADR 0040 calls it the reference for people who scripted the old names: docs/adr/0040-skills-call-the-projects-sw-directly.md:33.
-- **Scale.** Before this change, 109 requirements in 21 capabilities named a retired script, about 292 times (counted with the same regex the guard uses). The deltas rewrite 77 of them in 20 capabilities. `install-update` changes one more (its update-completion scenario now allows kept orphans) and adds 4 requirements, and `native-cli` adds 1. `eval-runner` changes one: its removed-script check exempts the sweep guard (D1, S8).
-- **The removed-script check.** evals/runner/test_oracle_migration.py fails on any eval file whose string literals name a removed script, and skips only itself (eval-runner "Frozen-oracle evals are migrated before the cutover"). The sweep guard has to hold the retired names as literals. The first PR CI run of this change failed the `runner` suite on all three OSes for that reason.
+- **Scale.** Before this change, 109 requirements in 21 capabilities named a retired script, about 292 times (counted with one regex over the 14 names of the name map). The deltas rewrite 77 of them in 20 capabilities. `install-update` changes one more (its update-completion scenario now allows kept orphans) and adds 4 requirements, and `native-cli` adds 1.
+- **The removed-script check.** evals/runner/test_oracle_migration.py fails on any eval file whose string literals name a removed script, and skips only itself (eval-runner "Frozen-oracle evals are migrated before the cutover"). An eval that searches spec text for the retired names has to hold them as literals. The guard first built for this change did, and the PR CI run failed the `runner` suite on all three OSes for that reason (S8).
 - **Strings `sw` still prints.** Some retired names are part of the output contract and are not stale wording:
   - `as.sh: unrepresentable …`: cli/lib/src/fence/fence.dart:588
   - `fit-subject.sh: could not rewrite …`: cli/lib/src/commit/fit_subject.dart:111
@@ -32,22 +32,13 @@ TIER: FULL
 
 ## Decisions
 
-### D1: Guard the sweep with an allowlist eval that overlays active deltas
+### D1: Check the sweep by search at the milestone close
 
-- **Choice:** a new eval, `evals/runner/test_spec_retired_names.py`, works like this:
-  - It reads every `openspec/specs/*/spec.md`.
-  - It lays the requirement blocks of each active change under `openspec/changes/*/specs/<cap>/spec.md` over them, in the order OpenSpec applies them at archive: RENAMED, REMOVED, MODIFIED, ADDED. Archived changes are excluded, and so are parked changes (a `review.md` line exactly `VERDICT: DEFERRED`), whose deltas never sync to main; the overlay fixture covers a parked change. A RENAMED entry moves a block to its `TO:` header, a REMOVED header drops the block, a MODIFIED block replaces the same-header block, and an ADDED block is added.
-  - It finds retired names with one regex over the 14 names in the name map. Headers count too.
-  - It asserts that the blocks naming one equal a fixed allowlist: the 43 entries in **Allowlist inventory** below. Each entry is keyed by capability, requirement header and scenario header (or the requirement's description) and lists the exact lines that hold a name, so a mention that moves to another line or changes its wording fails, as does one that is added or removed.
-  - Two active changes that touch the same block fail the test, which names both changes: MODIFIED, REMOVED, or RENAMED as its source or its destination, in any pair. No delta is chosen silently. A fixture test applies one change with RENAMED and MODIFIED entries and compares the overlay with the text archive would write.
-
-  A new mention fails, even a second mention of a name the block already allows. So does a removed mention, which tells the next change to shrink the list. The inventory below gives counts for review; the test holds the lines.
-  - `evals/suites.json` adds the test to the `openspec/**` rule, so a spec-only change runs it on `--changed`.
-  - The removed-script check in evals/runner/test_oracle_migration.py ignores retired-script names in the guard's file, matched by its exact path relative to the scanned eval root, and keeps its scripts-directory and frozen-oracle checks there. `scan()` reports paths relative to the eval root it is given (as `evals/...`), so its fixtures run on a temp tree. Fixture tests pin the boundary: a same-base-name file elsewhere is still reported, and the guard's file is reported for a scripts-directory path or a frozen-oracle reference. The eval-runner delta names the exception (S8). An edit that makes the guard reach a script still fails the check.
-- **Rejected:** reading only `openspec/specs`, because that goes green only after archive and the task could not be verified during apply. No guard, because the names would creep back with no check in CI.
-- **Reversal cost:** low. It is one test file.
-- **Important:** yes, it binds future changes: a later spec that names a retired script must update the allowlist.
-- **Chosen by:** user
+- **Choice:** no eval guards the sweep. At the milestone close the agent searches the main specs for the 14 names of the name map and checks that every block it finds is in the **Allowlist inventory** below. An allowlist eval was built in group 2 and is removed in task 5.1 (S8).
+- **Rejected:** the allowlist eval, `evals/runner/test_spec_retired_names.py`. It read the main specs, overlaid the active changes' deltas in archive order and compared every block naming a retired script with a fixed list of exact lines. It needs an exemption in the removed-script check, which two review rounds found still let an executable use through. It also makes every later change to a listed block update the list by hand, to protect wording only.
+- **Reversal cost:** low. The eval is one file in the branch history.
+- **Important:** no. It binds no later change.
+- **Chosen by:** user during apply, reversing the planning-round choice of the allowlist eval
 
 ### D2: Fix #242 in the README prompt and keep its pinned phrases
 
@@ -75,7 +66,7 @@ TIER: FULL
 
 ### D3: File the five requirements that cannot be swept as issues
 
-- **Choice:** one issue each for the five requirements whose meaning would change. Their mentions stay on the allowlist until those issues are fixed.
+- **Choice:** one issue each for the five requirements whose meaning would change. Their mentions stay in the main specs, listed as deferred in the Allowlist inventory, until those issues are fixed.
   - change-finish "finish.sh runs no network command": it scans a file `sw` does not have.
   - eval-runner "Changed paths select the suites": it uses example paths under `skills/*/scripts/`, which no longer exist.
   - pr-script-runtime "sw pr snapshot and sw pr reply keep the scripts' contracts": it runs the commands through shims that are gone.
@@ -124,10 +115,10 @@ TIER: FULL
 | S5 | Specify #242 in install-update | README plus install-update requirements | README only | low | yes | user |
 | S6 | Step 8 interface line | Reword the README only | Change the skill | low | no | agent |
 | S7 | Narrow the sweep | Add a reading rule; move the undo blocks out | Spell every option out | low | yes | user |
-| S8 | Guard vs removed-script check | Ignore retired-script names in the guard's file only; eval-runner delta | Move the names to JSON data | low | yes | user |
-| D1 | Sweep guard | Allowlist eval with active-delta overlay | Main specs only; no guard | low | yes | user |
+| S8 | Sweep guard | No guard eval; search at the milestone close | Guard with an exemption in the older check; names in JSON data | low | no | user |
+| D1 | Checking the sweep | Search the main specs at the milestone close | Allowlist eval with active-delta overlay | low | no | user |
 | D2 | README #242 wording | Edit Steps 6-8 and the warnings, keeping pinned phrases | A new interface line in the skill | low | yes | agent |
-| D3 | Unsweepable requirements | File five issues and allowlist them | Rewrite them here | low | no | agent |
+| D3 | Unsweepable requirements | File five issues and list them as deferred | Rewrite them here | low | no | agent |
 | D4 | Release | Patch 0.39.1 | Minor | low | no | agent |
 | D5 | Swept wording that hid a difference | State sw's actual behaviour | Literal name swap | low | no | agent |
 | D6 | Shortened commands | native-cli reading rule; undo blocks out of the sweep | Spell every option out; rewrite the undo blocks | low | yes | user |
@@ -138,7 +129,6 @@ None. The pins on the edited Step 6 and Step 7 wording were checked by searching
 
 ## Carried constraints
 
-- **C1:** Retired script names may stay in the main specs only in the allowlisted blocks: history, the name map, output strings `sw` still prints, and headers kept as match keys. Five entries are deferred contract work, not history: change-finish "finish.sh runs no network command", eval-runner "Changed paths select the suites", pr-script-runtime "sw pr snapshot and sw pr reply keep the scripts' contracts", and vcs-backends "The archive undo plan uses jj on a jj repo" and "The archive undo plan uses GitButler on a GitButler repo". Their entries name the issue filed for them (D3), and they leave the list when that issue is fixed. A new mention needs an allowlist entry and a reason. Kind: invariant. Destination: doc comment: evals/runner/test_spec_retired_names.py ALLOWED
 - **C2:** Entries under `release.version_files.` are user data in the settings merge, while the `release.version_files` key itself is still compared. Kind: invariant. Destination: spec: specs/install-update/spec.md → Requirement: The settings merge treats version-file entries as user data
 
 <!-- ===== LIGHT tier ends here. ===== -->
@@ -159,14 +149,12 @@ flowchart LR
 
 | State | Owner (sole writer) | Lifetime | Invalidation / rebuild | Authoritative copy |
 |---|---|---|---|---|
-| The guard's allowlist | The change that edits a listed block or adds a mention | Until that change | Edited in the same change as the spec | evals/runner/test_spec_retired_names.py |
 | The user's `openspec/specwright.yaml` | The user, plus the Step 6 merge for added keys only | Permanent | Never rebuilt | The user's file |
 
 ## Failure & Visibility (FULL)
 
 | Component | Fails / dies mid-operation → | Recovery | Retry safe? | Who finds out |
 |---|---|---|---|---|
-| Sweep guard | A spec gains or loses a retired name | Update the spec or the allowlist | yes | CI, through the failing test, which names the block and the names |
 | Step 6 merge | The agent lists a user-data entry as removed | The user declines the removal | yes | The user, at the Step 6 question |
 | Step 7 check | A stale `specwright-*` file or directory is found | The install stops before the stamp | yes | The user, in the Step 7 report |
 
@@ -174,26 +162,23 @@ flowchart LR
 
 | Queue / buffer / cache / transfer | Bound | At the bound | Timeout | At 10x / 100x |
 |---|---|---|---|---|
-| Guard input | The main specs (about 30 files) plus the active changes' deltas | Not applicable | Unit test default | Reading 300 or 3,000 spec files is still under a second |
+| None | Not applicable | Not applicable | Not applicable | Not applicable |
 
 ## Flow & State Gaps (FULL)
 
-- **Two active changes MODIFY or REMOVE the same block.** The guard fails, naming both changes (D1). The second change rebases on the first once it merges.
-- **An active change REMOVEs a listed block.** The guard drops the block, and the allowlist entry then fails as a removed mention. The removing change shrinks the list.
-- **After archive.** The change directory moves under `changes/archive/`, which the guard skips. The main specs hold the new text, so the result is the same.
+- **A later change adds a retired name to a spec.** No check fails. Pre-ship review, PR review and the milestone-close search (D1) can catch it, and the name map still defines it.
 
 ## Mechanism Ledger (FULL)
 
 | Mechanism | Built? | Why (harm nobody catches / expensive later) | Evidence that would change the call |
 |---|---|---|---|
-| Allowlist guard | yes | Without it, names come back unnoticed, and the sweep is costly to repeat | none |
-| Overlay of ADDED blocks | yes | A new requirement in an active change could add a retired name | none |
+| Allowlist guard | no | The scripts are gone and the removed-script check keeps every eval off them, so a retired name in a later spec misleads a reader but breaks nothing; review and the milestone-close search can catch it (S8) | A later change ships a retired name in a spec that review missed |
 | Check of README, skills and archived changes for retired names | no | History and upgrade notes are meant to name them; the scope is the main specs | A retired name reported as a current part outside the specs |
 | Check of the Step 7 wording in code | no | The install prompt is text an agent follows, and the README evals pin it | An `sw update` subcommand that runs the Step 7 check |
 
 ## Allowlist inventory
 
-The guard's allowlist (D1): each block that keeps a retired name after this change, with the number of times each name occurs in it, headers included. `kept` entries are history, the name map, an output string `sw` still prints, a real file name, or a header kept as a match key.
+Each block that keeps a retired name after this change, with the number of times each name occurs in it, headers included. The milestone close checks the main specs against this list (D1). `kept` entries are history, the name map, an output string `sw` still prints, a real file name, or a header kept as a match key.
 
 | Capability | Requirement | Names (count) | Kind |
 |---|---|---|---|
@@ -244,7 +229,7 @@ The guard's allowlist (D1): each block that keeps a retired name after this chan
 ## Risks / Trade-offs
 
 - [The swept wording drifts from what `sw` accepts] → Every rewritten command was checked against cli/lib/src during drafting. Pre-ship review sees the whole delta.
-- [79 MODIFIED blocks make a large diff] → Wording only. The guard and `openspec validate --strict` cover structure, and `review.max_diff_kb` is 1400.
+- [78 MODIFIED blocks make a large diff] → Wording only. `openspec validate --strict` covers structure, and `review.max_diff_kb` is 1400.
 - [README phrase pins break] → D2 keeps the pinned phrases, and the README tasks update the regexes in the same group.
 
 ## ADRs
