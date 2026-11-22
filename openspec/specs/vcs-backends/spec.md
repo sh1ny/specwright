@@ -79,7 +79,7 @@ With `jj`, the branch of every Specwright requirement SHALL be the local bookmar
 
 #### Scenario: Git reads after a jj commit
 - **WHEN** a task group was committed on jj on `feat/x`
-- **THEN** `git rev-parse HEAD` and `git rev-parse refs/heads/feat/x` print the same commit, and `task-cover.sh --range main..HEAD` counts the group's tasks
+- **THEN** `git rev-parse HEAD` and `git rev-parse refs/heads/feat/x` print the same commit, and `sw commit task-cover --range main..HEAD` counts the group's tasks
 
 #### Scenario: Working copy left with other edits
 - **WHEN** `@` holds an unrelated edit to `notes.txt` when a group is committed
@@ -240,7 +240,7 @@ On jj, a pull SHALL first read the remote's main with a read-only fetch. Equal o
 - **THEN** main is set back to its pre-pull commit, is not conflicted, and the pull stops with `not_fast_forward`
 
 ### Requirement: Release tags are the one Git write on jj
-On jj, `release.sh publish` SHALL keep creating the annotated tag with Git, fetching the tag and pushing `refs/tags/<tag>` with Git, because a jj tag carries no message. It SHALL write no other Git ref and SHALL not touch HEAD, the index, a branch or the working copy.
+On jj, `sw release publish` SHALL keep creating the annotated tag with Git, fetching the tag and pushing `refs/tags/<tag>` with Git, because a jj tag carries no message. It SHALL write no other Git ref and SHALL not touch HEAD, the index, a branch or the working copy.
 
 #### Scenario: Publish on jj
 - **WHEN** a release is published on a jj repo
@@ -416,7 +416,7 @@ A GitButler commit SHALL run `but commit -b <branch>` with the message file and 
 - **THEN** `git log -1 --format=%B <branch>` shows the same subject, body and trailers
 
 ### Requirement: Change ranges read the change branch tip
-Every range or record standing for a change's commits (pre-ship range, record key and after-archive lookup, task evidence, the reviewer's diff, finish's head checks, `release.sh check`) SHALL take the branch name and resolve its tip itself on every call, never a SHA from the caller and never HEAD. On GitButler a reader without the branch name SHALL stop. On Git and jj the tip SHALL equal HEAD, so their ranges and keys are unchanged.
+Every range or record standing for a change's commits (pre-ship range, record key and after-archive lookup, task evidence, the reviewer's diff, finish's head checks, `sw release check`) SHALL take the branch name and resolve its tip itself on every call, never a SHA from the caller and never HEAD. On GitButler a reader without the branch name SHALL stop. On Git and jj the tip SHALL equal HEAD, so their ranges and keys are unchanged.
 
 #### Scenario: Other applied branches
 - **WHEN** `feat/add-c` and `feat/b` are applied on GitButler and the pre-ship review of `add-c` runs
@@ -427,11 +427,11 @@ Every range or record standing for a change's commits (pre-ship range, record ke
 - **THEN** the gate finds the pass recorded for the tip before the archive commit, the parent of the archive commit on `feat/add-c`
 
 #### Scenario: Version check ignores other branches
-- **WHEN** `feat/b` committed a version bump and `release.sh check` runs for `feat/add-c`, which did not bump
+- **WHEN** `feat/b` committed a version bump and `sw release check` runs for `feat/add-c`, which did not bump
 - **THEN** the check reads the version files at the tip of `feat/add-c` and judges only `<main>..<tip of feat/add-c>`
 
 #### Scenario: Branch not given
-- **WHEN** `review-run.sh` runs a pre-ship step in a `vcs: gitbutler` project without `--branch`
+- **WHEN** `sw review` runs a pre-ship step in a `vcs: gitbutler` project without `--branch`
 - **THEN** it stops with a usage error naming `--branch`, and no review runs
 
 #### Scenario: Branch moved after the review
@@ -558,50 +558,50 @@ With `vcs: gitbutler`, `sw vcs` SHALL run the same way whether the Specwright sk
 - **THEN** it prints the `sw_mismatch` document saying no installed version was found, exits 1, and runs no `but` command
 
 ### Requirement: On GitButler the settings are those the change branch committed
-With `vcs: gitbutler`, the settings SHALL be read only from `pr-pair.sh context --branch <b>` right before each use (each `pr.validate` run, the merge settings), and `vcs.sh push` SHALL check again. Each SHALL stop with `settings_not_pinned` when the work-tree `openspec/specwright.yaml` differs from the file at the tip of `<b>` (after the merge, with `--after-merge`: that tip while `<b>` exists, else GitButler's target ref), or exists on one side only. Branch reads and commits are not pinned.
+With `vcs: gitbutler`, the settings SHALL be read only from `sw pr context --branch <b>` right before each use (each `pr.validate` run, the merge settings), and `sw vcs push` SHALL check again. Each SHALL stop with `settings_not_pinned` when the work-tree `openspec/specwright.yaml` differs from the file at the tip of `<b>` (after the merge, with `--after-merge`: that tip while `<b>` exists, else GitButler's target ref), or exists on one side only. Branch reads and commits are not pinned.
 
 #### Scenario: Unassigned edit before ship
-- **WHEN** the change branch `feat/add-c` has the settings committed, an unassigned work-tree edit changes `pr.validate`, and ship runs `pr-pair.sh context --branch feat/add-c`
+- **WHEN** the change branch `feat/add-c` has the settings committed, an unassigned work-tree edit changes `pr.validate`, and ship runs `sw pr context --branch feat/add-c`
 - **THEN** it exits 1 with `settings_not_pinned` naming the file, no validate command runs, and ship does not push
 
 #### Scenario: Watch reads merge settings
-- **WHEN** an unassigned edit changes `pr.merge` and watch runs `pr-pair.sh context --branch feat/add-c`
+- **WHEN** an unassigned edit changes `pr.merge` and watch runs `sw pr context --branch feat/add-c`
 - **THEN** it exits 1 with `settings_not_pinned`, and no merge setting is reported
 
 #### Scenario: Push with an unpinned edit
-- **WHEN** an unassigned edit of the settings exists and `vcs.sh push --branch feat/add-c` runs
+- **WHEN** an unassigned edit of the settings exists and `sw vcs push --branch feat/add-c` runs
 - **THEN** it exits 1 with `settings_not_pinned`, and nothing is pushed
 
 #### Scenario: Context without the branch
-- **WHEN** `vcs` is `gitbutler` and `pr-pair.sh context` runs for the merge settings without `--branch`
+- **WHEN** `vcs` is `gitbutler` and `sw pr context` runs for the merge settings without `--branch`
 - **THEN** it exits 2 with a usage error naming `--branch`, and no merge setting is reported
 
 #### Scenario: Feedback or CI fix push in a repo-local project
 - **WHEN** a repo-local GitButler project's feedback pass (or watch's CI fix) is about to run `pr.validate` before its push, and an unassigned edit changed `pr.validate`
-- **THEN** the skill reads `validate` from `pr-pair.sh context --branch feat/add-c`, which exits 1 with `settings_not_pinned`, and the edited validate command never runs
+- **THEN** the skill reads `validate` from `sw pr context --branch feat/add-c`, which exits 1 with `settings_not_pinned`, and the edited validate command never runs
 
 #### Scenario: Cleanup after the merge
 - **WHEN** the PR of `feat/add-c` merged, cleanup has pulled, the local branch is gone, and the work-tree settings equal the file at GitButler's target ref
-- **THEN** `pr-pair.sh context --after-merge --branch feat/add-c` reports `merge` and `delete_branch`, and the remote-branch deletion follows them
+- **THEN** `sw pr context --after-merge --branch feat/add-c` reports `merge` and `delete_branch`, and the remote-branch deletion follows them
 
 #### Scenario: Cleanup with an unpinned edit
 - **WHEN** after the merge an unassigned edit sets `delete_branch: true` that the target ref does not have
-- **THEN** `pr-pair.sh context --after-merge --branch feat/add-c` exits 1 with `settings_not_pinned`, and no remote branch is deleted
+- **THEN** `sw pr context --after-merge --branch feat/add-c` exits 1 with `settings_not_pinned`, and no remote branch is deleted
 
 #### Scenario: Cleanup after a skipped pull
-- **WHEN** `feat/add-c` committed an edit of `openspec/specwright.yaml` and its PR merged, another branch is applied, `vcs.sh pull --branch feat/add-c` returned `pull_skipped`, and `delete-branch` returned `left_applied`
-- **THEN** `pr-pair.sh context --after-merge --branch feat/add-c` reports `merge` and `delete_branch` with no `settings_not_pinned` stop, and the remote-branch deletion follows them
+- **WHEN** `feat/add-c` committed an edit of `openspec/specwright.yaml` and its PR merged, another branch is applied, `sw vcs pull --branch feat/add-c` returned `pull_skipped`, and `delete-branch` returned `left_applied`
+- **THEN** `sw pr context --after-merge --branch feat/add-c` reports `merge` and `delete_branch` with no `settings_not_pinned` stop, and the remote-branch deletion follows them
 
 #### Scenario: Settings never committed on the branch
-- **WHEN** `openspec/specwright.yaml` exists in the work tree but not at the tip of `feat/add-c`, and ship runs `pr-pair.sh context --branch feat/add-c`
+- **WHEN** `openspec/specwright.yaml` exists in the work tree but not at the tip of `feat/add-c`, and ship runs `sw pr context --branch feat/add-c`
 - **THEN** it exits 1 with `settings_not_pinned`
 
 #### Scenario: The change commits its own settings edit
-- **WHEN** a task of `feat/add-c` edits `openspec/specwright.yaml` and `specwright-commit` runs `vcs.sh state --branch feat/add-c` and `vcs.sh commit --branch feat/add-c -- openspec/specwright.yaml`
+- **WHEN** a task of `feat/add-c` edits `openspec/specwright.yaml` and `specwright-commit` runs `sw vcs state --branch feat/add-c` and `sw vcs commit --branch feat/add-c -- openspec/specwright.yaml`
 - **THEN** neither stops with `settings_not_pinned`, the edit is committed on `feat/add-c`, and a following `context --branch feat/add-c` passes
 
 #### Scenario: Branch already deleted
-- **WHEN** finish cleanup or a gate rollback runs `vcs.sh state --branch feat/add-c` after the branch was deleted
+- **WHEN** finish cleanup or a gate rollback runs `sw vcs state --branch feat/add-c` after the branch was deleted
 - **THEN** it reports the branch as gone, as before, with no `settings_not_pinned` stop
 
 #### Scenario: Pinned settings
@@ -616,15 +616,15 @@ With `vcs: gitbutler`, the settings SHALL be read only from `pr-pair.sh context 
 `sw vcs <sub>` SHALL accept the subcommands and options shipped callers pass and SHALL print exactly one JSON document on stdout for each run, with the same parsed fields, error codes and messages as `vcs.sh` for the same inputs, except that the wording of a usage error is free. It SHALL exit 0 on success, 1 on a stop, 2 on a usage error and 3 on a network or fence refusal. An unexpected failure SHALL be the document `"error": "internal_error"` with exit 1, never a stack trace on stdout.
 
 #### Scenario: Unchanged black-box evals pass on sw
-- **WHEN** the `evals/vcs` suite and every other suite that runs `vcs.sh` run in CI on Linux, Windows and macOS against the `sw` built from the tree
+- **WHEN** the `evals/vcs` suite and every other suite that runs `sw vcs` run in CI on Linux, Windows and macOS against the `sw` built from the tree
 - **THEN** every test passes with its assertions unchanged from before this change, apart from assertions on stdout bytes, which compare the parsed value instead, and on usage wording, which check the `usage` error and exit 2
 
 #### Scenario: Unknown subcommand
-- **WHEN** `vcs.sh frobnicate --repo <r> --role code` runs
+- **WHEN** `sw vcs frobnicate --repo <r> --role code` runs
 - **THEN** it exits 2 and stdout is one JSON document with `"ok": false` and `"error": "usage"`
 
 ### Requirement: sw vcs reads settings and fences identity in process
-`sw vcs` SHALL read the backend settings, the main branch and logins, and the GitButler pinned settings in-process, with the rules of `sw pr vcs` and `sw pr context`, starting no `pr-pair.sh`. It SHALL resolve a missing login and run every network command against a github.com remote through the identity fence in its own process, starting no `as.sh` and no second `sw`. It SHALL keep the outputs, stops and exit codes it gave before this change.
+`sw vcs` SHALL read the backend settings, the main branch and logins, and the GitButler pinned settings in-process, with the rules of `sw pr vcs` and `sw pr context`, starting no `sw pr` process. It SHALL resolve a missing login and run every network command against a github.com remote through the identity fence in its own process, starting no `sw as` and no second `sw`. It SHALL keep the outputs, stops and exit codes it gave before this change.
 
 #### Scenario: Settings read through pr-pair.sh
 - **WHEN** `openspec/specwright.yaml` sets `vcs: jj` and `sw vcs state` runs

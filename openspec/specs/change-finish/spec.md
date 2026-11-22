@@ -148,7 +148,7 @@ In `finish: pr`, when the branch's PRs include an older merged PR and a newer PR
 - **THEN** finish reports that closed PR and asks, and merges or deletes nothing
 
 ### Requirement: Finish offers a release once the change is on main
-With `release.enabled` true, once the change is on main (after the local merge, or after the PR is merged and cleanup finished), `specwright-finish` SHALL read `release.sh untagged`. It SHALL offer `specwright-release` publish for each listed version oldest first, or with `release.auto` publish them oldest first, stopping at the first failure, before the roadmap offer. With none listed, or releases disabled, it SHALL NOT mention a release.
+With `release.enabled` true, once the change is on main (after the local merge, or after the PR is merged and cleanup finished), `specwright-finish` SHALL read `sw release untagged`. It SHALL offer `specwright-release` publish for each listed version oldest first, or with `release.auto` publish them oldest first, stopping at the first failure, before the roadmap offer. With none listed, or releases disabled, it SHALL NOT mention a release.
 
 #### Scenario: Untagged version after a PR merge
 - **WHEN** releases are enabled, `release.auto` is false, the merged PR moved `VERSION` to 0.5.0 and no `v0.5.0` tag exists
@@ -186,11 +186,11 @@ In `finish: local` the merge is never pushed, so the release commit is not on or
 - **THEN** publish finds the release commit on `origin/main` and tags it
 
 ### Requirement: Local finish lists untagged versions from local tags
-With `release.enabled` true and `finish: local`, `specwright-finish` SHALL read `release.sh untagged --local` once the change is on main, resolve no login and make no network call, and say that the list comes from local tags, to publish after `main` is pushed.
+With `release.enabled` true and `finish: local`, `specwright-finish` SHALL read `sw release untagged --local` once the change is on main, resolve no login and make no network call, and say that the list comes from local tags, to publish after `main` is pushed.
 
 #### Scenario: Local finish with a github.com origin and no login
 - **WHEN** `finish` is `local`, origin's fetch URL is on github.com, the run login is `none`, and the local merge moved `VERSION` to 0.5.0
-- **THEN** finish runs `release.sh untagged --local`, resolves no login, runs no `git ls-remote` or other network call, and reports 0.5.0 as untagged from local tags, to publish after `main` is pushed
+- **THEN** finish runs `sw release untagged --local`, resolves no login, runs no `git ls-remote` or other network call, and reports 0.5.0 as untagged from local tags, to publish after `main` is pushed
 
 ### Requirement: Resume takes the newest add of the archive as its archive commit
 When finish finds a change's archive commit on its branch from the commits that added the archive directory's `review.md`, it SHALL take the newest such commit. An older add was reverted when a newer one exists, and SHALL NOT be taken as the archive commit. Finish SHALL NOT take the newest commit that merely touches the archive directory, since that can be a later review fix.
@@ -204,23 +204,23 @@ When finish finds a change's archive commit on its branch from the commits that 
 - **THEN** finish takes A2 as the archive commit, and the undo plan targets A2 only, leaving A1 and its revert as they are
 
 ### Requirement: A deferred archive's undo is planned by a script that runs nothing
-When the deferred check stops on `VERDICT: DEFERRED`, finish SHALL run `finish.sh undo-archive-plan` and show the undo script it prints, without running it or making a commit, merge or push. The plan SHALL write no repo state but jj's snapshot and Git import; the GitButler probe's temp directory is outside it and removed. Its output SHALL be one JSON document: the facts found, the undo script, an optional after-rerun script, and warnings. Each script SHALL stop at its first failing command.
+When the deferred check stops on `VERDICT: DEFERRED`, finish SHALL run `sw finish undo-archive-plan`, run no step and make no commit, merge or push. The plan SHALL write no repo state but jj's snapshot and Git import; its GitButler probe's temp dir is removed. On exit 0 it SHALL print one JSON document: facts, `steps`, `after_rerun_steps` (maybe empty) and warnings; finish SHALL show all but the facts, `after_rerun_steps` only when not empty. A runner SHALL stop at the first failing step.
 
 #### Scenario: Deferred archive found
 - **WHEN** finish starts after a deferred change was archived
-- **THEN** finish prints the plan's undo script, and `git status --porcelain`, `git rev-parse HEAD` and every ref are the same after finish as before it on Git; on jj every working-tree file is the same, and refs and the operation log change only by jj's own snapshot and import
+- **THEN** finish shows each of the plan's `steps` with its `cwd` and `argv`, its `after_rerun_steps` when not empty and every warning, and `git status --porcelain`, `git rev-parse HEAD` and every ref are the same after finish as before it on Git; on jj every working-tree file is the same, and refs and the operation log change only by jj's own snapshot and import
 
 #### Scenario: Plan run on a dirty unrelated path in a resume on main
 - **WHEN** the archive is committed on `bugfix/add-x`, finish resumes on `main`, and `main` has an uncommitted change to `README.md`
-- **THEN** the plan exits non-zero with `dirty_tree`, names `README.md`, prints no script, and every working-tree file is unchanged; on Git the index, HEAD and refs are unchanged too, and on jj only jj's own snapshot and import are recorded
+- **THEN** the plan exits non-zero with `dirty_tree`, names `README.md`, prints no steps, and every working-tree file is unchanged; on Git the index, HEAD and refs are unchanged too, and on jj only jj's own snapshot and import are recorded
 
 #### Scenario: No archive of the change
 - **WHEN** the plan runs for a change with no archive directory in the working tree and no add commit on the branch
-- **THEN** it exits non-zero with `no_archive` and prints no script
+- **THEN** it exits non-zero with `no_archive` and prints no steps
 
 #### Scenario: Branch moved after the plan
-- **WHEN** a commit is added to the branch after the plan was printed, and the user then runs its undo script
-- **THEN** the script exits non-zero at its guard, no commit is made, the index and working tree are unchanged, and no main spec is restored
+- **WHEN** a commit is added to the branch after the plan was printed, and the user then runs its undo steps in order
+- **THEN** the guard step exits non-zero, no commit is made, the index and working tree are unchanged, and no main spec is restored
 
 #### Scenario: A jj plan with an unsnapshotted edit
 - **WHEN** the undo is planned on a jj store whose working copy has an edit jj has not yet snapshotted
@@ -304,14 +304,14 @@ When a later commit on the branch deleted a main spec that a bulk archive had sy
 - **THEN** the after-rerun script has no step for `specs/b/spec.md`, the warning says the undo leaves it deleted, and after both scripts `specs/b/spec.md` does not exist
 
 ### Requirement: An archive-only push skips the code validate
-Watch SHALL hand finish, and finish ship, the ready head of each repo (`ready head: <repo>=<sha>`). Before the push, ship SHALL run `review-run.sh archive-only` in the planning repo against its ready head. When it reports `archive_only: true`, ship SHALL skip `pr.validate` for the planning repo, and for a code repo still at its ready head; `planning_store.validate` SHALL still run. Any other result, an error, or no ready head SHALL run `pr.validate`.
+Watch SHALL hand finish, and finish ship, the ready head of each repo (`ready head: <repo>=<sha>`). Given the planning repo's, ship SHALL run `sw review archive-only` on it before the push, from the code checkout with `--dir` naming that repo. On `archive_only: true` it SHALL skip `pr.validate` for the planning repo, and for a code repo still at its ready head; `planning_store.validate` SHALL still run. `sw_mismatch` SHALL stop ship; any other outcome or no ready head SHALL run `pr.validate`.
 
 #### Scenario: Archive of a reviewed head
 - **WHEN** watch reported head `h1` ready and handed `ready head: h1`, the change is archived as commit `h2` whose only change is the archive move and the synced main specs, and `pr.validate` is `make test`
 - **THEN** ship pushes `h2` without running `make test`, and reports that validate was skipped for an archive-only push
 
 #### Scenario: Store-backed archive
-- **WHEN** the change is store-backed, the archive commit is on the store branch, `archive-only` in the store reports `true`, and `planning_store.validate` is `openspec validate --all --strict`
+- **WHEN** the change is store-backed, the archive commit is on the store branch, `archive-only` for the store reports `true`, and `planning_store.validate` is `openspec validate --all --strict`
 - **THEN** that command runs in the store before the push, a failure stops the push, and the code repo's `pr.validate` is skipped because its head is still the code ready head it was handed
 
 #### Scenario: Archive commit with other files
@@ -323,8 +323,12 @@ Watch SHALL hand finish, and finish ship, the ready head of each repo (`ready he
 - **THEN** `pr.validate` runs before the push
 
 #### Scenario: Check fails to run
-- **WHEN** `archive-only` exits 3 because git cannot read the commits
+- **WHEN** `archive-only` exits 1 with `git_error` because git cannot read the commits
 - **THEN** `pr.validate` runs before the push, and the report names the `archive-only` error
+
+#### Scenario: The binary does not match the project
+- **WHEN** `archive-only` prints a `sw_mismatch` document
+- **THEN** ship stops before any validate or push and shows its `message`
 
 ### Requirement: The undo plan runs in the project's sw
 The skills SHALL run `sw finish undo-archive-plan` directly; it SHALL keep `finish.sh`'s arguments, refusals and exit codes and print its undo as `steps` and `after_rerun_steps`, and no other implementation SHALL remain. A malformed argument SHALL be refused as native-cli "Arguments sw cannot represent are refused" states; an archived name that is not valid UTF-8 SHALL stop the plan with `"error": "not_utf8"` and exit 1. Neither prints a plan.

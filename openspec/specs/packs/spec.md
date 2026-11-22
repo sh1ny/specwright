@@ -10,7 +10,7 @@ Lets a project opt in to domain packs: bundles of skills, artifact rules, contex
 A pack SHALL be a directory `packs/<name>/` in the Specwright download holding `pack.json`. The manifest SHALL be a JSON object with `format: 1`, `name` equal to the directory name, and `description`; the optional fields SHALL be `requires`, `skills`, `context`, `rules`, `operations`, `documents`, `init` and `signals`. Any other field, or `source`, SHALL be refused: v1 installs only packs shipped in the download.
 
 #### Scenario: A valid manifest is accepted
-- **WHEN** `update.sh pack-check` reads `packs/web/pack.json` with `format: 1`, `name: "web"`, a description and a `rules.proposal` list
+- **WHEN** `sw update pack-check --download <tree>` reads `packs/web/pack.json` with `format: 1`, `name: "web"`, a description and a `rules.proposal` list
 - **THEN** it reports pack `web` with `"ok": true` and no refusal
 
 #### Scenario: Malformed or unsupported manifests are refused
@@ -92,7 +92,7 @@ pack-check SHALL refuse a pack line that contains both a gate term and a relaxin
 - **THEN** pack-check accepts it
 
 ### Requirement: pack-check reports in one JSON document
-`update.sh pack-check` SHALL read every pack in the download, or only those named with `--pack`, and SHALL print one JSON document with `ok`, `packs` (each with `name` and `ok`) and `refusals` (each with `code`, `pack`, `field` when it applies, `message`). It SHALL exit 0 when every pack passes and 1 otherwise, and SHALL write no file.
+`sw update pack-check --download <tree>` SHALL read every pack in that download, or only those named with `--pack`, and SHALL print one JSON document with `ok`, `packs` (each with `name` and `ok`) and `refusals` (each with `code`, `pack`, `field` when it applies, `message`). It SHALL exit 0 when every pack passes and 1 otherwise, and SHALL write no file.
 
 #### Scenario: All packs pass
 - **WHEN** pack-check runs on a download whose packs are all valid
@@ -129,7 +129,7 @@ For each enabled pack's `documents` entry, the installer SHALL create the file f
 - **THEN** plan exits 1 with refusal `pack_doc_path` naming the pack, the document and the path, and no file changes
 
 ### Requirement: Packs are refused on a planning store in v1
-When the planning root is a store (update.sh role `claim`, `owner` or `other`), an install with any pack enabled SHALL stop before any write with refusal `packs_on_store`, because pack lines in a store's `config.yaml` would apply to every project that uses the store.
+When the planning root is a store (`sw update` role `claim`, `owner` or `other`), an install with any pack enabled SHALL stop before any write with refusal `packs_on_store`, because pack lines in a store's `config.yaml` would apply to every project that uses the store.
 
 #### Scenario: Repo-local project with packs
 - **WHEN** role is `none` and `packs:` enables `web`

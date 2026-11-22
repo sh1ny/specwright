@@ -63,7 +63,7 @@ Every setting that names an account and is empty (`planning_store.login`, `githu
 - **THEN** `rounds` exits 3, and no request reaches the store's server
 
 ### Requirement: Main refreshes and pulls from GitHub are fenced
-The `git fetch` and `git pull` calls a workflow makes against a remote whose fetch URL is on github.com, whatever its push URLs (the branch gate's main refresh, roadmap status, init and close, finish and PR cleanup, and the commands `pr-pair.sh cleanup-plan` emits) SHALL run through the fence with the repository's run login. When the fence refuses, a step that already treats a failed fetch as "local refs only" SHALL report that and continue; any other step SHALL stop.
+The `git fetch` and `git pull` calls a workflow makes against a remote whose fetch URL is on github.com, whatever its push URLs (the branch gate's main refresh, roadmap status, init and close, finish and PR cleanup, and the commands `sw pr cleanup-plan` emits) SHALL run through the fence with the repository's run login. When the fence refuses, a step that already treats a failed fetch as "local refs only" SHALL report that and continue; any other step SHALL stop.
 
 #### Scenario: Cleanup pull after merge
 - **WHEN** a store-backed change's PRs merged and `cleanup-plan` lists each repo's commands
@@ -169,18 +169,18 @@ Every github.com test of the fence and the PR scripts SHALL treat `github.com.` 
 - **THEN** the helper gives no credential, and the URL is not refused as a github.com URL
 
 #### Scenario: Trailing-dot store remote
-- **WHEN** a store's fetch URL is `https://github.com./o/s.git` and `pr-pair.sh` reads it
+- **WHEN** a store's fetch URL is `https://github.com./o/s.git` and `sw pr` reads it
 - **THEN** the read runs fenced as a GitHub remote, never with the user's unfenced git
 
 ### Requirement: Unfenced git keeps the caller's enterprise host settings
 When a fenced script runs plain git for a remote that is not on github.com, that git SHALL see the caller's own `GH_HOST`, `GH_ENTERPRISE_TOKEN` and `GITHUB_ENTERPRISE_TOKEN`, the values they had before the fence unset them. No fenced `gh` or git command, and no fenced identity check, SHALL see them.
 
 #### Scenario: Enterprise store read by rounds
-- **WHEN** the caller has `GH_HOST=ghe.example` and `GH_ENTERPRISE_TOKEN=enttok`, the store's origin is on `ghe.example` with the credential helper `gh auth git-credential`, and `pr-pair.sh rounds` runs under `as.sh`
+- **WHEN** the caller has `GH_HOST=ghe.example` and `GH_ENTERPRISE_TOKEN=enttok`, the store's origin is on `ghe.example` with the credential helper `gh auth git-credential`, and `sw pr rounds` runs under `sw as`
 - **THEN** the store's git network call runs with `GH_HOST` and `GH_ENTERPRISE_TOKEN` set to the caller's values, and the read succeeds
 
 #### Scenario: Variables were unset
-- **WHEN** the caller had none of the three variables and a non-GitHub store is read under `as.sh`
+- **WHEN** the caller had none of the three variables and a non-GitHub store is read under `sw as`
 - **THEN** the store's git runs without them, none is set to an empty string, and nothing is left from the fence
 
 #### Scenario: Fenced calls stay on github.com

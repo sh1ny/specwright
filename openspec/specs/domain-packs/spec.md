@@ -6,10 +6,10 @@ Defines what each first-party domain pack shipped in the Specwright download add
 ## Requirements
 
 ### Requirement: The download ships the ui-prototyping, gamedev and godot packs
-The Specwright download SHALL hold `packs/ui-prototyping/`, `packs/gamedev/` and `packs/godot/`, and `update.sh pack-check` over the download SHALL accept all three. `gamedev` SHALL require `ui-prototyping`. `ui-prototyping` and `godot` SHALL require no pack.
+The Specwright download SHALL hold `packs/ui-prototyping/`, `packs/gamedev/` and `packs/godot/`, and `sw update pack-check --download <tree>` over the download SHALL accept all three. `gamedev` SHALL require `ui-prototyping`. `ui-prototyping` and `godot` SHALL require no pack.
 
 #### Scenario: The shipped packs pass pack-check
-- **WHEN** `update.sh pack-check` runs over the repository's own `packs/`
+- **WHEN** `sw update pack-check --download <repo>` runs over the repository's own `packs/`
 - **THEN** it exits 0 and reports `ui-prototyping`, `gamedev` and `godot`, each with `"ok": true`
 
 #### Scenario: gamedev without its shared pack

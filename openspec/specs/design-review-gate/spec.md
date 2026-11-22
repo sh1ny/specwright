@@ -41,7 +41,7 @@ A `Deferred to:`, `User decision:` or `No design review ran.` line SHALL count t
 
 #### Scenario: Archive ran anyway
 - **WHEN** a deferred change was moved to `changes/archive/` and finish starts
-- **THEN** finish makes no archive commit, no merge and no push, runs no restore itself, and shows the commands printed by `finish.sh undo-archive-plan`
+- **THEN** finish makes no archive commit, no merge and no push, runs no restore itself, and shows the commands printed by `sw finish undo-archive-plan`
 
 #### Scenario: Deferred archive already committed
 - **WHEN** finish resumes where a deferred change's archive is already committed on the branch but not yet on main

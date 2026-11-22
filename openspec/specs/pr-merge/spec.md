@@ -172,7 +172,7 @@ With `pr.merge: agent`, after `specwright-finish` ships the archive commit, it S
 - **THEN** finish stops with the push error and starts no watch
 
 ### Requirement: Watch offers a release after an agent merge
-With `release.enabled` true, after a confirmed agent merge and its cleanup, watch SHALL read `release.sh untagged` and offer `specwright-release` publish for each listed version oldest first, or with `release.auto` publish them oldest first, stopping at the first failure, before the roadmap offer. A publish failure SHALL NOT undo the merge or the cleanup.
+With `release.enabled` true, after a confirmed agent merge and its cleanup, watch SHALL read `sw release untagged` and offer `specwright-release` publish for each listed version oldest first, or with `release.auto` publish them oldest first, stopping at the first failure, before the roadmap offer. A publish failure SHALL NOT undo the merge or the cleanup.
 
 #### Scenario: Unattended agent merge with auto release
 - **WHEN** `pr.merge` is `agent`, `release.auto` is true, the merged PR moved `VERSION` to 0.5.0, and cleanup finished

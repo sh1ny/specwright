@@ -244,7 +244,7 @@ Every merged PR body that a git-workflow fixture seeds for the closed-check SHAL
 
 #### Scenario: Finish fixtures' body
 - **WHEN** the finish fixtures seed PR #7 with `Adds greet and farewell.\n\nCloses #12`
-- **THEN** `markdown.json` has a recording for it, and `pr-pair.sh closed-check` against that fixture exits with the issue's state instead of `GitHub state unknown: no recorded rendering`
+- **THEN** `markdown.json` has a recording for it, and `sw pr closed-check` against that fixture exits with the issue's state instead of `GitHub state unknown: no recorded rendering`
 
 #### Scenario: A new fixture body without a recording
 - **WHEN** a fixture seeds a merged PR body that has no recording
