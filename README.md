@@ -340,9 +340,11 @@ installed agent file (say so in Step 8).
       unchanged. Say that `<to>`'s files are installed but not stamped, give
       the restart notice (Step 8), and say that rerunning this prompt once the
       refusal is resolved completes the update.
-  - `orphans` are installed `specwright-*` names with no downloaded
-    counterpart (`sw update` never touches them): list them and ask before
-    removing them, as the orphan question below says.
+  - `orphans` lists what is installed with no downloaded counterpart:
+    `specwright-*` skill directories, `specwright-*.md` agent files and the
+    skills of a pack no longer enabled (`sw update` never touches them):
+    list them all and ask before removing them, as the orphan question below
+    says.
   - Keep `warnings` for Step 8 (a change in flight found only on a remote
     branch is not validated), and the changes validated against `<to>`.
   - Keep the adopted pack skills (an identical hand copy that the install now

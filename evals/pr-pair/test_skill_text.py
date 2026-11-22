@@ -1235,7 +1235,7 @@ class ShipArchiveOnly(unittest.TestCase):
 
     def test_ship_runs_validate_and_names_archive_only_error(self):
         a = self.s4a()
-        self.assertRegex(a, r"(?is)exit 3.{0,200}`pr\.validate` runs", "an archive-only error does not run pr.validate")
+        self.assertRegex(a, r"(?is)any non-zero exit \(exit 1 `git_error` included.{0,200}`pr\.validate` runs", "an archive-only error does not run pr.validate")
         self.assertRegex(a, r"(?is)names? the `archive-only` error", "the report does not name the archive-only error")
 
     def test_watch_and_finish_hand_the_ready_head_on(self):
