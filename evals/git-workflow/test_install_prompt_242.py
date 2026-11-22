@@ -33,7 +33,7 @@ class Step6Settings(unittest.TestCase):
     def test_step6_offers_version_files_mapping_whole(self):
         self.assertRegex(self.s6, r"(?is)`release\.version_files`.{0,200}compared.{0,300}whole mapping.{0,120}in order.{0,200}decline",
                          "Step 6 does not offer an absent release.version_files as the template's whole mapping, in order, to keep or decline")
-        self.assertRegex(self.s6, r"(?is)whole mapping, in order, as one default, and list it as added when the user keeps it",
+        self.assertRegex(self.s6, r"(?is)When the user's file lacks it and the template sets it, offer the template's whole mapping, in order, as one default, and list it as added when the user keeps it",
                          "Step 6 does not add a kept release.version_files mapping and list it as added")
 
     def test_step6_keeps_comments_of_kept_keys(self):
@@ -67,6 +67,8 @@ class Step7SkillsAndKeys(unittest.TestCase):
     def test_step7_passes_declined_version_files(self):
         self.assertRegex(self.s7, r"(?is)chose otherwise in Step 6.{0,200}declined.{0,100}passes",
                          "Step 7 does not pass a template default the user declined in Step 6")
+        self.assertRegex(step("Step 6"), r"(?is)The user may keep or decline it; a declined mapping is not written\.",
+                         "Step 6 may write a release.version_files mapping the user declined")
 
     def test_step7_skills_check_ignores_other_directories(self):
         self.assertRegex(self.s7, r"(?is)other directories.{0,160}`openspec-\*`.{0,160}do not count",

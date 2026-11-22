@@ -449,7 +449,8 @@ Step 6 - Settings (openspec/specwright.yaml in the code checkout)
   - `release.version_files` itself is compared like any key. When the user's
     file lacks it and the template sets it, offer the template's whole
     mapping, in order, as one default, and list it as added when the user
-    keeps it. The user may keep or decline it.
+    keeps it. The user may keep or decline it; a declined mapping is not
+    written.
   List each added key with its default and its comment from the downloaded
   `templates/openspec/specwright.yaml`, and ask whether to keep the default.
   If the user's file has keys the downloaded file no longer has (uncommented
