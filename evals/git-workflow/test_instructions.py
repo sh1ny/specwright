@@ -1987,11 +1987,10 @@ class DesignReviewDispositions(unittest.TestCase):
         r = self.review
         self.assertRegex(r, r"(?is)WAIVED.{0,1500}pre-ship.{0,120}(not waived|still runs|does not waive|never waive)", "WAIVED does not keep the pre-ship review")
 
-    def test_user_override_only_after_escalation(self):
-        r = self.review
-        self.assertRegex(r, r"(?is)USER_OVERRIDE.{0,300}(after 2 consecutive REVISE|escalat)", "USER_OVERRIDE is not limited to escalation")
-        self.assertRegex(r, r"(?is)USER_OVERRIDE.{0,500}user's words.{0,80}open findings", "USER_OVERRIDE does not record the user's words and open findings")
-        self.assertRegex(r, r"(?is)(deferral|DEFERRED).{0,200}(waiver|WAIVED).{0,100}never.{0,80}USER_OVERRIDE", "a deferral or waiver is not barred from USER_OVERRIDE")
+    def test_change_checkpoint_does_not_issue_override(self):
+        self.assertRegex(self.review, r"(?is)choice never alters the verdict, grants approval or creates `USER_OVERRIDE`")
+        self.assertRegex(self.review, r"(?is)(deferral|DEFERRED).{0,200}(waiver|WAIVED).{0,100}never.{0,80}USER_OVERRIDE")
+        self.assertIn("`VERDICT: USER_OVERRIDE`", self.precheck)
 
     def test_review_template_and_readme_list_new_verdicts(self):
         t = read(REVIEW_TEMPLATE)

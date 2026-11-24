@@ -126,8 +126,9 @@ class ReviewChecksClaims(unittest.TestCase):
 
     def test_reviewer_agents_name_the_claim_check(self):
         for p in REVIEWERS:
-            text = flat(read(p))
-            self.assertRegex(text, r"(?i)design review[^.]{0,400}(re-read\w*[^.]{0,60}cit\w*|cit\w*[^.]{0,60}re-read)",
+            instruction = next(block for block in read(p).split("\n\n")
+                               if block.startswith("For a design review,"))
+            self.assertRegex(flat(instruction), r"(?i)Claims item:\s*re-read\b[^.]*\bcites\b",
                              f"{p.relative_to(ROOT)} does not name the claim check for design reviews")
 
 

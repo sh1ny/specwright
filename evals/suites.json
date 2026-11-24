@@ -6,6 +6,7 @@
     {"paths": ["skills/specwright-pr/**", "skills/specwright-finish/SKILL.md"], "suites": ["pr-pair"]},
     {"paths": ["skills/specwright-review/**", "skills/specwright-commit/**", "skills/specwright-pr/**", "skills/specwright-finish/**", "skills/specwright-roadmap/**"], "suites": ["review-routes"]},
     {"paths": ["evals/review-routes/fixtures/**", "evals/review-routes/test_review_settings.py", "evals/review-routes/test_review_sw.py", "evals/fakes/omp-policy.mjs", "cli/lib/src/review/**", "cli/lib/src/commands/review.dart", "cli/lib/src/cli.dart", "cli/test/review/**", "cli/lib/src/process/**", "cli/lib/src/settings/**"], "suites": ["review-routes"]},
+    {"paths": ["evals/review-routes/test_design_review.py"], "suites": ["review-routes/test_design_review.py"]},
     {"paths": ["evals/vcs/vcs_test_support.py", "evals/cli/swharness.py", "evals/cli/test_no_shell.py"], "suites": ["release", "review-routes"]},
     {"paths": ["evals/cli/swharness.py", "evals/vcs/sentinels.py", "evals/fakeexe.py", "evals/fixturecache.py", "cli/lib/**", "cli/bin/**", "cli/tool/**", "cli/pubspec.yaml", "cli/pubspec.lock", "cli/THIRD_PARTY_NOTICES.txt"], "suites": ["update"]},
     {"paths": ["schemas/**"], "suites": ["git-workflow", "release", "review-routes", "update"]},

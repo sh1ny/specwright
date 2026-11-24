@@ -5,6 +5,7 @@ import 'dart:math';
 
 import 'package:path/path.dart' as p;
 
+import '../entry/regular_file.dart' show readRegularFile;
 import '../pr/context.dart';
 import '../pr/pair.dart' show PairStop;
 import '../pr/settings_commands.dart' show readVcsSettings;
@@ -23,6 +24,9 @@ import 'routes.dart';
 import 'settings.dart';
 import 'snapshot.dart';
 import 'stop.dart';
+
+part 'design_inputs.dart';
+part 'design_progress.dart';
 
 const List<String> _acceptedRoutes = ['codex', 'claude', 'omp'];
 const List<String> _runtimes = ['claude', 'codex', 'omp', 'other'];
@@ -172,7 +176,7 @@ class _ReviewOperations {
     if (argv.isEmpty || argv.first.isEmpty) {
       throw ReviewStop(
         'usage',
-        'subcommand: select | preflight | run | record | waive | gate | archive-only | rounds',
+        'subcommand: select | preflight | run | record | design-step | waive | gate | archive-only | rounds',
         code: 2,
       );
     }
@@ -183,13 +187,14 @@ class _ReviewOperations {
       'preflight' => _preflight(rest),
       'run' => _run(rest),
       'record' => _record(rest),
+      'design-step' => _designStep(rest),
       'waive' => _waive(rest),
       'gate' => _gate(rest),
       'archive-only' => _archiveOnly(rest),
       'rounds' => _rounds(rest),
       _ => throw ReviewStop(
         'usage',
-        'subcommand: select | preflight | run | record | waive | gate | archive-only | rounds',
+        'subcommand: select | preflight | run | record | design-step | waive | gate | archive-only | rounds',
         code: 2,
       ),
     };
@@ -296,6 +301,21 @@ class _ReviewOperations {
     };
   }
 
+  Future<Map<String, Object?>> _designStep(List<String> argv) async {
+    final args = await _parseArgs(argv, const {
+      '--out',
+      '--choice',
+      '--round',
+      '--detail',
+    });
+    _need(args.values, const ['out']);
+    final settings = await _settings(null);
+    return _DesignCheckpoint(
+      args.values['out']!,
+      settings.review,
+    ).step(args.values);
+  }
+
   Future<Map<String, Object?>> _preflight(List<String> argv) async {
     final args = await _parseArgs(argv, const {
       '--kind',
@@ -360,21 +380,26 @@ class _ReviewOperations {
   }
 
   Future<Map<String, Object?>> _run(List<String> argv) async {
-    final args = await _parseArgs(argv, const {
-      '--kind',
-      '--route',
-      '--out',
-      '--change',
-      '--prompt-file',
-      '--base',
-      '--store',
-      '--store-base',
-      '--settings',
-      '--selection',
-      '--prefix',
-      '--branch',
-      '--store-branch',
-    });
+    final changeReview = argv.contains('--change-review');
+    final args = await _parseArgs(
+      argv.where((arg) => arg != '--change-review').toList(),
+      const {
+        '--kind',
+        '--route',
+        '--out',
+        '--change',
+        '--prompt-file',
+        '--base',
+        '--store',
+        '--store-base',
+        '--settings',
+        '--selection',
+        '--prefix',
+        '--branch',
+        '--store-branch',
+        '--repairs',
+      },
+    );
     _need(args.values, const ['kind', 'route', 'out', 'change']);
     final kind = args.values['kind']!;
     final route = args.values['route']!;
@@ -416,8 +441,23 @@ class _ReviewOperations {
       );
     }
     final skipped = _loadSelection(args.values['selection'], route);
+    if (changeReview &&
+        (kind != 'design' || args.values.containsKey('settings'))) {
+      throw ReviewStop(
+        'usage',
+        '--change-review uses the code project settings and --kind design',
+        code: 2,
+      );
+    }
     final settings = await _settings(args.values['settings']);
     final cfg = ReviewConfig(settings.review);
+    final checkpoint = changeReview
+        ? _DesignCheckpoint(args.values['out']!, settings.review)
+        : null;
+    final reviewInstruction = checkpoint?.beforeReview();
+    final requirements = changeReview
+        ? await _standingRequirements(settings, args.values)
+        : null;
 
     final exe = _resolve(route, _environment);
     if (exe == null) {
@@ -475,6 +515,14 @@ class _ReviewOperations {
         promptPath = p.join(work.path, 'prompt.md');
         File(promptPath).writeAsStringSync(prompt, encoding: utf8, flush: true);
         cwd = view ?? codeDir;
+      } else if (requirements != null || reviewInstruction != null) {
+        promptPath = p.join(work.path, 'prompt.md');
+        File(promptArg!).copySync(promptPath);
+        File(promptPath).writeAsStringSync(
+          '${reviewInstruction == null ? '' : '\n\n$reviewInstruction'}'
+          '${requirements == null ? '' : '\n\n$requirements'}',
+          mode: FileMode.append,
+        );
       }
       probe = await _probe(route, executable: exe);
       if (route == 'omp') {
@@ -513,6 +561,10 @@ class _ReviewOperations {
         codeDir: codeDir,
         heads: heads,
         bases: bases,
+        designRecord: checkpoint == null
+            ? null
+            : (text, invalid) =>
+                  checkpoint.record(text, args.values['repairs'], invalid),
       );
     } finally {
       if (work.existsSync()) {
@@ -527,8 +579,11 @@ class _ReviewOperations {
 
   Future<Map<String, Object?>> _record(List<String> argv) async {
     final scratch = argv.contains('--scratch');
+    final changeReview = argv.contains('--change-review');
     final args = await _parseArgs(
-      argv.where((arg) => arg != '--scratch').toList(),
+      argv
+          .where((arg) => arg != '--scratch' && arg != '--change-review')
+          .toList(),
       const {
         '--kind',
         '--change',
@@ -543,16 +598,39 @@ class _ReviewOperations {
         '--out',
         '--branch',
         '--store-branch',
+        '--repairs',
       },
     );
+    ReviewSettings? project;
+    _DesignCheckpoint? checkpoint;
+    String? reviewInstruction;
+    if (changeReview) {
+      _need(args.values, const ['out']);
+      if (args.values['kind'] != 'design' ||
+          args.values.containsKey('settings')) {
+        throw ReviewStop(
+          'usage',
+          '--change-review uses the code project settings and --kind design',
+          code: 2,
+        );
+      }
+      project = await _settings(null);
+      checkpoint = _DesignCheckpoint(args.values['out']!, project.review);
+      reviewInstruction = checkpoint.beforeReview();
+    }
     if (scratch) {
       _need(args.values, const ['kind', 'change']);
       if (args.values['kind'] != 'design') {
         throw ReviewStop('usage', '--scratch is for --kind design', code: 2);
       }
+      final requirements = project == null
+          ? null
+          : await _standingRequirements(project, args.values);
       return {
         'ok': true,
         'scratch': _normal(_designScratch(args.values['change']!)),
+        'standing_requirements': ?requirements,
+        'review_instruction': ?reviewInstruction,
       };
     }
     _need(args.values, const ['kind', 'change', 'result', 'route']);
@@ -573,7 +651,7 @@ class _ReviewOperations {
       );
     }
     final text = _readResult(args.values['result']!);
-    final settings = await _settings(args.values['settings']);
+    final settings = project ?? await _settings(args.values['settings']);
     final cfg = ReviewConfig(settings.review);
     final started = _now();
     final skipped = _loadSelection(args.values['selection'], route);
@@ -651,7 +729,10 @@ class _ReviewOperations {
       };
       final outPath = args.values['out'];
       if (outPath != null) {
-        _atomicWrite(outPath, text);
+        _atomicWrite(
+          outPath,
+          checkpoint?.record(text, args.values['repairs'], invalid) ?? text,
+        );
         if (!_sameFile(args.values['result']!, outPath)) {
           try {
             File(args.values['result']!).deleteSync();
@@ -1541,6 +1622,7 @@ Future<Map<String, Object?>> runReviewer({
   required String? codeDir,
   required Map<String, Object?> heads,
   required Map<String, Object?> bases,
+  String Function(String, Never Function(String))? designRecord,
 }) async {
   final schemaPath = kind == 'preship'
       ? p.join(workDir.path, 'schema.json')
@@ -1779,7 +1861,14 @@ Future<Map<String, Object?>> runReviewer({
     }
     final problem = _validateDesign(text!);
     if (problem != null) fail('invalid', 'invalid_output', problem);
-    _atomicWrite(outPath, text);
+    _atomicWrite(
+      outPath,
+      designRecord?.call(
+            text,
+            (message) => fail('invalid', 'invalid_output', message),
+          ) ??
+          text,
+    );
     return {
       'ok': true,
       'status': 'ok',

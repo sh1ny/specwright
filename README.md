@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <img alt="version" src="https://img.shields.io/badge/version-0.39.1-blue">
+  <img alt="version" src="https://img.shields.io/badge/version-0.40.0-blue">
   <img alt="OpenSpec" src="https://img.shields.io/badge/OpenSpec-1.16.0-8A2BE2">
   <img alt="agents" src="https://img.shields.io/badge/agents-Claude%20Code%20%7C%20Codex%20%7C%20OMP-555">
   <a href="./LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-green"></a>
@@ -704,6 +704,8 @@ review:
   timeout: 20m                  # a review still running after this fails
   max_diff_kb: 1024             # pre-ship input bound (code + store diff); over it no review runs
   preship: true                 # false = no pre-ship review and no ship / local-merge gate
+  standing_rules: []            # committed code-repo-relative files; FULL change-design review only
+  design_max_rounds: 3          # positive integer; owner checkpoint for unresolved FULL design rounds
   routes:
     codex: { disable: [], args: [] } # disables are additive; fixed isolation stays
     claude: { tools: [Read, Grep, Glob], args: [] }
@@ -720,6 +722,7 @@ pr:
   validate: "npm test"          # must pass before every push; empty = none
   max_fix_rounds: 2             # address-review-feedback commits allowed per PR
   after_limit: ask              # at the limit: ask = reply "waiting on owner" and stop, issues = file each new finding as an issue and reply with the link, stop = like ask, without offering more rounds
+  # FULL design reviews instead use review.design_max_rounds (above).
   react: true                   # 👍/👎 on every finding answered (right / wrong); default false
   poll_interval: 5m             # how often watch polls GitHub; default 5m
   review_after_archive: false   # true = re-request review on the archive head too; false = reviews of the head before it carry over
@@ -882,15 +885,32 @@ No trigger → **LIGHT** (triage, context, decisions). Any trigger → **FULL**:
 | `SKIPPED_LIGHT` | LIGHT tier; triage re-checked, no review needed |
 | `APPROVE` | Tasks may be written |
 | `APPROVE_WITH_CHANGES` | Apply the listed changes; tasks wait for `CHANGES_APPLIED: yes` |
-| `REVISE` | Fix and re-review; two REVISE rounds in a row escalate to the user |
-| `USER_OVERRIDE` | Only after two REVISE rounds were escalated and the user decided to proceed; their words and the open findings are recorded |
+| `REVISE` | Fix and re-review until the configured owner checkpoint; the verdict stays in force there |
+| `USER_OVERRIDE` | Historical change-design override or a separate roadmap baseline disposition; not issued by the change-design checkpoint |
 | `DEFERRED` | The user declared a FULL-tier change a parking change that is never applied; `Deferred to:` names where its parts get reviewed. Tasks may be written; apply refuses it |
 | `WAIVED` | The user explicitly decided to apply with no design review; their quoted words and `No design review ran.` are recorded. The pre-ship review still runs |
 
 The agent never offers `DEFERRED` or `WAIVED`. A project that recorded a deferral as `USER_OVERRIDE` may rewrite it as `DEFERRED`.
 
-A verdict covers only what was reviewed: editing proposal, specs or design afterwards voids it.
+A verdict covers only what was reviewed; the existing Required Changes confirmation and Release Notes exemption are unchanged.
 </details>
+
+### Standing requirements and design checkpoint
+
+In the **code repository's** `openspec/specwright.yaml`, list only versioned review criteria:
+
+```yaml
+review:
+  standing_rules:
+    - rules/windows-ci-tests.md
+  design_max_rounds: 3
+```
+
+Commit each UTF-8 text file to the code branch. Paths are relative to the code repo root, use `/`, and must name regular Git blobs, not links. The FULL brief includes the whole text in declaration order (up to 32 paths and 256 KiB total; it stops rather than truncating), including instructions to check existing tests the design preserves. These files are sent to the selected reviewer; do not list secrets or unrelated policy. Empty or omitted `standing_rules` adds no criteria to the brief. LIGHT, roadmap baseline and pre-ship do not use this section.
+
+`review.design_max_rounds` defaults to **3** for projects that set nothing, replacing the old two-consecutive-`REVISE` change-design escalation. At the limit, the report shows open findings and repairs, then waits for the owner to authorize one scoped pass, record a scope change with a reason, or stop. None of those choices grants approval. `pr.max_fix_rounds` and `pr.after_limit` still govern PR feedback only; their defaults and project values are unchanged.
+
+**Migration for the eight repositories:** after upgrading Specwright, copy `rules/windows-ci-tests.md` from Mastermind into each repository at that same relative path. Commit the copy and add the example `standing_rules` entry under that repository's existing `review:` block. Keep existing review and PR settings. Do not point at Mastermind via an absolute path or a symlink: each repository owns and versions its copy, including later rule updates.
 
 <details>
 <summary><b>Branch prefixes and commit messages</b></summary>

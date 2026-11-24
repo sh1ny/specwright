@@ -466,24 +466,39 @@ artifacts:
       that is installed and passes its probe, else the fresh-context
       `specwright-reviewer` agent. `review.cross_model: false` means the
       agent only.
+      Before a FULL review or recheck, run `<sw> review design-step --out
+      <this change's review.md>` from the code repo. On `owner_checkpoint`
+      follow the handoff below; on `stopped`, stop. Do not dispatch again
+      unless the recorded owner decision permits it. Do not route an
+      unresolved FULL checkpoint through the LIGHT or legacy override path.
+      For a recorded `scoped-pass` or `scope-change`, name the previous
+      `review.md` in the request and ask for the full checklist on all of
+      the current design, not a Required Changes confirmation.
       - CLI route: write the review request to a file and run
         `<sw> review run --kind design --route <route> --prompt-file <file>
         --out <this change's review.md> --change <name> --selection <select
-        output>` (store-backed: `--store <store toplevel>`,
+        output> --change-review --branch <code change branch> --repairs
+        <short repair summary>` (store-backed: `--store <store toplevel>`,
         so the Claude route can read the planning files). The script runs
         the CLI with a fixed, isolated, read-only command line and writes
         review.md only when the output validates. Never build or change a
         reviewer command line yourself.
       - Subagent route: first get a scratch result path with
-        `<sw> review record --kind design --change <name> --scratch` (it prints
-        `scratch`, a fresh file outside the change). The
+        `<sw> review record --kind design --change <name> --scratch
+        --change-review --out <this change's review.md> --branch <code change branch>`
+        (it prints `scratch`, a fresh file outside the change). The
         `specwright-reviewer` agent, given file paths, not your reasoning,
-        writes its review to that file; then run
+        writes its review to that file; include `standing_requirements` and
+        `review_instruction` in its request verbatim when present. Then run
         `<sw> review record --kind design --change <name> --result
         <scratch> --out <this change's review.md> --route subagent
-        --selection <select output>`, which writes review.md only when the
+        --selection <select output> --change-review --repairs <short repair summary>`, which writes review.md only when the
         review validates. On exit 3 review.md is untouched and the report
         names the scratch file.
+      The CLI includes declared rules automatically. In either route, treat
+      them as binding requirements, including for existing tests the design
+      preserves. With no declared rules, add no section. Omit `--repairs`
+      for the initial review; list the actual repairs in later rounds.
       Either way, the request names the installed project skills that apply
       to the reviewed work, each by name with the path of its installed
       `SKILL.md` as you resolved it (project or user level), or `none`; never
@@ -540,17 +555,35 @@ artifacts:
       `VERDICT: APPROVE` | `VERDICT: APPROVE_WITH_CHANGES` | `VERDICT: REVISE`
       Any open Critical forbids APPROVE. APPROVE_WITH_CHANGES lists exact
       Required Changes and `CHANGES_APPLIED: no`; the author applies them,
-      then the reviewer re-checks only those items in a new run, and only
-      that run may change it to `yes` - never the author. Other verdicts use
-      `CHANGES_APPLIED: n/a`. A verdict covers only the contents reviewed:
+      then the reviewer re-checks only those items in a new run, except
+      when an owner checkpoint requires a full review as described below.
+      Only the confirmation run may change it to `yes` - never the author.
+      Other verdicts use `CHANGES_APPLIED: n/a`. A verdict covers only the contents reviewed:
       editing proposal, specs or design for any other reason voids it; an
       edit confined to the proposal's `## Release Notes` section does not,
-      one that also touches a line outside that section does. Each
-      full review increments the round; after 2 consecutive REVISE rounds,
-      stop and escalate to the user. `VERDICT: USER_OVERRIDE` only after those
-      2 REVISE rounds were escalated and the user then decides to proceed
-      anyway: record it with `CHANGES_APPLIED: n/a`, the user's words and the
-      open findings. A deferral or waiver is never recorded as USER_OVERRIDE.
+      one that also touches a line outside that section does.
+
+      Owner checkpoint: after each validated FULL result, read `design-step`.
+      `REVISE` and `APPROVE_WITH_CHANGES`/`no` stay unresolved. At the configured
+      `review.design_max_rounds` (default 3) without approval, stop. Show the
+      open findings or Required Changes and the repairs to date in `review.md`.
+      Ask the owner to choose one more scoped pass, a scope change with a
+      reason, or stop. Record their actual answer with `<sw> review design-step
+      --out <this change's review.md> --round <current round> --choice <choice>`.
+      If the owner raises the project limit above the current scope round,
+      that allows more rounds at a cap-only handoff without changing the
+      verdict. Never raise the setting yourself to get past a checkpoint.
+      Use `scoped-pass --detail <scope>` to limit the author's repairs, not
+      the reviewer's coverage. Ask for a full review of the entire current
+      design, including all still-applicable open findings, before any
+      passing verdict; if unresolved, hand off again. Use `scope-change
+      --detail <owner reason>` and apply the revised scope before starting
+      a full review with a new round budget. A confirmation of Required
+      Changes from the old scope never passes the revised design. Use
+      `stop` to leave work paused. A choice never alters
+      the verdict, grants approval or creates `USER_OVERRIDE`. Never stop
+      because the finding count stalled. Earlier legacy overrides remain as
+      recorded; a deferral or waiver is never recorded as `USER_OVERRIDE`.
 
       Required Changes and decisions: before applying a Required Change that
       reverses a `Chosen by: user` decision, put it to the user, in any mode
