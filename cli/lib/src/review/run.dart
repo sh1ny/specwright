@@ -314,12 +314,29 @@ class _ReviewOperations {
 
   Future<Map<String, Object?>> _designStep(List<String> argv) async {
     final light = argv.contains('--light');
+    final requirePass = argv.contains('--require-pass');
     final args = await _parseArgs(
-      argv.where((a) => a != '--light').toList(),
+      argv.where((a) => a != '--light' && a != '--require-pass').toList(),
       const {'--out', '--branch', '--choice', '--round', '--detail'},
     );
     _need(args.values, const ['out']);
-    return _DesignController(args.values).step(args.values, light: light);
+    if (requirePass && (light || args.values.containsKey('choice'))) {
+      throw ReviewStop(
+        'usage',
+        '--require-pass checks a FULL disposition; it cannot record a choice',
+        code: 2,
+      );
+    }
+    final result = await _DesignController(args.values)
+        .step(args.values, light: light);
+    if (requirePass && result['status'] != 'pass') {
+      throw ReviewStop(
+        'design_not_approved',
+        'FULL design review did not pass for the current inputs',
+        extra: result..remove('ok'),
+      );
+    }
+    return result;
   }
 
   Future<Map<String, Object?>> _preflight(List<String> argv) async {

@@ -1,6 +1,8 @@
 """Exercise the FULL design workflow through sw and executable reviewer routes."""
 import json
 import os
+import re
+import shutil
 import subprocess
 import sys
 import unittest
@@ -8,7 +10,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from test_review_run import Base, CHANGE, VERDICT_OK
+from test_review_run import Base, CHANGE, ROOT, VERDICT_OK
 
 BRANCH = "feat/demo"
 REVISE = "# Review\n\n## Findings\n- The lock outlives the host.\n\nVERDICT: REVISE\nCHANGES_APPLIED: n/a\n"
@@ -200,6 +202,58 @@ class TestDesignReview(Base):
         self.complete(self.scratch(), VERDICT_OK)
         self.assertEqual(self.step()["status"], "pass")
 
+    @unittest.skipUnless(shutil.which("openspec"), "openspec CLI not on PATH")
+    def test_apply_gate_blocks_next_task_after_release_notes_edit(self):
+        # OpenSpec renders apply guidance; it doesn't execute tasks. Exercise
+        # the installed gate command as the consumer of that guidance, without
+        # asking a model to follow it.
+        self.subagent()
+        openspec = self.code / "openspec"
+        shutil.copytree(ROOT / "schemas" / "specwright", openspec / "schemas" / "specwright")
+        (openspec / "config.yaml").write_text("schema: specwright\n", encoding="utf-8")
+        tasks = self.root / "tasks.md"
+        tasks.write_text("## 1. Work\n\n- [x] 1.1 Add release note\n- [ ] 1.2 Implement next task\n", encoding="utf-8")
+        self.complete(self.scratch(), VERDICT_OK)
+        self.proposal.write_bytes(self.proposal.read_bytes() + b"\n### Fixed\n\n- Correct the lock lifetime.\n")
+        before = tasks.read_bytes()
+        target = self.code / "next-task.txt"
+
+        def apply_next_task(expect):
+            rendered = subprocess.run(
+                [shutil.which("openspec"), "instructions", "apply", "--change", CHANGE, "--json"],
+                cwd=self.code, capture_output=True, text=True, encoding="utf-8", check=True,
+            )
+            apply = json.loads(rendered.stdout)
+            self.assertEqual(apply["state"], "ready")
+            instruction = " ".join(apply["instruction"].split())
+            gate = re.search(
+                r"For a FULL change, .*?`<sw> review ([^`]+)` from the code repo before "
+                r"starting the next task\. On nonzero, STOP",
+                instruction,
+            )
+            self.assertIsNotNone(gate, "installed apply instructions lack a fail-closed next-task gate")
+            words = gate[1].replace("<review.md>", "REVIEW").replace("<change branch>", "BRANCH").split()
+            args = [{"REVIEW": self.review, "BRANCH": BRANCH}.get(word, word) for word in words]
+            result = self.script(*args, expect=None)
+            if result["_rc"] == 0:
+                pending = next(task for task in apply["tasks"] if not task["done"])
+                target.write_text(pending["description"], encoding="utf-8")
+                source = Path(pending["sourcePath"])
+                lines = source.read_bytes().splitlines(keepends=True)
+                index = pending["line"] - 1
+                lines[index] = lines[index].replace(b"- [ ]", b"- [x]", 1)
+                source.write_bytes(b"".join(lines))
+            self.assertEqual(result["_rc"], expect, result)
+            return result
+
+        self.assertEqual(apply_next_task(1)["status"], "review")
+        self.assertEqual(tasks.read_bytes(), before)
+        self.assertFalse(target.exists())
+        self.complete(self.scratch(), VERDICT_OK)
+        self.assertEqual(apply_next_task(0)["status"], "pass")
+        self.assertEqual(target.read_text(encoding="utf-8"), "1.2 Implement next task")
+        self.assertIn(b"- [x] 1.2 Implement next task", tasks.read_bytes())
+
     def test_bad_rule_fails_before_reviewer(self):
         self.cli()
         (self.code / "not-tracked.md").write_text("not versioned", encoding="utf-8")
@@ -247,6 +301,17 @@ class TestDesignReview(Base):
         self.project_settings("vcs: gitbutler\nreview:\n  cross_model: false\n")
         self.assertEqual(self.script("select", "--change-review", "--branch", BRANCH, "--runtime", "other", expect=1)["error"], "settings_not_pinned")
         self.assertFalse(self.runs("claude"))
+
+    def test_full_settings_limit_precedes_gitbutler_detection(self):
+        self.cli()
+        oversized = b"vcs: gitbutler\nreview: [\n#" + b"x" * (64 * 1024)
+        self.config.write_bytes(oversized)
+        result = self.script("select", "--change-review", "--branch", BRANCH,
+                             "--runtime", "other", expect=1)
+        self.assertEqual(result["error"], "bad_settings")
+        self.assertIn("exceeds 64 KiB", result["message"])
+        self.assertFalse(self.calls("claude"))
+        self.assertFalse(self.review.exists())
 
     def test_stale_publication_preserves_scoped_permission(self):
         self.subagent(1)

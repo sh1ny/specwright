@@ -759,8 +759,11 @@ apply:
     - A task that changes what the change ships updates the proposal's
       `## Release Notes` section in its own task commit; every commit that
       edits the section runs `<sw> release notes --proposal <proposal.md>`.
-      For a FULL change, run a new full design review after editing these
-      notes before continuing apply.
+      For a FULL change, run `<sw> review design-step --require-pass --out
+      <review.md> --branch <change branch>` from the code repo before
+      starting the next task. On nonzero, STOP: do not implement or tick the
+      next task. Resolve the review state and obtain a fresh FULL approval
+      before resuming.
     - On an unexpected failure or regression, find the root cause before
       fixing. No symptom patches.
     - SPEC OR DESIGN DRIFT: if implementation shows a requirement, scenario or

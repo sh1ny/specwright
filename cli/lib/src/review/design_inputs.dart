@@ -16,6 +16,7 @@ class _DesignGit {
     String dir,
     List<String> args, {
     int cap = 64 * 1024,
+    List<int>? input,
   }) async {
     const deadline = Duration(seconds: 60);
     final remaining = deadline - _clock.elapsed;
@@ -28,6 +29,7 @@ class _DesignGit {
     final result = await _runNative(
       ['git', ...args],
       cwd: dir,
+      input: input,
       limits: RunLimits(
         deadline: remaining,
         stdoutCap: cap,
@@ -120,35 +122,50 @@ class _DesignProject {
     if (!_gitObjectId.hasMatch(tip)) {
       throw ReviewStop('git_error', 'could not resolve design branch $branch');
     }
+    final local = p.join(code, 'openspec', 'specwright.yaml');
+    final bytes = readRegularFile(local, limit: 64 * 1024 + 1);
+    if (bytes != null && bytes.length > 64 * 1024) {
+      throw ReviewStop('bad_settings', '$_designSettingsPath exceeds 64 KiB');
+    }
+    final localText = bytes == null ? null : utf8.decode(bytes);
+    final localSettings = parseReviewSettings(localText);
+    Future<TextResult> runGit(
+      String dir,
+      List<String> argv, {
+      List<int>? input,
+    }) async {
+      final result = await git.run(dir, argv, input: input);
+      return TextResult(
+        result.exitCode ?? 127,
+        _decodeText(result.stdout),
+        _decodeText(result.stderr),
+        stdoutBytes: result.stdout,
+      );
+    }
+
     bool pinned;
     try {
       pinned = await requireSettingsPinnedTo(
-        PrContext(
-          writeOut: (_) {},
-          writeErr: (_) {},
-          cwd: code,
-          git: (dir, argv) async {
-            final result = await git.run(dir, argv);
-            return TextResult(
-              result.exitCode ?? 127,
-              _decodeText(result.stdout),
-              _decodeText(result.stderr),
-              stdoutBytes: result.stdout,
-            );
-          },
-        ),
+        PrContext(writeOut: (_) {}, writeErr: (_) {}, cwd: code, git: runGit),
         code,
         branch,
         commit: tip,
+        settings: localSettings.values,
+        hashWorktreeSettings: (top, rel) async => bytes == null
+            ? null
+            : runGit(top, [
+                'hash-object',
+                '--path=$rel',
+                '--stdin',
+              ], input: bytes),
       );
     } on PairStop catch (e) {
       throw ReviewStop(e.error, e.message, code: e.code, extra: e.extra);
-    } on SettingsStop catch (e) {
-      throw ReviewStop('bad_settings', e.message);
     }
-    final local = p.join(code, 'openspec', 'specwright.yaml');
-    String? text;
+    var text = localText;
+    var settings = localSettings;
     if (pinned) {
+      text = null;
       final entry = await git.require(code, [
         '--literal-pathspecs',
         'ls-tree',
@@ -163,24 +180,14 @@ class _DesignProject {
         );
         text = utf8.decode(await git.require(code, ['cat-file', 'blob', id]));
       }
-    } else {
-      final bytes = readRegularFile(local, limit: 64 * 1024 + 1);
-      if (bytes != null) {
-        if (bytes.length > 64 * 1024) {
-          throw ReviewStop(
-            'bad_settings',
-            '$_designSettingsPath exceeds 64 KiB',
-          );
-        }
-        text = utf8.decode(bytes);
-      }
+      settings = parseReviewSettings(text);
     }
     return _DesignProject(
       git,
       code,
       branch,
       tip,
-      parseReviewSettings(text),
+      settings,
       _designHash([code, branch, text]),
     );
   }

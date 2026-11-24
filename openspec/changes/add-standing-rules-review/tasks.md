@@ -33,10 +33,11 @@
 | Rule identity | Rule text changes after approval | `review-routes/test_design_review.py` | `test_rules_change_requires_full_review` | green |
 | Rule identity | A sibling changes GitButler review settings | `review-routes/test_design_review.py` | `test_settings_pin_and_stale_selection` | green |
 | Rule identity | Route selection used previous settings | `review-routes/test_design_review.py` | `test_settings_pin_and_stale_selection` | green |
+| Rule identity | Oversized worktree settings before route selection | `review-routes/test_design_review.py` | `test_full_settings_limit_precedes_gitbutler_detection` | green |
 | Live input | A design input changes during an authorized pass | `review-routes/test_design_review.py` | `test_stale_publication_preserves_scoped_permission` | green |
 | Live input | A capability directory in the spec tree is a link | `review-routes/test_design_review.py` | `test_linked_spec_tree_refuses_full_review` | green |
 | Live input | An earlier FULL approval lacks input fingerprints | `review-routes/test_design_review.py` | `test_legacy_unpinned_approval_requires_full_review` | green |
-| Full re-review | Release Notes item added during apply | `review-routes/test_design_review.py` | `test_release_notes_edit_voids_approval` | green |
+| Full re-review | Release Notes item added during apply | `review-routes/test_design_review.py` | `test_apply_gate_blocks_next_task_after_release_notes_edit`, `test_release_notes_edit_voids_approval` | green |
 | Full re-review | Required Changes are applied | `review-routes/test_design_review.py` | `test_required_changes_need_another_full_approval` | green |
 | Publication | A failed report write preserves the verdict and scoped pass | `cli/test/review/design_publication_test.dart` | `a failed report write leaves the verdict and scoped pass intact` | green (injected write failure) |
 | Publication | The ordinary writer targets an open checkpoint | `review-routes/test_design_review.py` | `test_other_writers_cannot_erase_checkpoint` | green |
