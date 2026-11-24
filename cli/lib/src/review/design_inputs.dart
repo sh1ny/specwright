@@ -359,6 +359,12 @@ class _DesignArtifacts {
     final specs = Directory(p.join(root.path, 'specs'));
     void walk(Directory dir) {
       for (final entry in dir.listSync(followLinks: false)) {
+        if (entry is Link) {
+          throw ReviewStop(
+            'bad_design_artifact',
+            '${entry.path} is a link in the FULL spec tree',
+          );
+        }
         if (entry is Directory) {
           walk(entry);
         } else if (p.basename(entry.path) == 'spec.md') {
@@ -429,17 +435,40 @@ class _DesignArtifacts {
   };
 }
 
+final _proposalLine = RegExp(r'([^\r\n]*)(?:\r\n|\r|\n|$)');
+final _proposalFence = RegExp(r'^ {0,3}(`{3,}|~{3,})(.*)$');
+final _proposalHeading = RegExp(r'^ {0,3}#{1,2}(?:[ \t]|$)');
+final _proposalNotes = RegExp(r'^## Release Notes[ \t]*$');
+
 List<int> _proposalEvidence(List<int> bytes) {
   final text = utf8.decode(bytes);
-  final start = RegExp(
-    r'^## Release Notes[ \t]*\r?(?:\n|$)',
-    multiLine: true,
-  ).firstMatch(text);
-  if (start == null) return bytes;
-  final rest = text.substring(start.end);
-  final next = RegExp(r'^##(?!#)', multiLine: true).firstMatch(rest);
-  return utf8.encode(
-    text.substring(0, start.start) +
-        (next == null ? '' : rest.substring(next.start)),
-  );
+  String? fence;
+  var inComment = false;
+  int? start;
+  for (final row in _proposalLine.allMatches(text)) {
+    final line = row[1]!;
+    if (fence == null && (inComment || line.trimLeft().startsWith('<!--'))) {
+      inComment = !line.contains('-->');
+      continue;
+    }
+    final marker = _proposalFence.firstMatch(line);
+    if (fence != null) {
+      final run = marker?[1];
+      if (run != null && run.startsWith(fence) && marker![2]!.trim().isEmpty) {
+        fence = null;
+      }
+      continue;
+    }
+    if (marker != null) {
+      final run = marker[1]!;
+      if (!run.startsWith('`') || !marker[2]!.contains('`')) fence = run;
+      continue;
+    }
+    if (!_proposalHeading.hasMatch(line)) continue;
+    if (start != null) {
+      return utf8.encode(text.substring(0, start) + text.substring(row.start));
+    }
+    if (_proposalNotes.hasMatch(line)) start = row.start;
+  }
+  return start == null ? bytes : utf8.encode(text.substring(0, start));
 }

@@ -1,5 +1,7 @@
 """Exercise the FULL design workflow through sw and executable reviewer routes."""
 import json
+import os
+import subprocess
 import sys
 import unittest
 from pathlib import Path
@@ -157,6 +159,50 @@ class TestDesignReview(Base):
         self.assertNotIn("Standing requirements (binding)", self.runs("claude")[-1]["stdin"])
         self.project_settings("review:\n  cross_model: false\n  standing_rules: []\n")
         self.assertNotIn("standing_requirements", self.scratch())
+
+    def test_linked_spec_tree_refuses_full_review(self):
+        self.subagent()
+        outside = self.tmp / "outside-specs"
+        outside.mkdir()
+        (outside / "spec.md").write_text("Uncaptured requirement.\n", encoding="utf-8")
+        link = self.root / "specs" / "capability"
+        link.parent.mkdir()
+        if os.name == "nt":
+            result = subprocess.run(
+                ["cmd.exe", "/d", "/c", "mklink", "/J", str(link), str(outside)],
+                capture_output=True, text=True,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+        else:
+            link.symlink_to(outside, target_is_directory=True)
+        try:
+            self.assertEqual(self.scratch(expect=1)["error"], "bad_design_artifact")
+            self.assertFalse(self.review.exists())
+        finally:
+            if os.name == "nt":
+                link.rmdir()
+            else:
+                link.unlink()
+
+    def test_fenced_release_heading_does_not_hide_proposal_edits(self):
+        self.subagent()
+        for fence, info in (("````", "markdown"), ("~~~", "markdown"), ("<!--", "")):
+            with self.subTest(fence=fence):
+                close = "-->" if fence == "<!--" else fence
+                before = f"# Proposal\n\n{fence}{info}\n## Release Notes\n{close}\n\nRequire draining.\n"
+                self.proposal.write_bytes(before.encode("utf-8"))
+                attempt = self.scratch()
+                self.proposal.write_bytes(before.replace("draining", "aborting").encode("utf-8"))
+                self.assertEqual(self.complete(attempt, VERDICT_OK, expect=1)["error"], "stale_review")
+                self.assertFalse(self.review.exists())
+
+        before = "# Proposal\n\n## Release Notes\nExample:\n```\n## Sample\n```\nNotes here.\n\n## Rollback\nKeep the backup.\n"
+        self.proposal.write_bytes(before.encode("utf-8"))
+        attempt = self.scratch()
+        self.proposal.write_bytes(before.replace("Notes here.", "Updated notes.").encode("utf-8"))
+        self.complete(attempt, VERDICT_OK)
+        self.proposal.write_bytes(before.replace("Keep the backup.", "Delete the backup.").encode("utf-8"))
+        self.assertEqual(self.step()["status"], "review")
 
     def test_bad_rule_fails_before_reviewer(self):
         self.cli()

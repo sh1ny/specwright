@@ -2,7 +2,7 @@
 
 ## Test map
 
-| Requirement | Scenario | Test file (under `evals/`) | Test name | State |
+| Requirement | Scenario | Test file (under `evals/`, except `cli/` tests) | Test name | State |
 |---|---|---|---|---|
 | Legacy override | Parking change with no review rounds | `git-workflow/test_instructions.py` | `test_tasks_precheck_accepts_deferred_with_target` | green (existing) |
 | Legacy override | Escalation after two REVISE rounds | `review-routes/test_design_review.py` | `test_legacy_override_still_passes` | green |
@@ -29,11 +29,14 @@
 | Rule identity | A sibling changes GitButler review settings | `review-routes/test_design_review.py` | `test_settings_pin_and_stale_selection` | green |
 | Rule identity | Route selection used previous settings | `review-routes/test_design_review.py` | `test_settings_pin_and_stale_selection` | green |
 | Captured input | Live artifacts change and change back during dispatch | `review-routes/test_design_review.py` | `test_subagent_capture_and_stale_publication` | green |
+| Captured input | A capability directory in the spec tree is a link | `review-routes/test_design_review.py` | `test_linked_spec_tree_refuses_full_review` | green |
+| Captured input | A proposal example contains a Release Notes heading | `review-routes/test_design_review.py` | `test_fenced_release_heading_does_not_hide_proposal_edits` | green |
 | Captured input | A conditional recheck receives unrelated changes | `review-routes/test_design_review.py` | `test_recheck_cannot_renew_baseline` | green |
 | Captured input | A full pass cannot confirm a recheck | `review-routes/test_design_review.py` | `test_recheck_cannot_renew_baseline` | green |
 | Captured input | A limited recheck cannot establish another baseline | `review-routes/test_design_review.py` | `test_recheck_cannot_renew_baseline` | green |
+| Captured input | Publishing a new result fails after its conditional capture is staged | `cli/test/review/design_publication_test.dart` | `a failed report write leaves the original conditional baseline usable` | green (injected write failure) |
 | Captured input | The ordinary writer targets an open checkpoint | `review-routes/test_design_review.py` | `test_other_writers_cannot_erase_checkpoint` | green |
-| Captured input | Conflicting evidence cannot keep the publication lock | `review-routes/test_design_review.py` | `test_failed_revalidation_releases_publication_lock` | green (Git read failure, no real deadline used) |
+| Captured input | Conflicting evidence cannot keep the publication lock | `cli/test/review/design_publication_test.dart` | `Git deadline during publication preserves the verdict and scoped pass` | green (manual deadline, real lock) |
 | Captured input | Interrupted attempts reach the slot limit | `review-routes/test_design_review.py` | `test_interrupted_slots_and_bounded_failure` | green |
 | Usable evidence and retention | A selected route cannot read the packet | `review-routes/test_design_review.py` | `test_unreadable_route_refuses_before_capture` | green |
 | Usable evidence and retention | A bounded invalid FULL subagent reply | `review-routes/test_design_review.py` | `test_interrupted_slots_and_bounded_failure` | green |

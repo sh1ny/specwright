@@ -259,7 +259,19 @@ class _DesignController {
 
   final String out;
   late final Directory state;
-  Directory get previous => Directory(p.join(state.path, 'previous'));
+  Directory get baselines => Directory(p.join(state.path, 'baselines'));
+  Directory baselineAt(int round) =>
+      Directory(p.join(baselines.path, 'round-$round'));
+
+  void pruneBaselines(int? keepRound) {
+    final root = baselines;
+    if (!root.existsSync()) return;
+    final keep = 'round-$keepRound';
+    for (final entry in root.listSync(followLinks: false)) {
+      if (p.basename(entry.path) != keep) entry.deleteSync(recursive: true);
+    }
+  }
+
   Directory get slots => Directory(p.join(state.path, 'attempts'));
   File get lastFailed => File(p.join(state.path, 'last-failed'));
 
@@ -375,12 +387,13 @@ class _DesignController {
     final record = state.report;
     if (!record.history.baseline ||
         record.applied != 'no' ||
-        record.history.rules != state.rules.identity ||
-        !previous.existsSync()) {
+        record.history.rules != state.rules.identity) {
       return null;
     }
     try {
-      final captured = _DesignArtifacts.read(previous);
+      final prior = baselineAt(record.history.round);
+      if (!prior.existsSync()) return null;
+      final captured = _DesignArtifacts.read(prior);
       return captured.identity == record.history.artifacts ? captured : null;
     } on Object {
       return null;
@@ -761,6 +774,7 @@ class _DesignAttempt {
         );
       }
       final history = state.report.history;
+      final oldBaseline = history.baseline ? history.round : null;
       final choice = history.choice?['choice'];
       history.scopeRound = choice == 'scope-change' || !state.report.unresolved
           ? 1
@@ -773,18 +787,33 @@ class _DesignAttempt {
       history.baseline = verdict == 'APPROVE_WITH_CHANGES' && applied == 'no';
       history.history.add({'round': history.round, 'detail': repairs});
       final updated = text + history.footer();
-      if (controller.previous.existsSync()) {
-        controller.previous.deleteSync(recursive: true);
+      final nextBaseline = history.baseline ? history.round : null;
+      // A crash can leave an unreferenced staged capture. Reclaim it without
+      // touching the baseline named by the report still on disk.
+      controller.pruneBaselines(oldBaseline);
+      try {
+        if (nextBaseline != null) {
+          state.artifacts.write(controller.baselineAt(nextBaseline));
+        }
+        _atomicWrite(controller.out, updated);
+        published = {
+          'ok': true,
+          'status': 'ok',
+          'out': _normal(controller.out),
+          'route': route,
+          'receipt': receipt,
+        };
+      } finally {
+        try {
+          controller.pruneBaselines(
+            published == null ? oldBaseline : nextBaseline,
+          );
+        } on FileSystemException catch (error) {
+          // A later publication reclaims any unreferenced baseline.
+          published?['baseline_cleanup_error'] = error.message;
+        }
       }
-      if (history.baseline) state.artifacts.write(controller.previous);
-      _atomicWrite(controller.out, updated);
-      return published = {
-        'ok': true,
-        'status': 'ok',
-        'out': _normal(controller.out),
-        'route': route,
-        'receipt': receipt,
-      };
+      return published;
     } on Object catch (error) {
       originalError = error;
       rethrow;

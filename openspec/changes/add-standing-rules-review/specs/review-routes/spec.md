@@ -60,11 +60,19 @@ The FULL change-design result SHALL record the effective rule identity. A change
 
 ### Requirement: Review results apply only to captured design inputs
 
-Both FULL routes SHALL review a private capture. A stale result SHALL NOT replace the report. Only a full attempt SHALL establish a conditional baseline. A recheck SHALL compare the captured current artifacts with that baseline and SHALL NOT confirm if changes exceed the Required Changes. A recheck SHALL NOT create or extend a baseline; a valid confirmation or `REVISE` retires it. Incomplete or unpinned input SHALL NOT produce a passing result.
+Both FULL routes SHALL review a private capture. A stale result SHALL NOT replace the report. Only a full attempt SHALL establish a conditional baseline. A recheck SHALL compare captures and SHALL NOT confirm if edits exceed the Required Changes. A recheck SHALL NOT create or extend a baseline; a valid confirmation or `REVISE` retires it. Incomplete or unpinned input SHALL NOT produce a passing result.
 
 #### Scenario: Live artifacts change and change back during dispatch
 - **WHEN** the live design is edited and restored while the reviewer is running
 - **THEN** the reviewer receives the captured design, not the intervening edit; a persistent edit instead makes the result stale at publication
+
+#### Scenario: A capability directory in the spec tree is a link
+- **WHEN** a FULL packet would have to walk a linked capability directory to find a spec delta
+- **THEN** capture refuses before dispatch instead of sending an incomplete packet
+
+#### Scenario: A proposal example contains a Release Notes heading
+- **WHEN** a fenced example contains a `## Release Notes` heading, and substantive proposal text outside that example changes
+- **THEN** the edit invalidates the result; only changes within the actual top-level Release Notes section are excluded
 
 #### Scenario: A conditional recheck receives unrelated changes
 - **WHEN** the artifacts contain a Required Change plus an unrelated change to a requirement
@@ -77,6 +85,10 @@ Both FULL routes SHALL review a private capture. A stale result SHALL NOT replac
 #### Scenario: A limited recheck cannot establish another baseline
 - **WHEN** either FULL route, during a limited recheck, returns `APPROVE_WITH_CHANGES` with `CHANGES_APPLIED: no` after an unrelated artifact change
 - **THEN** the result is rejected without replacing the previous report or promoting the recheck's capture; a valid `REVISE` instead closes the prior baseline and the next attempt must be a full review
+
+#### Scenario: Publishing a new result fails after its conditional capture is staged
+- **WHEN** a full pass stages a new conditional capture but replacement of `review.md` fails
+- **THEN** the old report still refers to its own baseline, which remains usable for an otherwise eligible recheck
 
 #### Scenario: The ordinary writer targets an open checkpoint
 - **WHEN** either ordinary design route omits the FULL change option but targets the active `review.md` of a change at its checkpoint
@@ -92,7 +104,7 @@ Both FULL routes SHALL review a private capture. A stale result SHALL NOT replac
 
 ### Requirement: FULL design review requires usable evidence and bounds failure retention
 
-A FULL change-design route without local file reads SHALL be refused before dispatch. Completed failed FULL attempts SHALL retain at most one diagnostic of up to 2 MiB per change, across CLI and subagent routes. A refusal SHALL report a diagnostic path only if that attempt successfully retained a bounded result. Oversized replies SHALL NOT be retained. Diagnostics SHALL NOT count as a review result or round.
+A FULL change-design route without local file reads SHALL be refused before dispatch. Completed failed FULL attempts SHALL retain at most one diagnostic of up to 2 MiB per change, across CLI and subagent routes. A refusal SHALL report a diagnostic path only if that attempt successfully retained a bounded result. Oversized replies and full session transcripts SHALL NOT be retained. Diagnostics SHALL NOT count as a review result or round.
 
 #### Scenario: A selected route cannot read the packet
 - **WHEN** an OMP or Claude route is selected for FULL change-design review with no effective `read` or `Read` tool respectively
