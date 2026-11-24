@@ -54,7 +54,7 @@ class TestDesignReview(Base):
     def complete(self, started, answer, expect=0):
         from pathlib import Path
         path = Path(started["scratch"])
-        path.write_bytes(answer.encode("utf-8"))
+        path.write_bytes(answer.encode("utf-8") if isinstance(answer, str) else answer)
         return self.script("record", *self.args(self.select_full()), "--result", path,
                            "--attempt", started["attempt"], "--route", "subagent", expect=expect)
 
@@ -212,6 +212,28 @@ class TestDesignReview(Base):
         self.complete(attempt, VERDICT_OK)
         self.proposal.write_bytes(before.replace("Keep the backup.", "Delete the backup.").encode("utf-8"))
         self.assertEqual(self.step()["status"], "review")
+
+    def test_raw_html_cannot_hide_proposal_edits(self):
+        self.subagent()
+        for opening, closing in (
+            ("<div class=\"example\">", "</div>"),
+            ("<pre>\n", "</pre>"),
+            ("<example-panel>", "</example-panel>"),
+            ("<?example", "?>"),
+        ):
+            with self.subTest(opening=opening):
+                before = f"# Proposal\n\n{opening}\n## Release Notes\n{closing}\n\nRequire draining.\n"
+                self.proposal.write_bytes(before.encode("utf-8"))
+                self.complete(self.scratch(), VERDICT_OK)
+                self.proposal.write_bytes(before.replace("draining", "aborting").encode("utf-8"))
+                self.assertEqual(self.step()["status"], "review")
+
+        before = "# Proposal\n\n<div>\n## A raw heading\n</div>\n\n## Release Notes\nOld notes.\n"
+        self.proposal.write_bytes(before.encode("utf-8"))
+        attempt = self.scratch()
+        self.proposal.write_bytes(before.replace("Old notes.", "New notes.").encode("utf-8"))
+        self.complete(attempt, VERDICT_OK)
+        self.assertEqual(self.step()["status"], "pass")
 
     def test_setext_heading_after_release_notes_stays_reviewed(self):
         self.subagent()
@@ -381,6 +403,25 @@ class TestDesignReview(Base):
         self.assertEqual(self.review.read_bytes(), old)
         self.assertEqual(self.step()["round"], 1)
         self.complete(self.scratch(), VERDICT_OK)
+
+    def test_malformed_utf8_keeps_scoped_pass_and_record(self):
+        self.subagent(1)
+        self.complete(self.scratch(), REVISE)
+        self.choice(1, "scoped-pass", "Verify graceful exit")
+        previous = self.review.read_bytes()
+        for count in (1, 1536 * 1024):
+            with self.subTest(count=count):
+                attempt = self.scratch()
+                malformed = b"\xff" * count + b"\n" + VERDICT_OK.encode("utf-8")
+                rejected = self.complete(attempt, malformed, expect=3)
+                self.assertEqual(rejected["error"], "invalid_output")
+                self.assertIn("UTF-8", rejected["message"])
+                self.assertNotIn("diagnostic", rejected)
+                self.assertFalse(Path(attempt["scratch"]).exists())
+                self.assertEqual(self.review.read_bytes(), previous)
+                self.assertEqual(self.step()["round"], 1)
+        self.complete(self.scratch(), VERDICT_OK)
+        self.assertEqual(self.step()["status"], "pass")
 
     def test_unreadable_route_refuses_before_capture(self):
         self.install("claude", "omp")

@@ -728,8 +728,9 @@ class _DesignAttempt {
   Future<Map<String, Object?>> publish(
     Map<String, String> args,
     String? text,
-    Map<String, Object?> receipt,
-  ) => controller.locked(() async {
+    Map<String, Object?> receipt, {
+    String? inputProblem,
+  }) => controller.locked(() async {
     Object? originalError;
     Map<String, Object?>? published;
     try {
@@ -742,7 +743,9 @@ class _DesignAttempt {
           'review inputs changed; the prior review was not replaced',
         );
       }
-      final problem = text == null ? 'output too large' : _validateDesign(text);
+      final problem =
+          inputProblem ??
+          (text == null ? 'output too large' : _validateDesign(text));
       final verdict = text == null ? null : _designLine(text, 'VERDICT');
       final applied = text == null
           ? null

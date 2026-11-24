@@ -443,17 +443,108 @@ final _proposalNonParagraph = RegExp(
   r'^(?:[ \t]*$| {0,3}(?:>|[-+*][ \t]|\d{1,9}[.)][ \t]))',
 );
 
+// CommonMark 4.6: tagged raw blocks and declarations close on tokens; named
+// block tags close on a blank line, not on their closing tag.
+final _proposalHtmlStart = RegExp(
+  r'^( {0,3})(?:<[!?]|</?([A-Za-z][A-Za-z0-9-]*)(?=[ \t]|/?>|$))',
+);
+final _proposalRawTag = RegExp(
+  r'^<(?:pre|script|style|textarea)(?:[ \t>]|$)',
+  caseSensitive: false,
+);
+final _proposalRawEnd = RegExp(
+  r'</(?:pre|script|style|textarea)>',
+  caseSensitive: false,
+);
+final _proposalDeclaration = RegExp(r'^<![A-Za-z]');
+final _proposalBlankLine = RegExp(r'^[ \t]*$');
+const _proposalBlockTags = {
+  'address',
+  'article',
+  'aside',
+  'base',
+  'basefont',
+  'blockquote',
+  'body',
+  'caption',
+  'center',
+  'col',
+  'colgroup',
+  'dd',
+  'details',
+  'dialog',
+  'dir',
+  'div',
+  'dl',
+  'dt',
+  'fieldset',
+  'figcaption',
+  'figure',
+  'footer',
+  'form',
+  'frame',
+  'frameset',
+  'h1',
+  'h2',
+  'h3',
+  'h4',
+  'h5',
+  'h6',
+  'head',
+  'header',
+  'hr',
+  'html',
+  'iframe',
+  'legend',
+  'li',
+  'link',
+  'main',
+  'menu',
+  'menuitem',
+  'nav',
+  'noframes',
+  'ol',
+  'optgroup',
+  'option',
+  'p',
+  'param',
+  'search',
+  'section',
+  'summary',
+  'table',
+  'tbody',
+  'td',
+  'tfoot',
+  'th',
+  'thead',
+  'title',
+  'tr',
+  'track',
+  'ul',
+};
+
+Pattern? _proposalHtmlEnd(String line, String? tag) {
+  if (line.startsWith('<!--')) return '-->';
+  if (line.startsWith('<?')) return '?>';
+  if (line.startsWith('<![CDATA[')) return ']]>';
+  if (_proposalDeclaration.hasMatch(line)) return '>';
+  if (_proposalRawTag.hasMatch(line)) return _proposalRawEnd;
+  if (_proposalBlockTags.contains(tag?.toLowerCase())) {
+    return _proposalBlankLine;
+  }
+  return null;
+}
+
 List<int> _proposalEvidence(List<int> bytes) {
   final text = utf8.decode(bytes);
   String? fence;
-  var inComment = false;
+  Pattern? htmlEnd;
   int? start;
   int? paragraph;
   for (final row in _proposalLine.allMatches(text)) {
     final line = row[1]!;
-    if (fence == null && (inComment || line.trimLeft().startsWith('<!--'))) {
-      inComment = !line.contains('-->');
-      paragraph = null;
+    if (htmlEnd != null) {
+      if (line.contains(htmlEnd)) htmlEnd = null;
       continue;
     }
     final marker = _proposalFence.firstMatch(line);
@@ -462,6 +553,16 @@ List<int> _proposalEvidence(List<int> bytes) {
       if (run != null && run.startsWith(fence) && marker![2]!.trim().isEmpty) {
         fence = null;
       }
+      continue;
+    }
+    final html = _proposalHtmlStart.firstMatch(line);
+    if (html != null) {
+      final end = html[1]!.isEmpty ? _proposalHtmlEnd(line, html[2]) : null;
+      // Generic tags and possible container nesting need a full Markdown
+      // parse. Hash every byte rather than guessing which text can be ignored.
+      if (end == null) return bytes;
+      if (!line.contains(end)) htmlEnd = end;
+      paragraph = null;
       continue;
     }
     if (marker != null) {

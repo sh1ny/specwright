@@ -60,3 +60,4 @@ FULL change-design reviews can use a repository's own versioned rules, including
 ### Changed
 
 - `review.design_max_rounds` controls the design review owner checkpoint, default three. The checkpoint records the owner's choice without turning outstanding findings into an approval (#172).
+- An in-flight FULL approval recorded before Specwright tracked review inputs needs a fresh FULL review before tasks or apply. Historical `USER_OVERRIDE` records keep their disposition.

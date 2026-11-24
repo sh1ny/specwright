@@ -71,8 +71,8 @@ Both FULL routes SHALL review a private capture. A stale result SHALL NOT replac
 - **THEN** capture refuses before dispatch instead of sending an incomplete packet
 
 #### Scenario: A proposal example contains a Release Notes heading
-- **WHEN** a fenced example contains a `## Release Notes` heading, and substantive proposal text outside that example changes
-- **THEN** the edit invalidates the result; only changes within the actual top-level Release Notes section are excluded
+- **WHEN** a fenced example or a raw HTML block contains a `## Release Notes` heading, and substantive proposal text outside it changes
+- **THEN** the edit invalidates the result; only a verified top-level Release Notes section is excluded
 
 #### Scenario: A Setext heading follows Release Notes
 - **WHEN** an edit changes a section under an H1 or H2 Setext heading following Release Notes
@@ -112,15 +112,19 @@ Both FULL routes SHALL review a private capture. A stale result SHALL NOT replac
 
 ### Requirement: FULL design review requires usable evidence and bounds failure retention
 
-A FULL change-design route without local file reads SHALL be refused before dispatch. Completed failed FULL attempts SHALL retain at most one diagnostic of up to 2 MiB per change, across CLI and subagent routes. A refusal SHALL report a diagnostic path only if that attempt successfully retained a bounded result. Oversized replies and full session transcripts SHALL NOT be retained. Diagnostics SHALL NOT count as a review result or round.
+A FULL change-design route without local file reads SHALL be refused before dispatch. Failed FULL attempts SHALL retain at most one diagnostic of up to 2 MiB per change across routes. A refusal SHALL name a diagnostic only when that attempt retained it. Oversized replies, malformed UTF-8 scratch replies and full session transcripts SHALL NOT be retained. Diagnostics SHALL NOT count as a review result or round.
 
 #### Scenario: A selected route cannot read the packet
 - **WHEN** an OMP or Claude route is selected for FULL change-design review with no effective `read` or `Read` tool respectively
 - **THEN** dispatch identifies the missing tool without starting the reviewer, creating a capture or mutating the prior report
 
 #### Scenario: A bounded invalid FULL subagent reply
-- **WHEN** the FULL subagent returns a bounded invalid reply during an authorized scoped pass
+- **WHEN** the FULL subagent returns a bounded, well-formed UTF-8 reply with an invalid verdict during an authorized scoped pass
 - **THEN** validation exits 3 with `status: invalid`, removes the original scratch, and reports a path to the retained bounded diagnostic; the earlier review is byte-identical and neither a round nor scoped permission is consumed
+
+#### Scenario: A FULL scratch reply has malformed UTF-8
+- **WHEN** a FULL subagent reply contains malformed UTF-8, even with a valid verdict and a raw size under 2 MiB
+- **THEN** validation exits 3 with `status: invalid`, removes the scratch without retaining it, and leaves the earlier review and scoped permission unchanged
 
 #### Scenario: Repeated failures and oversized scratch output
 - **WHEN** multiple FULL attempts are refused with bounded invalid results, followed by an oversized scratch reply

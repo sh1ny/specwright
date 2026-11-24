@@ -31,6 +31,7 @@
 | Captured input | Live artifacts change and change back during dispatch | `review-routes/test_design_review.py` | `test_subagent_capture_and_stale_publication` | green |
 | Captured input | A capability directory in the spec tree is a link | `review-routes/test_design_review.py` | `test_linked_spec_tree_refuses_full_review` | green |
 | Captured input | A proposal example contains a Release Notes heading | `review-routes/test_design_review.py` | `test_fenced_release_heading_does_not_hide_proposal_edits` | green |
+| Captured input | A proposal example contains a Release Notes heading (raw HTML) | `review-routes/test_design_review.py` | `test_raw_html_cannot_hide_proposal_edits` | green |
 | Captured input | A Setext heading follows Release Notes | `review-routes/test_design_review.py` | `test_setext_heading_after_release_notes_stays_reviewed` | green |
 | Captured input | An earlier FULL approval lacks a capture fingerprint | `review-routes/test_design_review.py` | `test_legacy_unpinned_approval_requires_full_review` | green |
 | Captured input | A conditional recheck receives unrelated changes | `review-routes/test_design_review.py` | `test_recheck_cannot_renew_baseline` | green |
@@ -42,6 +43,7 @@
 | Captured input | Interrupted attempts reach the slot limit | `review-routes/test_design_review.py` | `test_interrupted_slots_and_bounded_failure` | green |
 | Usable evidence and retention | A selected route cannot read the packet | `review-routes/test_design_review.py` | `test_unreadable_route_refuses_before_capture` | green |
 | Usable evidence and retention | A bounded invalid FULL subagent reply | `review-routes/test_design_review.py` | `test_interrupted_slots_and_bounded_failure` | green |
+| Usable evidence and retention | A FULL scratch reply has malformed UTF-8 | `review-routes/test_design_review.py` | `test_malformed_utf8_keeps_scoped_pass_and_record` | green |
 | Usable evidence and retention | Repeated failures and oversized scratch output | `review-routes/test_design_review.py` | `test_interrupted_slots_and_bounded_failure` | green |
 
 ## 1. Design review inputs and checkpoint

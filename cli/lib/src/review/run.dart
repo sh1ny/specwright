@@ -654,9 +654,17 @@ class _ReviewOperations {
               FileSystemEntityType.file
           ? readRegularFile(path, limit: _maxAnswer + 1)
           : null;
-      final text = bytes == null || bytes.length > _maxAnswer
-          ? null
-          : utf8.decode(bytes, allowMalformed: true);
+      String? text;
+      String? inputProblem;
+      if (bytes == null) {
+        inputProblem = 'expected a regular FULL scratch reply';
+      } else if (bytes.length <= _maxAnswer) {
+        try {
+          text = utf8.decode(bytes);
+        } on FormatException {
+          inputProblem = 'FULL scratch reply is not valid UTF-8';
+        }
+      }
       final receipt = _makeReceipt(
         route: 'subagent',
         skipped: _loadSelection(args.values['selection'], 'subagent'),
@@ -668,7 +676,12 @@ class _ReviewOperations {
         actualThinking: 'unknown',
         processGroup: 'session',
       );
-      return attempt.publish(args.values, text, receipt);
+      return attempt.publish(
+        args.values,
+        text,
+        receipt,
+        inputProblem: inputProblem,
+      );
     }
     if (scratch) {
       _need(args.values, const ['kind', 'change']);
