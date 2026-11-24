@@ -78,4 +78,4 @@ FULL change-design reviews can use a repository's own versioned rules, including
 ### Changed
 
 - `review.design_max_rounds` controls how many validated rounds in the current scope can run before an unresolved result triggers the owner checkpoint (default three). The checkpoint records the owner's choice without turning outstanding findings into an approval (#172).
-- Migration: in each of the eight adopting repositories, copy `rules/windows-ci-tests.md` from Mastermind, commit it as a regular file, and add `review.standing_rules: [rules/windows-ci-tests.md]` to that repository’s `openspec/specwright.yaml`. No other repository is changed here.
+- Create a rules file for your project, such as `rules/review-criteria.md`. Commit it and list its repository-relative path under `review.standing_rules` in `openspec/specwright.yaml`.
