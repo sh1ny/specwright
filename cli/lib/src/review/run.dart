@@ -18,6 +18,7 @@ import '../process/limit_line.dart';
 import '../process/limits.dart';
 import '../process/platform_tree.dart';
 import '../process/resolve.dart';
+import '../release/notes.dart' show isReleaseNotesHeading;
 import '../settings/reviewer_config.dart' show reviewerHome;
 import '../settings/rules.dart' show SettingsStop;
 import '../vcs/text_result.dart';

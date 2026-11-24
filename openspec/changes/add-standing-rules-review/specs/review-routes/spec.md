@@ -74,6 +74,14 @@ Both FULL routes SHALL review a private capture. A stale result SHALL NOT replac
 - **WHEN** a fenced example contains a `## Release Notes` heading, and substantive proposal text outside that example changes
 - **THEN** the edit invalidates the result; only changes within the actual top-level Release Notes section are excluded
 
+#### Scenario: A Setext heading follows Release Notes
+- **WHEN** an edit changes a section under an H1 or H2 Setext heading following Release Notes
+- **THEN** the edit invalidates approval, even though the next title is not written with `#` markers
+
+#### Scenario: An earlier FULL approval lacks a capture fingerprint
+- **WHEN** an in-flight change has an ordinary passing FULL report from before capture fingerprints were recorded
+- **THEN** tasks and apply need a fresh FULL review; a historical `USER_OVERRIDE` keeps its disposition
+
 #### Scenario: A conditional recheck receives unrelated changes
 - **WHEN** the artifacts contain a Required Change plus an unrelated change to a requirement
 - **THEN** the recheck gets the prior and current captures and must not confirm unless all changes are within the Required Changes, excluding Release Notes-only changes

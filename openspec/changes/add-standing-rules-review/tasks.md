@@ -31,6 +31,8 @@
 | Captured input | Live artifacts change and change back during dispatch | `review-routes/test_design_review.py` | `test_subagent_capture_and_stale_publication` | green |
 | Captured input | A capability directory in the spec tree is a link | `review-routes/test_design_review.py` | `test_linked_spec_tree_refuses_full_review` | green |
 | Captured input | A proposal example contains a Release Notes heading | `review-routes/test_design_review.py` | `test_fenced_release_heading_does_not_hide_proposal_edits` | green |
+| Captured input | A Setext heading follows Release Notes | `review-routes/test_design_review.py` | `test_setext_heading_after_release_notes_stays_reviewed` | green |
+| Captured input | An earlier FULL approval lacks a capture fingerprint | `review-routes/test_design_review.py` | `test_legacy_unpinned_approval_requires_full_review` | green |
 | Captured input | A conditional recheck receives unrelated changes | `review-routes/test_design_review.py` | `test_recheck_cannot_renew_baseline` | green |
 | Captured input | A full pass cannot confirm a recheck | `review-routes/test_design_review.py` | `test_recheck_cannot_renew_baseline` | green |
 | Captured input | A limited recheck cannot establish another baseline | `review-routes/test_design_review.py` | `test_recheck_cannot_renew_baseline` | green |

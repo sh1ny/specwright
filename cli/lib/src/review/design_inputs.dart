@@ -437,18 +437,23 @@ class _DesignArtifacts {
 
 final _proposalLine = RegExp(r'([^\r\n]*)(?:\r\n|\r|\n|$)');
 final _proposalFence = RegExp(r'^ {0,3}(`{3,}|~{3,})(.*)$');
-final _proposalHeading = RegExp(r'^ {0,3}#{1,2}(?:[ \t]|$)');
-final _proposalNotes = RegExp(r'^## Release Notes[ \t]*$');
+final _proposalHeading = RegExp(r'^ {0,3}(#{1,6})(?:[ \t]|$)');
+final _proposalSetext = RegExp(r'^ {0,3}(?:=+|-+)[ \t]*$');
+final _proposalNonParagraph = RegExp(
+  r'^(?:[ \t]*$| {0,3}(?:>|[-+*][ \t]|\d{1,9}[.)][ \t]))',
+);
 
 List<int> _proposalEvidence(List<int> bytes) {
   final text = utf8.decode(bytes);
   String? fence;
   var inComment = false;
   int? start;
+  int? paragraph;
   for (final row in _proposalLine.allMatches(text)) {
     final line = row[1]!;
     if (fence == null && (inComment || line.trimLeft().startsWith('<!--'))) {
       inComment = !line.contains('-->');
+      paragraph = null;
       continue;
     }
     final marker = _proposalFence.firstMatch(line);
@@ -462,13 +467,30 @@ List<int> _proposalEvidence(List<int> bytes) {
     if (marker != null) {
       final run = marker[1]!;
       if (!run.startsWith('`') || !marker[2]!.contains('`')) fence = run;
+      paragraph = null;
       continue;
     }
-    if (!_proposalHeading.hasMatch(line)) continue;
-    if (start != null) {
-      return utf8.encode(text.substring(0, start) + text.substring(row.start));
+    final heading = _proposalHeading.firstMatch(line);
+    if (heading != null) {
+      if (start != null && heading[1]!.length <= 2) {
+        return utf8.encode(
+          text.substring(0, start) + text.substring(row.start),
+        );
+      }
+      if (start == null && isReleaseNotesHeading(line)) start = row.start;
+      paragraph = null;
+    } else if (_proposalSetext.hasMatch(line)) {
+      if (start != null && paragraph != null) {
+        return utf8.encode(
+          text.substring(0, start) + text.substring(paragraph),
+        );
+      }
+      paragraph = null;
+    } else if (_proposalNonParagraph.hasMatch(line)) {
+      paragraph = null;
+    } else {
+      paragraph ??= row.start;
     }
-    if (_proposalNotes.hasMatch(line)) start = row.start;
   }
   return start == null ? bytes : utf8.encode(text.substring(0, start));
 }

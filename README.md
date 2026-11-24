@@ -893,6 +893,7 @@ No trigger → **LIGHT** (triage, context, decisions). Any trigger → **FULL**:
 The agent never offers `DEFERRED` or `WAIVED`. A project that recorded a deferral as `USER_OVERRIDE` may rewrite it as `DEFERRED`.
 
 A verdict covers what was reviewed. Changing the proposal, specs, design or standing rules requires a new review, except for an edit confined to Release Notes or Required Changes confirmed by the reviewer.
+On upgrade, an in-flight FULL approval from before Specwright tracked review inputs needs one new FULL review. Historical `USER_OVERRIDE` records retain their disposition.
 </details>
 
 ### Standing requirements and design checkpoint

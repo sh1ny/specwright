@@ -46,6 +46,10 @@ final RegExp _notesHead = RegExp(
   r'^##[ \t]+Release Notes[ \t]*$',
   caseSensitive: false,
 );
+
+/// Whether [line] names the proposal's Release Notes heading.
+bool isReleaseNotesHeading(String line) => _notesHead.hasMatch(line);
+
 final RegExp _subHead = RegExp(r'^###(?!#)[ \t]*(.*?)[ \t]*$', dotAll: true);
 final RegExp _itemStart = RegExp(r'^[-*+][ \t]+(.*)$', dotAll: true);
 final RegExp _codeSpan = RegExp(
@@ -70,7 +74,7 @@ ParsedNotes? parseReleaseNotes(String source) {
   final lines = [
     for (final l in text.split('\n')) l.replaceFirst(RegExp(r'\r+$'), ''),
   ];
-  final start = lines.indexWhere(_notesHead.hasMatch);
+  final start = lines.indexWhere(isReleaseNotesHeading);
   if (start < 0) return null;
   var end = lines.length;
   for (var i = start + 1; i < lines.length; i++) {

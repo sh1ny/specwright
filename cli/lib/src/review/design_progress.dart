@@ -622,9 +622,10 @@ class _DesignState {
       return 'scope_unchanged';
     }
     if (report.verdict == 'USER_OVERRIDE' && !report.managed) return 'pass';
-    if (report.passing &&
+    if (report.managed &&
+        report.passing &&
         history.rules == rules.identity &&
-        (!report.managed || history.artifacts == artifacts.identity)) {
+        history.artifacts == artifacts.identity) {
       return 'pass';
     }
     if (report.unresolved &&

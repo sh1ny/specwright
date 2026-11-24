@@ -136,6 +136,15 @@ class TestDesignReview(Base):
         self.review.write_text("VERDICT: USER_OVERRIDE\nCHANGES_APPLIED: n/a\n", encoding="utf-8")
         self.assertEqual(self.step()["status"], "pass")
 
+    def test_legacy_unpinned_approval_requires_full_review(self):
+        self.subagent()
+        for old in (VERDICT_OK, CONFIRMED):
+            with self.subTest(verdict=old):
+                self.review.write_bytes(old.encode("utf-8"))
+                self.assertEqual(self.step()["status"], "review")
+                self.assertEqual(self.scratch(recheck=True, expect=1)["error"], "full_review_required")
+                self.assertEqual(self.review.read_bytes(), old.encode("utf-8"))
+
     def test_full_rules_use_branch_blobs_on_both_routes(self):
         self.cli()
         files = {"rules/windows.md": "Wait for exit.\nFull café text.\n", "rules/order.md": "Order before timing.\n"}
@@ -203,6 +212,24 @@ class TestDesignReview(Base):
         self.complete(attempt, VERDICT_OK)
         self.proposal.write_bytes(before.replace("Keep the backup.", "Delete the backup.").encode("utf-8"))
         self.assertEqual(self.step()["status"], "review")
+
+    def test_setext_heading_after_release_notes_stays_reviewed(self):
+        self.subagent()
+        for underline in ("--------", "========"):
+            with self.subTest(underline=underline):
+                before = f"# Proposal\n\n## Release Notes\nOriginal notes.\n\nRollback\n{underline}\nKeep the backup.\n"
+                self.proposal.write_bytes(before.encode("utf-8"))
+                self.complete(self.scratch(), VERDICT_OK)
+                self.proposal.write_bytes(before.replace("Keep the backup.", "Delete the backup.").encode("utf-8"))
+                self.assertEqual(self.step()["status"], "review")
+
+    def test_release_heading_matches_release_validation(self):
+        self.subagent()
+        before = "# Proposal\n\n## \tReLeAsE nOtEs\nOriginal notes.\n\n## Rollback\nKeep the backup.\n"
+        self.proposal.write_bytes(before.encode("utf-8"))
+        self.complete(self.scratch(), VERDICT_OK)
+        self.proposal.write_bytes(before.replace("Original notes.", "Updated notes.").encode("utf-8"))
+        self.assertEqual(self.step()["status"], "pass")
 
     def test_bad_rule_fails_before_reviewer(self):
         self.cli()
@@ -282,6 +309,8 @@ class TestDesignReview(Base):
         recheck = self.scratch(recheck=True)
         self.assertIn("Design A", Path(recheck["prior_artifacts"]["design"]).read_text(encoding="utf-8"))
         self.assertIn("unrelated policy", Path(recheck["artifacts"]["design"]).read_text(encoding="utf-8"))
+        self.assertEqual(recheck["mode"], "recheck")
+        self.assertIn("## Required Changes\nWait for exit.", Path(recheck["prior_review"]).read_text(encoding="utf-8"))
         old = self.review.read_bytes()
         self.complete(recheck, CONDITIONAL, expect=3)
         self.assertEqual(self.review.read_bytes(), old)
@@ -291,6 +320,10 @@ class TestDesignReview(Base):
         self.run_cli(CONDITIONAL)
         old = self.review.read_bytes()
         self.run_cli(CONDITIONAL, recheck=True, expect=3)
+        prompt = self.runs("claude")[-1]["stdin"]
+        self.assertIn("Prior full-review artifacts:", prompt)
+        self.assertIn("Prior review:", prompt)
+        self.assertRegex(prompt, r"(?i)if .*outside the Required Changes, return REVISE\b")
         self.assertEqual(self.review.read_bytes(), old)
 
     def test_other_writers_cannot_erase_checkpoint(self):
