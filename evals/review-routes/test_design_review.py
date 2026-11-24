@@ -360,6 +360,45 @@ class TestDesignReview(Base):
         self.complete(self.scratch(), VERDICT_OK)
         self.assertEqual(self.step()["status"], "pass")
 
+    def test_changed_attempt_evidence_rejects_full_and_recheck_verdicts(self):
+        self.subagent(1)
+        self.complete(self.scratch(), REVISE)
+        self.choice(1, "scoped-pass", "Verify graceful exit")
+        previous = self.review.read_bytes()
+        first = self.scratch()
+        Path(first["artifacts"]["design"]).unlink()
+        self.assertEqual(self.complete(first, VERDICT_OK, expect=1)["error"], "stale_review")
+        self.assertEqual(self.review.read_bytes(), previous)
+        self.complete(self.scratch(), CONDITIONAL)
+        self.choice(2, "scoped-pass", "Check the Required Changes")
+        previous = self.review.read_bytes()
+
+        for artifact in ("artifacts", "prior_artifacts", "prior_review"):
+            with self.subTest(artifact=artifact):
+                attempt = self.scratch(recheck=True)
+                path = Path(attempt[artifact] if artifact == "prior_review" else attempt[artifact]["proposal"])
+                original = b"Wait for exit." if artifact == "prior_review" else b"Original notes."
+                path.write_bytes(path.read_bytes().replace(original, b"Modified captured evidence."))
+                self.assertEqual(self.complete(attempt, CONFIRMED, expect=1)["error"], "stale_review")
+                self.assertEqual(self.review.read_bytes(), previous)
+        self.complete(self.scratch(recheck=True), CONFIRMED)
+        self.assertEqual(self.step()["status"], "pass")
+
+    def test_reopened_recheck_refuses_changed_cached_baseline(self):
+        self.subagent()
+        first = self.scratch()
+        self.complete(first, CONDITIONAL)
+        previous = self.review.read_bytes()
+        # Corrupt only Release Notes in the persisted cache: the normalized
+        # review fingerprint is unchanged, but these are not the reviewed bytes.
+        cached, = self.state_dir.glob("change-review/*/baselines/*/proposal.md")
+        cached.write_bytes(cached.read_bytes().replace(b"Original notes.", b"Incorrect baseline notes."))
+        self.assertEqual(self.scratch(recheck=True, expect=1)["error"], "full_review_required")
+        self.assertEqual(self.review.read_bytes(), previous)
+        self.complete(self.scratch(), CONDITIONAL)
+        self.complete(self.scratch(recheck=True), CONFIRMED)
+        self.assertEqual(self.step()["status"], "pass")
+
     def test_recheck_cannot_renew_baseline(self):
         from pathlib import Path
         self.subagent()

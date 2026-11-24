@@ -102,6 +102,14 @@ Both FULL routes SHALL review a private capture. A stale result SHALL NOT replac
 - **WHEN** a full pass reviews a captured proposal and the live Release Notes alone change before it publishes a conditional verdict
 - **THEN** revalidation can accept the result, but the next recheck receives the exact dispatched bytes as its prior capture; a changed dispatch capture cannot become the baseline
 
+#### Scenario: Evidence in an active attempt is changed or removed
+- **WHEN** the current capture or the copied prior evidence changes after dispatch, even if live inputs are unchanged
+- **THEN** no FULL verdict replaces the report or consumes a round or scoped permission
+
+#### Scenario: The cached conditional baseline no longer matches the recorded digest
+- **WHEN** the baseline digest is missing or the cache differs from the exact reviewed bytes, including an edit to cached Release Notes
+- **THEN** a recheck is refused and only a new full review can establish a fresh baseline
+
 #### Scenario: Publishing a new result fails after its conditional capture is staged
 - **WHEN** a full pass stages a new conditional capture but replacement of `review.md` fails
 - **THEN** the old report still refers to its own baseline, which remains usable for an otherwise eligible recheck

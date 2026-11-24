@@ -19,6 +19,7 @@ class _DesignHistory {
     this.rules = '',
     this.extended = false,
     this.baseline = false,
+    this.baselineDigest,
     List<Map<String, Object?>>? history,
   }) : history = history ?? [];
 
@@ -28,6 +29,7 @@ class _DesignHistory {
   String rules;
   bool extended;
   bool baseline;
+  String? baselineDigest;
   final List<Map<String, Object?>> history;
 
   Map<String, Object?>? get choice {
@@ -47,6 +49,7 @@ class _DesignHistory {
           'rules': rules,
           'extended': extended,
           'baseline': baseline,
+          'baseline_digest': ?baselineDigest,
           'history': history,
         }),
       ),
@@ -96,11 +99,17 @@ class _DesignHistory {
         rules: obj['rules'] as String,
         extended: obj['extended'] as bool,
         baseline: obj['baseline'] as bool,
+        baselineDigest: obj['baseline_digest'] as String?,
         history: (obj['history'] as List).cast<Map<String, Object?>>(),
       );
       if (result.round < 1 ||
           result.scopeRound < 1 ||
           result.scopeRound > result.round) {
+        throw const FormatException();
+      }
+      final digest = result.baselineDigest;
+      if (digest != null &&
+          (!result.baseline || !RegExp(r'^[a-f0-9]{64}$').hasMatch(digest))) {
         throw const FormatException();
       }
       for (final item in result.history) {
@@ -385,16 +394,23 @@ class _DesignController {
 
   _DesignArtifacts? baseline(_DesignState state) {
     final record = state.report;
-    if (!record.history.baseline ||
+    final digest = record.history.baselineDigest;
+    if (digest == null ||
         record.applied != 'no' ||
         record.history.rules != state.rules.identity) {
       return null;
     }
     try {
       final prior = baselineAt(record.history.round);
-      if (!prior.existsSync()) return null;
+      if (FileSystemEntity.typeSync(prior.path, followLinks: false) !=
+          FileSystemEntityType.directory) {
+        return null;
+      }
       final captured = _DesignArtifacts.read(prior);
-      return captured.identity == record.history.artifacts ? captured : null;
+      return captured.exactIdentity == digest &&
+              captured.identity == record.history.artifacts
+          ? captured
+          : null;
     } on Object {
       return null;
     }
@@ -648,7 +664,7 @@ class _DesignState {
     'verdict': ?report.verdict,
     'choice': ?report.history.choice?['choice'],
     'recheck_candidate':
-        report.history.baseline &&
+        report.history.baselineDigest != null &&
         report.history.rules == rules.identity &&
         report.history.choice?['choice'] != 'scope-change',
   };
@@ -731,6 +747,39 @@ class _DesignAttempt {
     return result.toString();
   }
 
+  _DesignArtifacts? _readCapture(String name, String digest) {
+    try {
+      final root = p.join(dir.path, name);
+      if (FileSystemEntity.typeSync(root, followLinks: false) !=
+          FileSystemEntityType.directory) {
+        return null;
+      }
+      final captured = _DesignArtifacts.read(Directory(root));
+      return captured.exactIdentity == digest ? captured : null;
+    } catch (error) {
+      if (error is! ReviewStop &&
+          error is! FileSystemException &&
+          error is! FormatException) {
+        rethrow;
+      }
+      return null;
+    }
+  }
+
+  bool _matchesPriorReport(String identity) {
+    final path = p.join(dir.path, 'prior-review.md');
+    try {
+      if (FileSystemEntity.typeSync(path, followLinks: false) !=
+          FileSystemEntityType.file) {
+        return false;
+      }
+      final bytes = readRegularFile(path, limit: 2 * _maxAnswer + 1);
+      return bytes != null && sha256.convert(bytes).toString() == identity;
+    } on FileSystemException {
+      return false;
+    }
+  }
+
   Future<Map<String, Object?>> publish(
     Map<String, String> args,
     String? text,
@@ -783,6 +832,18 @@ class _DesignAttempt {
           extra: extra,
         );
       }
+      final captured = _readCapture('current', captureIdentity);
+      if (captured == null ||
+          (recheck &&
+              _readCapture('prior', state.report.history.baselineDigest!) ==
+                  null) ||
+          (state.report.raw.isNotEmpty &&
+              !_matchesPriorReport(state.report.identity))) {
+        throw ReviewStop(
+          'stale_review',
+          'the FULL dispatch capture changed; the prior review was not replaced',
+        );
+      }
       final history = state.report.history;
       final oldBaseline = history.baseline ? history.round : null;
       final choice = history.choice?['choice'];
@@ -795,6 +856,7 @@ class _DesignAttempt {
       history.extended =
           choice == 'scoped-pass' || history.scopeRound >= state.limit;
       history.baseline = verdict == 'APPROVE_WITH_CHANGES' && applied == 'no';
+      history.baselineDigest = history.baseline ? captured.exactIdentity : null;
       history.history.add({'round': history.round, 'detail': repairs});
       final updated = text + history.footer();
       final nextBaseline = history.baseline ? history.round : null;
@@ -803,15 +865,7 @@ class _DesignAttempt {
       controller.pruneBaselines(oldBaseline);
       try {
         if (nextBaseline != null) {
-          final captured = _DesignArtifacts.read(
-            Directory(p.join(dir.path, 'current')),
-          );
-          if (captured.exactIdentity != captureIdentity) {
-            throw ReviewStop(
-              'stale_review',
-              'the FULL dispatch capture changed; the prior review was not replaced',
-            );
-          }
+          // Stage the verified bytes, never another read of live artifacts.
           captured.write(controller.baselineAt(nextBaseline));
         }
         _atomicWrite(controller.out, updated);
