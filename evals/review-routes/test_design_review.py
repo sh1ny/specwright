@@ -67,7 +67,7 @@ class TestDesignReview(Base):
         self.assertNotIn('Rule committed on the checked-out branch.', packet)
         self.assertNotIn('uncommitted replacement', packet)
 
-    @unittest.skipIf(sys.platform == 'win32', 'Win32 normalizes trailing spaces in paths')
+    @unittest.skipIf(sys.platform == 'win32', 'platform: Win32 normalizes trailing spaces in paths')
     def test_reads_rules_in_repository_with_trailing_space(self):
         self.settings_for(rules='  standing_rules: [rules/windows.md]\n')
         self.commit(self.code, {'rules/windows.md': 'Wait for the exit event.\n'}, 'rules')
