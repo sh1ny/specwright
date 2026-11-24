@@ -200,8 +200,9 @@ class Summary(unittest.TestCase):
 
     def test_exemption_in_architecture_md(self):
         text = read(ARCH)
-        row = next((l for l in text.splitlines() if l.startswith("| Design review")), "")
-        self.assertRegex(row, r"(?i)decision summary", "architecture.md design-review row has no summary exemption")
+        row = next((l for l in text.splitlines() if l.startswith("| Roadmap baseline review |")), "")
+        self.assertRegex(row, r"(?i)except\b[^|]*decision[- ]summary",
+                         "architecture.md roadmap review row has no decision-summary exemption")
         p = find_block(text, r"project\.decision_making", r"Decision summary", r"R\d|R ids?", r"pending", r"never deleted|not deleted")
         self.assertIsNotNone(p, "architecture.md has no contract bullet for project.decision_making and the decision summary")
         self.assertRegex(p, r"(?is)unset.{0,40}important")
