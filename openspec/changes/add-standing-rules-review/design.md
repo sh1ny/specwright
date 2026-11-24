@@ -38,6 +38,7 @@ The accepted replay compares the existing reviewer with and without binding stan
 ### D3: A round limit asks the owner; only a review can pass
 
 - **Choice:** `review.design_max_rounds`, a positive integer defaulting to 3, replaces the two-consecutive-REVISE escalation for the FULL change-design loop. An unresolved valid round counts regardless of finding count. The existing passing verdicts pass as before. When the limit is reached without a passing verdict, show the report's open findings/Required Changes and the repairs recorded to date, then ask the owner. An explicitly authorized scoped pass allows one more result and hands back if unresolved. A scope change records the owner's reason, and the author applies the revised scope before starting a fresh budget. Stop records the decision and leaves the verdict unresolved. No choice creates `USER_OVERRIDE`. Outstanding historical overrides remain as recorded.
+- **Coverage after a choice:** `scoped-pass` limits repairs, not review coverage; the next reviewer applies the whole checklist and considers all still-applicable findings. `scope-change` starts with a full review of the revised design, not a confirmation of the old Required Changes. Neither choice accepts a confirmation-only reply as the next result.
 - **Rejected:** A second threshold, stall detection, computed approval, tracking planning-file digests, or auto-resetting the round counter without an owner's choice.
 - **Reversal cost:** medium.
 - **Important:** yes.

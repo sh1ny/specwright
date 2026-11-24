@@ -8,7 +8,7 @@
 | Legacy override | Escalation after two REVISE rounds | `git-workflow/test_instructions.py` | `test_change_checkpoint_does_not_issue_override` (tasks lists stored override); `test_apply_gate_refuses_deferred_and_says_review_needed` (apply reuses tasks precheck) | Instruction checks only; end-to-end apply with a stored override is unverified |
 | Owner checkpoint | Unresolved third round | `review-routes/test_design_review.py` | `test_default_checkpoint_keeps_revise` | green |
 | Owner checkpoint | Configured round and conditional approval | `review-routes/test_design_review.py` | `test_scope_change_records_reason_and_restarts_round_budget` | green |
-| Owner choice | One scoped pass stays unresolved | `review-routes/test_design_review.py` | `test_scoped_pass_survives_replacement_and_hands_back` | green |
+| Owner choice | One scoped pass stays unresolved | `review-routes/test_design_review.py` | `test_scoped_pass_survives_replacement_and_hands_back`, `test_scoped_repairs_require_reviewing_the_other_findings` | green |
 | Owner choice | Scope change with reason | `review-routes/test_design_review.py` | `test_scope_change_records_reason_and_restarts_round_budget` | green |
 | Owner choice | Stop or no choice | `review-routes/test_design_review.py` | `test_stop_keeps_checkpoint_unresolved`, `test_default_checkpoint_keeps_revise` | green |
 | Standing requirements | Versioned rules reach either design review route | `review-routes/test_design_review.py` | `test_full_rules_use_branch_blobs_on_both_routes` | green |

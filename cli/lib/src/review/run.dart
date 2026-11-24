@@ -312,7 +312,7 @@ class _ReviewOperations {
     final settings = await _settings(null);
     return _DesignCheckpoint(
       args.values['out']!,
-      settings.review['design_max_rounds'],
+      settings.review,
     ).step(args.values);
   }
 
@@ -452,12 +452,9 @@ class _ReviewOperations {
     final settings = await _settings(args.values['settings']);
     final cfg = ReviewConfig(settings.review);
     final checkpoint = changeReview
-        ? _DesignCheckpoint(
-            args.values['out']!,
-            settings.review['design_max_rounds'],
-          )
+        ? _DesignCheckpoint(args.values['out']!, settings.review)
         : null;
-    checkpoint?.beforeReview();
+    final reviewInstruction = checkpoint?.beforeReview();
     final requirements = changeReview
         ? await _standingRequirements(settings, args.values)
         : null;
@@ -518,11 +515,14 @@ class _ReviewOperations {
         promptPath = p.join(work.path, 'prompt.md');
         File(promptPath).writeAsStringSync(prompt, encoding: utf8, flush: true);
         cwd = view ?? codeDir;
-      } else if (requirements != null) {
+      } else if (requirements != null || reviewInstruction != null) {
         promptPath = p.join(work.path, 'prompt.md');
         File(promptArg!).copySync(promptPath);
-        File(promptPath)
-            .writeAsStringSync('\n\n$requirements', mode: FileMode.append);
+        File(promptPath).writeAsStringSync(
+          '${reviewInstruction == null ? '' : '\n\n$reviewInstruction'}'
+          '${requirements == null ? '' : '\n\n$requirements'}',
+          mode: FileMode.append,
+        );
       }
       probe = await _probe(route, executable: exe);
       if (route == 'omp') {
@@ -563,7 +563,8 @@ class _ReviewOperations {
         bases: bases,
         designRecord: checkpoint == null
             ? null
-            : (text) => checkpoint.record(text, args.values['repairs']),
+            : (text, invalid) =>
+                  checkpoint.record(text, args.values['repairs'], invalid),
       );
     } finally {
       if (work.existsSync()) {
@@ -602,6 +603,7 @@ class _ReviewOperations {
     );
     ReviewSettings? project;
     _DesignCheckpoint? checkpoint;
+    String? reviewInstruction;
     if (changeReview) {
       _need(args.values, const ['out']);
       if (args.values['kind'] != 'design' ||
@@ -613,11 +615,8 @@ class _ReviewOperations {
         );
       }
       project = await _settings(null);
-      checkpoint = _DesignCheckpoint(
-        args.values['out']!,
-        project.review['design_max_rounds'],
-      );
-      checkpoint.beforeReview();
+      checkpoint = _DesignCheckpoint(args.values['out']!, project.review);
+      reviewInstruction = checkpoint.beforeReview();
     }
     if (scratch) {
       _need(args.values, const ['kind', 'change']);
@@ -631,6 +630,7 @@ class _ReviewOperations {
         'ok': true,
         'scratch': _normal(_designScratch(args.values['change']!)),
         'standing_requirements': ?requirements,
+        'review_instruction': ?reviewInstruction,
       };
     }
     _need(args.values, const ['kind', 'change', 'result', 'route']);
@@ -731,7 +731,7 @@ class _ReviewOperations {
       if (outPath != null) {
         _atomicWrite(
           outPath,
-          checkpoint?.record(text, args.values['repairs']) ?? text,
+          checkpoint?.record(text, args.values['repairs'], invalid) ?? text,
         );
         if (!_sameFile(args.values['result']!, outPath)) {
           try {
@@ -1622,7 +1622,7 @@ Future<Map<String, Object?>> runReviewer({
   required String? codeDir,
   required Map<String, Object?> heads,
   required Map<String, Object?> bases,
-  String Function(String)? designRecord,
+  String Function(String, Never Function(String))? designRecord,
 }) async {
   final schemaPath = kind == 'preship'
       ? p.join(workDir.path, 'schema.json')
@@ -1861,7 +1861,14 @@ Future<Map<String, Object?>> runReviewer({
     }
     final problem = _validateDesign(text!);
     if (problem != null) fail('invalid', 'invalid_output', problem);
-    _atomicWrite(outPath, designRecord?.call(text) ?? text);
+    _atomicWrite(
+      outPath,
+      designRecord?.call(
+            text,
+            (message) => fail('invalid', 'invalid_output', message),
+          ) ??
+          text,
+    );
     return {
       'ok': true,
       'status': 'ok',

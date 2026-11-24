@@ -5,6 +5,12 @@ final _progressBoundary = RegExp('\r?\n\r?\n$_progressMarker\r?\n');
 final _designLines = RegExp(r'\r\n|[\r\n\v\f\u001c-\u001e\u0085\u2028\u2029]');
 const _ownerChoices = ['scoped-pass', 'scope-change', 'stop'];
 
+const _checkpointReviewInstruction =
+    '## Owner checkpoint review\n\n'
+    'Run the full checklist on the entire current design, not a confirmation of Required Changes. '
+    'The owner may limit the repairs, not your review. Consider all still-applicable open findings '
+    'in the previous report before issuing a passing verdict.';
+
 String? _designLine(String text, String key) {
   for (final line in text.split(_designLines)) {
     final value = _lineValue(line, key);
@@ -19,13 +25,15 @@ String _progressQuote(String value) => jsonEncode(value).replaceAllMapped(
 );
 
 class _DesignCheckpoint {
-  _DesignCheckpoint(this.out, Object? configured) : limit = _limit(configured);
+  _DesignCheckpoint(this.out, Map<String, Object?> settings)
+    : limit = _limit(settings);
 
   final String out;
   final int limit;
 
-  static int _limit(Object? configured) {
-    if (configured == null) return 3;
+  static int _limit(Map<String, Object?> settings) {
+    if (!settings.containsKey('design_max_rounds')) return 3;
+    final configured = settings['design_max_rounds'];
     if (configured is int && configured > 0) return configured;
     throw ReviewStop(
       'bad_design_setting',
@@ -72,7 +80,11 @@ class _DesignCheckpoint {
     };
   }
 
-  void beforeReview() => _beforeReview(_DesignProgress.read(out));
+  String? beforeReview() {
+    final state = _DesignProgress.read(out);
+    _beforeReview(state);
+    return state.requiresFullReview ? _checkpointReviewInstruction : null;
+  }
 
   void _beforeReview(_DesignProgress state) {
     final status = state.status(limit);
@@ -84,16 +96,18 @@ class _DesignCheckpoint {
     }
   }
 
-  String record(String text, String? repairs) {
+  String record(String text, String? repairs, Never Function(String) invalid) {
     if (text.split(_designLines).contains(_progressMarker)) {
-      throw ReviewStop(
-        'invalid_output',
-        'review reply contains the reserved owner progress marker',
-        code: 3,
-      );
+      invalid('review reply contains the reserved owner progress marker');
     }
     final state = _DesignProgress.read(out);
     _beforeReview(state);
+    if (state.requiresFullReview &&
+        _designLine(text, 'CHANGES_APPLIED') == 'yes') {
+      invalid(
+        'the owner checkpoint requires a full review, not a Required Changes confirmation',
+      );
+    }
     final choice = state.choice;
     state.scopeRound = choice == 'scope-change' ? 1 : state.scopeRound + 1;
     state.round++;
@@ -120,6 +134,9 @@ class _DesignProgress {
     if (log.isEmpty || log.last['round'] != round) return null;
     return log.last['choice'] as String?;
   }
+
+  bool get requiresFullReview =>
+      choice == 'scoped-pass' || choice == 'scope-change';
 
   String status(int limit) {
     if (choice == 'stop') return 'stopped';

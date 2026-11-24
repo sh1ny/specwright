@@ -96,6 +96,14 @@ class TestDesignReview(Base):
         self.assertIn(b'Repaired item 1.', before)
         self.assertIn(b'Repaired item 3.', before)
 
+    def test_explicit_null_round_limit_stops_before_dispatch(self):
+        self.settings_for(limit='  design_max_rounds: null\n')
+        for result in (self.step(expect=1), self.scratch(expect=1), self.run_full(REVISE, expect=1)):
+            self.assertEqual(result['error'], 'bad_design_setting')
+            self.assertIn('review.design_max_rounds must be a positive integer', result['message'])
+        self.assertFalse(self.calls('claude'))
+        self.assertFalse(self.review.exists())
+
     def test_prior_pass_does_not_reset_the_round_budget(self):
         design = self.review.with_name('design.md')
         design.write_text('TIER: FULL\n\nOriginal design.\n', encoding='utf-8')
@@ -123,6 +131,25 @@ class TestDesignReview(Base):
         self.assertEqual((state['round'], state['status'], state['verdict']), (2, 'owner_checkpoint', 'REVISE'))
         self.assertIn(b'Check only the lock lifetime.', self.review.read_bytes())
 
+    def test_scoped_repairs_require_reviewing_the_other_findings(self):
+        self.settings_for(limit='  design_max_rounds: 1\n')
+        both = CONDITIONAL + 'Keep the recovered files.\n'
+        self.complete(self.scratch(), both)
+        self.choose(1, 'scoped-pass', 'Repair only the lock lifetime.')
+        before = self.review.read_bytes()
+        scratch = self.scratch()
+        partial = CONDITIONAL.replace('CHANGES_APPLIED: no', 'CHANGES_APPLIED: yes')
+        self.assertEqual(self.complete(scratch, partial, expect=3)['error'], 'invalid_output')
+        self.assertEqual(self.review.read_bytes(), before)
+        self.assertEqual(self.step()['choice'], 'scoped-pass')
+        self.assertIn('entire current design', scratch['review_instruction'])
+        self.assertIn('all still-applicable open findings', scratch['review_instruction'])
+
+        self.run_full(REVISE.replace('The lock outlives the host.', 'The recovered files are lost.'))
+        self.assertIn(scratch['review_instruction'], self.runs('claude')[-1]['stdin'])
+        self.assertEqual(self.step()['status'], 'owner_checkpoint')
+        self.assertIn(b'The recovered files are lost.', self.review.read_bytes())
+
     def test_scope_change_records_reason_and_restarts_round_budget(self):
         self.settings_for(limit='  design_max_rounds: 2\n')
         self.run_full(REVISE)
@@ -131,6 +158,12 @@ class TestDesignReview(Base):
         self.choose(2, 'scope-change', expect=2)
         self.choose(2, 'scope-change', 'Do not change child execution.')
         self.assertEqual(self.step()['verdict'], 'APPROVE_WITH_CHANGES')
+        before = self.review.read_bytes()
+        confirmed_old_scope = CONDITIONAL.replace('CHANGES_APPLIED: no', 'CHANGES_APPLIED: yes')
+        self.assertEqual(self.run_full(confirmed_old_scope, expect=3)['error'], 'invalid_output')
+        self.assertEqual(self.review.read_bytes(), before)
+        self.assertEqual(self.step()['choice'], 'scope-change')
+        self.assertIn('entire current design', self.runs('claude')[-1]['stdin'])
         self.run_full(REVISE)
         state = self.step()
         self.assertEqual((state['round'], state['scope_round'], state['status']), (3, 1, 'review'))

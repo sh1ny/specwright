@@ -471,6 +471,9 @@ artifacts:
       follow the handoff below; on `stopped`, stop. Do not dispatch again
       unless the recorded owner decision permits it. Do not route an
       unresolved FULL checkpoint through the LIGHT or legacy override path.
+      For a recorded `scoped-pass` or `scope-change`, name the previous
+      `review.md` in the request and ask for the full checklist on all of
+      the current design, not a Required Changes confirmation.
       - CLI route: write the review request to a file and run
         `<sw> review run --kind design --route <route> --prompt-file <file>
         --out <this change's review.md> --change <name> --selection <select
@@ -485,8 +488,8 @@ artifacts:
         --change-review --out <this change's review.md> --branch <code change branch>`
         (it prints `scratch`, a fresh file outside the change). The
         `specwright-reviewer` agent, given file paths, not your reasoning,
-        writes its review to that file; include `standing_requirements` in
-        its request verbatim when present. Then run
+        writes its review to that file; include `standing_requirements` and
+        `review_instruction` in its request verbatim when present. Then run
         `<sw> review record --kind design --change <name> --result
         <scratch> --out <this change's review.md> --route subagent
         --selection <select output> --change-review --repairs <short repair summary>`, which writes review.md only when the
@@ -552,9 +555,10 @@ artifacts:
       `VERDICT: APPROVE` | `VERDICT: APPROVE_WITH_CHANGES` | `VERDICT: REVISE`
       Any open Critical forbids APPROVE. APPROVE_WITH_CHANGES lists exact
       Required Changes and `CHANGES_APPLIED: no`; the author applies them,
-      then the reviewer re-checks only those items in a new run, and only
-      that run may change it to `yes` - never the author. Other verdicts use
-      `CHANGES_APPLIED: n/a`. A verdict covers only the contents reviewed:
+      then the reviewer re-checks only those items in a new run, except
+      when an owner checkpoint requires a full review as described below.
+      Only the confirmation run may change it to `yes` - never the author.
+      Other verdicts use `CHANGES_APPLIED: n/a`. A verdict covers only the contents reviewed:
       editing proposal, specs or design for any other reason voids it; an
       edit confined to the proposal's `## Release Notes` section does not,
       one that also touches a line outside that section does.
@@ -566,10 +570,14 @@ artifacts:
       Ask the owner to choose one more scoped pass, a scope change with a
       reason, or stop. Record their actual answer with `<sw> review design-step
       --out <this change's review.md> --round <current round> --choice <choice>`.
-      Use `scoped-pass --detail <scope>` for one more pass limited to that
-      repair scope; if unresolved, hand off again. Use `scope-change --detail
-      <owner reason>` and apply the revised scope before reviewing it with a
-      new round budget; use `stop` to leave work paused. A choice never alters
+      Use `scoped-pass --detail <scope>` to limit the author's repairs, not
+      the reviewer's coverage. Ask for a full review of the entire current
+      design, including all still-applicable open findings, before any
+      passing verdict; if unresolved, hand off again. Use `scope-change
+      --detail <owner reason>` and apply the revised scope before starting
+      a full review with a new round budget. A confirmation of Required
+      Changes from the old scope never passes the revised design. Use
+      `stop` to leave work paused. A choice never alters
       the verdict, grants approval or creates `USER_OVERRIDE`. Never stop
       because the finding count stalled. Earlier legacy overrides remain as
       recorded; a deferral or waiver is never recorded as `USER_OVERRIDE`.
