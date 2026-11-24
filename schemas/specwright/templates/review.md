@@ -22,7 +22,7 @@
 
 ## Verdict
 
-<!-- Exactly one of: APPROVE | APPROVE_WITH_CHANGES | REVISE | SKIPPED_LIGHT | USER_OVERRIDE | DEFERRED | WAIVED. Any open Critical forbids APPROVE. USER_OVERRIDE only on the user's explicit decision after 2 consecutive REVISE rounds were escalated: quote it and list the open findings. DEFERRED only when the user declared a FULL-tier change a parking change that is never applied: add the Deferred to line. WAIVED only on the user's explicit decision to apply with no design review: add the User decision line (their quoted words) and `No design review ran.`; the pre-ship review still runs. A deferral or waiver is never USER_OVERRIDE, and the agent never offers either. Both use CHANGES_APPLIED: n/a. -->
+<!-- Exactly one of: APPROVE | APPROVE_WITH_CHANGES | REVISE | SKIPPED_LIGHT | USER_OVERRIDE | DEFERRED | WAIVED. Any open Critical forbids APPROVE. Keep historical change-design USER_OVERRIDE verdicts as recorded; a change-design owner checkpoint never creates one. For roadmap baseline review only, USER_OVERRIDE is allowed on the user's explicit decision after 2 consecutive REVISE rounds were escalated: quote it and list the open findings. DEFERRED only when the user declared a FULL-tier change a parking change that is never applied: add the Deferred to line. WAIVED only on the user's explicit decision to apply with no design review: add the User decision line (their quoted words) and `No design review ran.`; the pre-ship review still runs. A deferral or waiver is never USER_OVERRIDE, and the agent never offers either. Both use CHANGES_APPLIED: n/a. -->
 VERDICT: <VALUE>
 
 ## Required Changes

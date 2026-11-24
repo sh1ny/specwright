@@ -5,7 +5,7 @@
 | Requirement | Scenario | Test file (under `evals/`) | Test name | State |
 |---|---|---|---|---|
 | Legacy override | Parking change with no review rounds | `git-workflow/test_instructions.py` | `test_tasks_precheck_accepts_deferred_with_target` | green (existing) |
-| Legacy override | Escalation after two REVISE rounds | `git-workflow/test_instructions.py` | `test_change_checkpoint_does_not_issue_override` | green |
+| Legacy override | Escalation after two REVISE rounds | `git-workflow/test_instructions.py` | `test_change_checkpoint_does_not_issue_override` (tasks lists stored override); `test_apply_gate_refuses_deferred_and_says_review_needed` (apply reuses tasks precheck) | Instruction checks only; end-to-end apply with a stored override is unverified |
 | Owner checkpoint | Unresolved third round | `review-routes/test_design_review.py` | `test_default_checkpoint_keeps_revise` | green |
 | Owner checkpoint | Configured round and conditional approval | `review-routes/test_design_review.py` | `test_scope_change_records_reason_and_restarts_round_budget` | green |
 | Owner choice | One scoped pass stays unresolved | `review-routes/test_design_review.py` | `test_scoped_pass_survives_replacement_and_hands_back` | green |
