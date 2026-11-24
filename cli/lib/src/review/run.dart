@@ -3,11 +3,14 @@ import 'dart:io';
 import 'dart:typed_data';
 import 'dart:math';
 
+import 'package:crypto/crypto.dart';
 import 'package:path/path.dart' as p;
 
+import '../entry/regular_file.dart' show readRegularFile;
 import '../pr/context.dart';
 import '../pr/pair.dart' show PairStop;
-import '../pr/settings_commands.dart' show readVcsSettings;
+import '../pr/settings_commands.dart'
+    show readVcsSettings, requireSettingsPinnedTo;
 import '../process/bounded_run.dart';
 import '../process/command_line.dart';
 import '../process/launch.dart' show checkLaunchInput;
@@ -17,12 +20,16 @@ import '../process/platform_tree.dart';
 import '../process/resolve.dart';
 import '../settings/reviewer_config.dart' show reviewerHome;
 import '../settings/rules.dart' show SettingsStop;
+import '../vcs/text_result.dart';
 import 'records.dart';
 import 'references.g.dart';
 import 'routes.dart';
 import 'settings.dart';
 import 'snapshot.dart';
 import 'stop.dart';
+
+part 'design_inputs.dart';
+part 'design_progress.dart';
 
 const List<String> _acceptedRoutes = ['codex', 'claude', 'omp'];
 const List<String> _runtimes = ['claude', 'codex', 'omp', 'other'];
@@ -172,7 +179,7 @@ class _ReviewOperations {
     if (argv.isEmpty || argv.first.isEmpty) {
       throw ReviewStop(
         'usage',
-        'subcommand: select | preflight | run | record | waive | gate | archive-only | rounds',
+        'subcommand: select | preflight | run | record | design-step | waive | gate | archive-only | rounds',
         code: 2,
       );
     }
@@ -183,13 +190,14 @@ class _ReviewOperations {
       'preflight' => _preflight(rest),
       'run' => _run(rest),
       'record' => _record(rest),
+      'design-step' => _designStep(rest),
       'waive' => _waive(rest),
       'gate' => _gate(rest),
       'archive-only' => _archiveOnly(rest),
       'rounds' => _rounds(rest),
       _ => throw ReviewStop(
         'usage',
-        'subcommand: select | preflight | run | record | waive | gate | archive-only | rounds',
+        'subcommand: select | preflight | run | record | design-step | waive | gate | archive-only | rounds',
         code: 2,
       ),
     };
@@ -224,7 +232,11 @@ class _ReviewOperations {
   }
 
   Future<Map<String, Object?>> _select(List<String> argv) async {
-    final args = await _parseArgs(argv, const {'--runtime', '--settings'});
+    final full = argv.contains('--change-review');
+    final args = await _parseArgs(
+      argv.where((token) => token != '--change-review').toList(),
+      const {'--runtime', '--settings', '--branch'},
+    );
     _need(args.values, const ['runtime']);
     final runtime = args.values['runtime']!;
     if (!_runtimes.contains(runtime)) {
@@ -234,7 +246,9 @@ class _ReviewOperations {
         code: 2,
       );
     }
-    final settings = await _settings(args.values['settings']);
+    final project = full ? await _DesignProject.read(args.values) : null;
+    final settings =
+        project?.settings ?? await _settings(args.values['settings']);
     final cfg = ReviewConfig(settings.review);
     if (!cfg.crossModel) {
       return {
@@ -244,6 +258,7 @@ class _ReviewOperations {
         'model': null,
         'thinking': null,
         'note': 'review.cross_model is false',
+        'design_settings': ?project?.identity,
       };
     }
 
@@ -293,7 +308,18 @@ class _ReviewOperations {
       'skipped': skipped,
       'model': chosen == null ? null : cfg.model(chosen),
       'thinking': chosen == null ? null : cfg.level(chosen),
+      'design_settings': ?project?.identity,
     };
+  }
+
+  Future<Map<String, Object?>> _designStep(List<String> argv) async {
+    final light = argv.contains('--light');
+    final args = await _parseArgs(
+      argv.where((a) => a != '--light').toList(),
+      const {'--out', '--branch', '--choice', '--round', '--detail'},
+    );
+    _need(args.values, const ['out']);
+    return _DesignController(args.values).step(args.values, light: light);
   }
 
   Future<Map<String, Object?>> _preflight(List<String> argv) async {
@@ -360,27 +386,43 @@ class _ReviewOperations {
   }
 
   Future<Map<String, Object?>> _run(List<String> argv) async {
-    final args = await _parseArgs(argv, const {
-      '--kind',
-      '--route',
-      '--out',
-      '--change',
-      '--prompt-file',
-      '--base',
-      '--store',
-      '--store-base',
-      '--settings',
-      '--selection',
-      '--prefix',
-      '--branch',
-      '--store-branch',
-    });
+    final full = argv.contains('--change-review');
+    final recheck = argv.contains('--recheck');
+    final args = await _parseArgs(
+      argv.where((a) => a != '--change-review' && a != '--recheck').toList(),
+      const {
+        '--kind',
+        '--route',
+        '--out',
+        '--change',
+        '--prompt-file',
+        '--base',
+        '--store',
+        '--store-base',
+        '--settings',
+        '--selection',
+        '--prefix',
+        '--branch',
+        '--store-branch',
+        '--repairs',
+      },
+    );
     _need(args.values, const ['kind', 'route', 'out', 'change']);
     final kind = args.values['kind']!;
     final route = args.values['route']!;
     final change = args.values['change']!;
     if (kind != 'preship' && kind != 'design') {
       throw ReviewStop('usage', '--kind is preship or design', code: 2);
+    }
+    if ((full && kind != 'design') || (recheck && !full)) {
+      throw ReviewStop(
+        'usage',
+        '--change-review and --recheck are for FULL change design',
+        code: 2,
+      );
+    }
+    if (kind == 'design' && !full) {
+      _DesignController.rejectOrdinary(args.values['out']!);
     }
     if (route == 'subagent') {
       throw ReviewStop(
@@ -416,7 +458,10 @@ class _ReviewOperations {
       );
     }
     final skipped = _loadSelection(args.values['selection'], route);
-    final settings = await _settings(args.values['settings']);
+    final project = full ? await _DesignProject.read(args.values) : null;
+    project?.checkSelection(args.values, route);
+    final settings =
+        project?.settings ?? await _settings(args.values['settings']);
     final cfg = ReviewConfig(settings.review);
 
     final exe = _resolve(route, _environment);
@@ -432,6 +477,7 @@ class _ReviewOperations {
       Map<String, Object?> heads = const {};
       Map<String, Object?> bases = const {};
       String? codeDir;
+      _DesignAttempt? attempt;
       if (kind == 'preship') {
         codeDir = await _requireCodeRepo(Directory.current.path);
         final codeTip = await _codeTip(args.values, codeDir);
@@ -475,15 +521,33 @@ class _ReviewOperations {
         promptPath = p.join(work.path, 'prompt.md');
         File(promptPath).writeAsStringSync(prompt, encoding: utf8, flush: true);
         cwd = view ?? codeDir;
+      } else if (full) {
+        attempt = await _DesignController(args.values).prepare(
+          args.values,
+          route,
+          recheck: recheck,
+          work: work,
+          project: project,
+        );
+        promptPath = p.join(work.path, 'prompt.md');
+        final original = File(promptArg!);
+        File(promptPath)
+          ..writeAsBytesSync(original.readAsBytesSync())
+          ..writeAsStringSync(
+            attempt.packet,
+            mode: FileMode.append,
+            flush: true,
+          );
       }
       probe = await _probe(route, executable: exe);
       if (route == 'omp') {
         final belowFloor = _ompFloorReason(probe.version);
         if (belowFloor != null) throw ReviewStop('omp_too_old', belowFloor);
       }
-      final allowedDirs = storeArg == null
-          ? const <String>[]
-          : <String>[p.absolute(storeArg)];
+      final allowedDirs = <String>[
+        if (storeArg != null) p.absolute(storeArg),
+        if (attempt != null) attempt.dir.absolute.path,
+      ];
       final environment = _environment;
       final windows =
           (environment['REVIEW_RUN_TEST_OS_NAME'] ??
@@ -513,6 +577,9 @@ class _ReviewOperations {
         codeDir: codeDir,
         heads: heads,
         bases: bases,
+        publishDesign: attempt == null
+            ? null
+            : (text, receipt) => attempt!.publish(args.values, text, receipt),
       );
     } finally {
       if (work.existsSync()) {
@@ -527,8 +594,18 @@ class _ReviewOperations {
 
   Future<Map<String, Object?>> _record(List<String> argv) async {
     final scratch = argv.contains('--scratch');
+    final full = argv.contains('--change-review');
+    final recheck = argv.contains('--recheck');
     final args = await _parseArgs(
-      argv.where((arg) => arg != '--scratch').toList(),
+      argv
+          .where(
+            (arg) => !const {
+              '--scratch',
+              '--change-review',
+              '--recheck',
+            }.contains(arg),
+          )
+          .toList(),
       const {
         '--kind',
         '--change',
@@ -543,8 +620,55 @@ class _ReviewOperations {
         '--out',
         '--branch',
         '--store-branch',
+        '--attempt',
+        '--repairs',
       },
     );
+    if (args.values['kind'] == 'light') {
+      _need(args.values, const ['out', 'result']);
+      return _DesignController(args.values).recordLight(args.values['result']!);
+    }
+    if (full) {
+      _need(args.values, const ['kind', 'change', 'out']);
+      if (args.values['kind'] != 'design' ||
+          (!scratch && args.values['route'] != 'subagent')) {
+        throw ReviewStop(
+          'usage',
+          'FULL record uses --kind design and the subagent route',
+          code: 2,
+        );
+      }
+      final controller = _DesignController(args.values);
+      if (scratch) {
+        return (await controller.prepare(
+          args.values,
+          'subagent',
+          recheck: recheck,
+        )).instructions();
+      }
+      final attempt = controller.resume(args.values);
+      final path = attempt.scratch;
+      final bytes =
+          FileSystemEntity.typeSync(path, followLinks: false) ==
+              FileSystemEntityType.file
+          ? readRegularFile(path, limit: _maxAnswer + 1)
+          : null;
+      final text = bytes == null || bytes.length > _maxAnswer
+          ? null
+          : utf8.decode(bytes, allowMalformed: true);
+      final receipt = _makeReceipt(
+        route: 'subagent',
+        skipped: _loadSelection(args.values['selection'], 'subagent'),
+        requestedModel: null,
+        requestedThinking: null,
+        version: null,
+        started: _now(),
+        actualModel: 'unknown',
+        actualThinking: 'unknown',
+        processGroup: 'session',
+      );
+      return attempt.publish(args.values, text, receipt);
+    }
     if (scratch) {
       _need(args.values, const ['kind', 'change']);
       if (args.values['kind'] != 'design') {
@@ -560,6 +684,11 @@ class _ReviewOperations {
     final route = args.values['route']!;
     if (kind != 'preship' && kind != 'design') {
       throw ReviewStop('usage', '--kind is preship or design', code: 2);
+    }
+    if (kind == 'design') {
+      final output = args.values['out'];
+      if (output != null) _DesignController.rejectOrdinary(output);
+      _DesignController.rejectOrdinary(args.values['result']!);
     }
     if (args.values['out'] != null && kind != 'design') {
       throw ReviewStop('usage', '--out is for --kind design', code: 2);
@@ -1541,6 +1670,8 @@ Future<Map<String, Object?>> runReviewer({
   required String? codeDir,
   required Map<String, Object?> heads,
   required Map<String, Object?> bases,
+  Future<Map<String, Object?>> Function(String, Map<String, Object?>)?
+  publishDesign,
 }) async {
   final schemaPath = kind == 'preship'
       ? p.join(workDir.path, 'schema.json')
@@ -1592,6 +1723,7 @@ Future<Map<String, Object?>> runReviewer({
   final processGroup = run.processGroup;
   final processGroupReason = run.processGroupReason;
   Map<String, Object?> keepSession() {
+    if (publishDesign != null) return <String, Object?>{};
     if (sessionDir == null) return <String, Object?>{};
     sessionDir = _preserveSession(sessionDir!);
     return <String, Object?>{'session_dir': _normal(sessionDir!)};
@@ -1777,6 +1909,7 @@ Future<Map<String, Object?>> runReviewer({
         },
       };
     }
+    if (publishDesign != null) return await publishDesign(text!, receiptValue);
     final problem = _validateDesign(text!);
     if (problem != null) fail('invalid', 'invalid_output', problem);
     _atomicWrite(outPath, text);
@@ -1788,14 +1921,16 @@ Future<Map<String, Object?>> runReviewer({
       'receipt': receiptValue,
     };
   } on ReviewStop {
-    if (sessionDir != null &&
+    if (publishDesign == null &&
+        sessionDir != null &&
         Directory(sessionDir!).existsSync() &&
         p.isWithin(workDir.path, sessionDir!)) {
       sessionDir = _preserveSession(sessionDir!);
     }
     rethrow;
   } on Object {
-    if (sessionDir != null &&
+    if (publishDesign == null &&
+        sessionDir != null &&
         Directory(sessionDir!).existsSync() &&
         p.isWithin(workDir.path, sessionDir!)) {
       sessionDir = _preserveSession(sessionDir!);

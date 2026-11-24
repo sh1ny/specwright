@@ -31,6 +31,10 @@ review:
   # Reviewer CLIs tried in order; the current harness is skipped, and the
   # first one installed (OMP: whose model resolves) runs the review.
   order: [codex, claude, omp]
+  # Optional committed, code-repo-relative UTF-8 criteria for FULL designs only.
+  # standing_rules: [rules/windows-ci-tests.md]
+  # Positive round count before the design owner checkpoint. Not a pass or PR limit.
+  # design_max_rounds: 3
   # Model per route. Omit = the CLI's default; OMP takes a role (@slow) or a
   # provider/id, and defaults to @default.
   # models:

@@ -44,6 +44,10 @@ ReviewSettings readReviewSettings({
         .replaceAll('\r\n', '\n')
         .replaceAll('\r', '\n');
   }
+  return parseReviewSettings(text);
+}
+
+ReviewSettings parseReviewSettings(String? text) {
   // D4: this reader's stop is bad_settings, exit 1, whatever the reason
   try {
     final values = loadSettings(text);

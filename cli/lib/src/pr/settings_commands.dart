@@ -262,22 +262,25 @@ Future<({String backend, String main, String login})> readVcsSettings(
   return (backend: backend, main: item?.main ?? '', login: item?.login ?? '');
 }
 
-/// `context --only repos --branch <branch>` as far as it checks the pin: on GitButler the work-tree settings must be
-/// those of `refs/heads/<branch>`. Throws [PairStop] (`settings_not_pinned` with `file` and `ref`, or `git_error`).
-Future<void> requireSettingsPinnedTo(
+/// Checks the work-tree pin on GitButler and returns whether it applied.
+/// [commit] lets a caller use the same resolved object for the pin and policy.
+Future<bool> requireSettingsPinnedTo(
   PrContext ctx,
   String code,
-  String branch,
-) async {
+  String branch, {
+  String? commit,
+}) async {
   if (await _gitbutlerPins(ctx, code)) {
     await _settingsPinned(
       ctx,
       code,
-      await _pinRef(ctx, code, branch, false),
+      commit ?? await _pinRef(ctx, code, branch, false),
       branch,
       false,
     );
+    return true;
   }
+  return false;
 }
 
 /// Backend choices for native workflow callers, without a printed document.
