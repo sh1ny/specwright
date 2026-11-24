@@ -1,5 +1,29 @@
 ## MODIFIED Requirements
 
+### Requirement: Design review verdict values are checked
+
+Reviewer verdicts SHALL be `APPROVE`, `APPROVE_WITH_CHANGES` or `REVISE`. `CHANGES_APPLIED` SHALL be `n/a` for `APPROVE` or `REVISE`, and `no` for outstanding Required Changes. Only ordinary design review, including roadmap baseline, SHALL accept `yes` after `APPROVE_WITH_CHANGES`. FULL change-design review SHALL require a whole line exactly equal to `VERDICT: <value>`. Validation SHALL name refused values.
+
+#### Scenario: Design review that could not review
+- **WHEN** a codex design review prints `VERDICT: BLOCKED` and `CHANGES_APPLIED: n/a`, and the change's `review.md` holds an earlier valid review
+- **THEN** the run exits 3 with `status: invalid` and an error naming `BLOCKED`, `review.md` is byte-identical to before, and no other route runs
+
+#### Scenario: Verdict a reviewer may not set
+- **WHEN** a reviewer CLI or the subagent returns `VERDICT: USER_OVERRIDE`, `VERDICT: SKIPPED_LIGHT`, `VERDICT: DEFERRED` or `VERDICT: WAIVED`
+- **THEN** validation exits non-zero with `status: invalid` naming the value, and no review file is written by the run
+
+#### Scenario: CHANGES_APPLIED does not match the verdict
+- **WHEN** a design review returns `VERDICT: APPROVE` with `CHANGES_APPLIED: yes`, or `VERDICT: REVISE` with `CHANGES_APPLIED: none`
+- **THEN** validation exits non-zero with `status: invalid` naming the value
+
+#### Scenario: Valid re-check
+- **WHEN** an ordinary design review re-check, including roadmap baseline, returns `VERDICT: APPROVE_WITH_CHANGES` with `CHANGES_APPLIED: yes`
+- **THEN** the run exits 0 and writes the requested review file
+
+#### Scenario: A FULL verdict line is noncanonical
+- **WHEN** a FULL reviewer returns `VERDICT:APPROVE` or adds trailing whitespace to `VERDICT: APPROVE` during a scoped pass
+- **THEN** validation exits 3 with `status: invalid`, neither replacing the previous review nor spending the scoped pass
+
 ### Requirement: A refused design review leaves the earlier review file unchanged
 
 A design review that fails validation or passes the deadline SHALL leave any earlier review file unchanged. The subagent SHALL write its review to scratch, which validation installs only on a valid result. Outside FULL change-design review, a refused scratch file SHALL be kept and named. FULL change-design refusal SHALL follow **FULL design review requires usable evidence and bounds failure retention** instead.

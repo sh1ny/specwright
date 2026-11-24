@@ -17,6 +17,11 @@
 | Owner choice | Failed or stale pass does not spend permission | `review-routes/test_design_review.py` | `test_stale_publication_preserves_scoped_permission` | green |
 | Owner choice | Owner details cannot add a verdict | `review-routes/test_design_review.py` | `test_scoped_pass_survives_replacement` | green |
 | Owner choice | A narrowed design cannot erase its unresolved FULL review | `review-routes/test_design_review.py` | `test_other_writers_cannot_erase_checkpoint` | green |
+| Verdict validation | Design review that could not review | `review-routes/test_review_run.py` | `test_design_blocked_verdict_invalid_keeps_review` | green (existing) |
+| Verdict validation | Verdict a reviewer may not set | `review-routes/test_review_run.py` | `test_design_override_and_skipped_verdicts_invalid` | green (existing) |
+| Verdict validation | CHANGES_APPLIED does not match the verdict | `review-routes/test_review_run.py` | `test_design_changes_applied_must_match_verdict` | green (existing) |
+| Verdict validation | Valid re-check | `review-routes/test_review_run.py` | `test_design_recheck_with_changes_applied_yes_valid` | green (existing) |
+| Verdict validation | A FULL verdict line is noncanonical | `review-routes/test_design_review.py` | `test_noncanonical_full_verdict_does_not_spend_scoped_pass` | green |
 | Refusal durability | Subagent design review that could not review | `review-routes/test_review_run.py` | `test_record_out_refused_keeps_review_and_scratch` | green (existing) |
 | Refusal durability | Valid subagent design review | `review-routes/test_review_run.py` | `test_record_out_valid_writes_review_removes_scratch` | green (existing) |
 | Standing requirements | Versioned rules reach either design review route | `review-routes/test_design_review.py` | `test_full_rules_use_branch_blobs_on_both_routes` | green |

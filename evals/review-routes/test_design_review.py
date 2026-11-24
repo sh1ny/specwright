@@ -274,6 +274,21 @@ class TestDesignReview(Base):
         self.assertEqual(self.step()["status"], "pass")
         self.assertEqual(self.step()["round"], 2)
 
+    def test_noncanonical_full_verdict_does_not_spend_scoped_pass(self):
+        self.subagent(1)
+        self.complete(self.scratch(), REVISE)
+        self.choice(1, "scoped-pass", "Check shutdown")
+        previous = self.review.read_bytes()
+        for line in ("VERDICT:APPROVE", "VERDICT: APPROVE ", "VERDICT: APPROVE\t"):
+            with self.subTest(line=line):
+                invalid = VERDICT_OK.replace("VERDICT: APPROVE", line)
+                result = self.complete(self.scratch(), invalid, expect=3)
+                self.assertEqual(result["error"], "invalid_output")
+                self.assertEqual(self.review.read_bytes(), previous)
+                self.assertEqual(self.step()["round"], 1)
+        self.complete(self.scratch(), VERDICT_OK.replace("\n", "\r\n"))
+        self.assertEqual(self.step()["status"], "pass")
+
     def test_bad_selection_cleans_completed_scratch_without_spending_pass(self):
         self.subagent(1)
         self.complete(self.scratch(), REVISE)

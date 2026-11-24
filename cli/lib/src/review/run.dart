@@ -2384,10 +2384,8 @@ String? _validateFindings(Object? object) {
   return null;
 }
 
-String? _validateDesign(String text) {
-  final lines = text.split(
-    RegExp(r'\r\n|[\r\n\v\f\u001c-\u001e\u0085\u2028\u2029]'),
-  );
+String? _validateDesign(String text, {bool full = false}) {
+  final lines = _reviewLines(text, full: full);
   List<String> values(String key) => [
     for (final line in lines)
       if (line.trimRight().startsWith('$key:')) _lineValue(line, key)!,
@@ -2399,6 +2397,9 @@ String? _validateDesign(String text) {
   final verdict = verdicts.single;
   if (!_verdicts.contains(verdict)) {
     return 'VERDICT: ${_pyRepr(verdict)} is not one a reviewer may return; accepted: ${_verdicts.join(', ')}';
+  }
+  if (full && !lines.contains('VERDICT: $verdict')) {
+    return 'expected a whole line exactly equal to VERDICT: $verdict';
   }
   final applied = values('CHANGES_APPLIED');
   if (applied.length != 1) {

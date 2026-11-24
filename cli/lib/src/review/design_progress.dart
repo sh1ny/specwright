@@ -176,8 +176,8 @@ class _DesignReport {
         '$path has an invalid FULL progress marker',
       );
     }
-    final verdict = _designLine(body, 'VERDICT');
-    final applied = _designLine(body, 'CHANGES_APPLIED');
+    final verdict = _designLine(body, 'VERDICT', full: managed);
+    final applied = _designLine(body, 'CHANGES_APPLIED', full: managed);
     final history = managed
         ? _DesignHistory.parse(
             raw.substring(boundary.start).replaceAll('\r\n', '\n'),
@@ -192,7 +192,7 @@ class _DesignReport {
       applied,
       managed,
     );
-    if (managed && _validateDesign(body) != null) {
+    if (managed && _validateDesign(body, full: true) != null) {
       throw ReviewStop(
         'bad_design_progress',
         '$path has an invalid reviewer verdict',
@@ -216,9 +216,12 @@ class _DesignReport {
   }
 }
 
-String? _designLine(String text, String key) {
+List<String> _reviewLines(String text, {required bool full}) =>
+    text.split(full ? RegExp(r'\r?\n') : _lineBreak);
+
+String? _designLine(String text, String key, {bool full = false}) {
   String? value;
-  for (final line in text.split(_lineBreak)) {
+  for (final line in _reviewLines(text, full: full)) {
     final next = _lineValue(line, key);
     if (next == null) continue;
     if (value != null) return null;
@@ -668,10 +671,12 @@ class _DesignAttempt {
       final answer = text;
       final problem =
           inputProblem ??
-          (answer == null ? 'output too large' : _validateDesign(answer));
+          (answer == null
+              ? 'output too large'
+              : _validateDesign(answer, full: true));
       final applied = answer == null
           ? null
-          : _designLine(answer, 'CHANGES_APPLIED');
+          : _designLine(answer, 'CHANGES_APPLIED', full: true);
       if (problem != null ||
           applied == 'yes' ||
           answer!.split(_lineBreak).contains(_progressMarker)) {
