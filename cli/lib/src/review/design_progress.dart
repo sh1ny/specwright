@@ -95,9 +95,7 @@ class _DesignCheckpoint {
     final state = _DesignProgress.read(out);
     _beforeReview(state);
     final choice = state.choice;
-    state.scopeRound = choice == 'scope-change' || !state.unresolved
-        ? 1
-        : state.scopeRound + 1;
+    state.scopeRound = choice == 'scope-change' ? 1 : state.scopeRound + 1;
     state.round++;
     state.extended = choice == 'scoped-pass';
     if (repairs != null && repairs.isNotEmpty) {

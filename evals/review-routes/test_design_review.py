@@ -53,6 +53,8 @@ class TestDesignReview(Base):
         self.settings_for(rules='  standing_rules: [rules/windows.md, rules/order.md]\n')
         rule = 'Wait for the exit event.\nFull café text.\n'
         self.commit(self.code, {'rules/windows.md': rule, 'rules/order.md': 'Order before timing.\n'}, 'rules')
+        self.git(self.code, 'checkout', '-q', '-b', 'other-branch')
+        self.commit(self.code, {'rules/windows.md': 'Rule committed on the checked-out branch.\n'}, 'other rules')
         (self.code / 'rules/windows.md').write_text('uncommitted replacement', encoding='utf-8')
         self.run_full(REVISE)
         packet = self.runs('claude')[-1]['stdin']
@@ -62,6 +64,7 @@ class TestDesignReview(Base):
         self.assertIn(subagent, packet)
         self.assertIn(rule, subagent)
         self.assertLess(subagent.index(rule), subagent.index('Order before timing.'))
+        self.assertNotIn('Rule committed on the checked-out branch.', packet)
         self.assertNotIn('uncommitted replacement', packet)
 
     def test_no_rules_leaves_both_briefs_unchanged(self):
@@ -92,6 +95,19 @@ class TestDesignReview(Base):
         self.assertIn(b'VERDICT: REVISE', before)
         self.assertIn(b'Repaired item 1.', before)
         self.assertIn(b'Repaired item 3.', before)
+
+    def test_prior_pass_does_not_reset_the_round_budget(self):
+        design = self.review.with_name('design.md')
+        design.write_text('TIER: FULL\n\nOriginal design.\n', encoding='utf-8')
+        self.complete(self.scratch(), REVISE)
+        self.complete(self.scratch(), VERDICT_OK, 'Wait on the child exit event.')
+        self.assertEqual(self.step()['verdict'], 'APPROVE')
+        design.write_text('TIER: FULL\n\nChanged lock lifecycle in the same scope.\n', encoding='utf-8')
+        self.complete(self.scratch(), REVISE)
+        state = self.step()
+        self.assertEqual((state['round'], state['scope_round'], state['status'], state['verdict']),
+                         (3, 3, 'owner_checkpoint', 'REVISE'))
+        self.assertEqual(self.scratch(expect=1)['error'], 'owner_checkpoint')
 
     def test_scoped_pass_survives_replacement_and_hands_back(self):
         self.settings_for(limit='  design_max_rounds: 1\n')

@@ -13,6 +13,7 @@ A project rule may govern tests the current design preserves, even if the change
 - FULL change-design reviews take an ordered list of project-declared rules. Read regular blobs from the named code branch, not the checkout, a planning store, ambient instructions, or filesystem links. Include the full text as criteria, not authority to change tools or workflow. Do not add these criteria to LIGHT, roadmap baseline or pre-ship reviews.
 - The round limit is an owner checkpoint. Keep the reviewer's unresolved verdict, record the actual owner choice in `review.md`, and require a passing review for tasks and apply. Do not derive readiness or a stopping rule from finding counts.
 - Keep the existing review checklist, verdict parsing, Release Notes exemption, conditional confirmation, scratch behavior and tasks/apply workflow. Record only round progress and owner decisions with the existing atomic review write.
+- This change adds no publication lock and no capture of planning artifacts. The existing review flow and atomic result write are sufficient for the checkpoint.
 
 ## Consequences
 
