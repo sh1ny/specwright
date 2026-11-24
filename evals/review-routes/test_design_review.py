@@ -245,6 +245,19 @@ class TestDesignReview(Base):
                 self.proposal.write_bytes(before.replace("Keep the backup.", "Delete the backup.").encode("utf-8"))
                 self.assertEqual(self.step()["status"], "review")
 
+    def test_ambiguous_notes_fence_does_not_hide_dedented_heading(self):
+        self.subagent()
+        before = (
+            "# Proposal\n\n## Release Notes\n- Example:\n\n"
+            "  ```text\n  sample\n\n## Rollback\nKeep the backup.\n"
+        )
+        self.proposal.write_bytes(before.encode("utf-8"))
+        self.complete(self.scratch(), VERDICT_OK)
+        self.proposal.write_bytes(before.replace("Keep the backup.", "Delete the backup.").encode("utf-8"))
+        self.assertEqual(self.step()["status"], "review")
+        self.proposal.write_bytes(before.replace("sample", "new sample").encode("utf-8"))
+        self.assertEqual(self.step()["status"], "review")
+
     def test_release_heading_matches_release_validation(self):
         self.subagent()
         before = "# Proposal\n\n## \tReLeAsE nOtEs\nOriginal notes.\n\n## Rollback\nKeep the backup.\n"
@@ -319,6 +332,33 @@ class TestDesignReview(Base):
         self.assertEqual(self.review.read_bytes(), old)
         self.complete(self.scratch(), VERDICT_OK)
         self.assertEqual(self.step()["round"], 3)
+
+    def test_conditional_baseline_preserves_exact_dispatch_bytes(self):
+        self.subagent()
+        original = self.proposal.read_bytes()
+        live = original.replace(b"Original notes.", b"Notes changed after dispatch.")
+        first = self.scratch()
+        self.assertEqual(Path(first["artifacts"]["proposal"]).read_bytes(), original)
+        self.proposal.write_bytes(live)
+        self.complete(first, CONDITIONAL)
+        recheck = self.scratch(recheck=True)
+        self.assertEqual(Path(recheck["prior_artifacts"]["proposal"]).read_bytes(), original)
+        self.assertEqual(Path(recheck["artifacts"]["proposal"]).read_bytes(), live)
+        self.complete(recheck, CONFIRMED)
+        self.assertEqual(self.step()["status"], "pass")
+
+    def test_changed_dispatch_capture_cannot_create_conditional_baseline(self):
+        self.subagent(1)
+        self.complete(self.scratch(), REVISE)
+        self.choice(1, "scoped-pass", "Verify graceful exit")
+        previous = self.review.read_bytes()
+        first = self.scratch()
+        capture = Path(first["artifacts"]["proposal"])
+        capture.write_bytes(capture.read_bytes().replace(b"Original notes.", b"Modified private copy."))
+        self.assertEqual(self.complete(first, CONDITIONAL, expect=1)["error"], "stale_review")
+        self.assertEqual(self.review.read_bytes(), previous)
+        self.complete(self.scratch(), VERDICT_OK)
+        self.assertEqual(self.step()["status"], "pass")
 
     def test_recheck_cannot_renew_baseline(self):
         from pathlib import Path

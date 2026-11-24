@@ -33,10 +33,12 @@
 | Captured input | A proposal example contains a Release Notes heading | `review-routes/test_design_review.py` | `test_fenced_release_heading_does_not_hide_proposal_edits` | green |
 | Captured input | A proposal example contains a Release Notes heading (raw HTML) | `review-routes/test_design_review.py` | `test_raw_html_cannot_hide_proposal_edits` | green |
 | Captured input | A Setext heading follows Release Notes | `review-routes/test_design_review.py` | `test_setext_heading_after_release_notes_stays_reviewed` | green |
+| Captured input | A fence in Release Notes has ambiguous boundaries | `review-routes/test_design_review.py` | `test_ambiguous_notes_fence_does_not_hide_dedented_heading` | green |
 | Captured input | An earlier FULL approval lacks a capture fingerprint | `review-routes/test_design_review.py` | `test_legacy_unpinned_approval_requires_full_review` | green |
 | Captured input | A conditional recheck receives unrelated changes | `review-routes/test_design_review.py` | `test_recheck_cannot_renew_baseline` | green |
 | Captured input | A full pass cannot confirm a recheck | `review-routes/test_design_review.py` | `test_recheck_cannot_renew_baseline` | green |
 | Captured input | A limited recheck cannot establish another baseline | `review-routes/test_design_review.py` | `test_recheck_cannot_renew_baseline` | green |
+| Captured input | Only the live Release Notes change during a conditional review | `review-routes/test_design_review.py` | `test_conditional_baseline_preserves_exact_dispatch_bytes`, `test_changed_dispatch_capture_cannot_create_conditional_baseline` | green |
 | Captured input | Publishing a new result fails after its conditional capture is staged | `cli/test/review/design_publication_test.dart` | `a failed report write leaves the original conditional baseline usable` | green (injected write failure) |
 | Captured input | The ordinary writer targets an open checkpoint | `review-routes/test_design_review.py` | `test_other_writers_cannot_erase_checkpoint` | green |
 | Captured input | Conflicting evidence cannot keep the publication lock | `cli/test/review/design_publication_test.dart` | `Git deadline during publication preserves the verdict and scoped pass` | green (manual deadline, real lock) |

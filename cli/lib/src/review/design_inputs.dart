@@ -346,9 +346,10 @@ class _DesignRules {
 }
 
 class _DesignArtifacts {
-  _DesignArtifacts(this.files, this.identity);
+  _DesignArtifacts(this.files, this.identity, this.exactIdentity);
   final Map<String, List<int>> files;
   final String identity;
+  final String exactIdentity;
 
   static _DesignArtifacts read(Directory root) {
     final files = <String, List<int>>{};
@@ -393,6 +394,7 @@ class _DesignArtifacts {
     }
     var remaining = _designArtifactBytes;
     final ids = <List<String>>[];
+    late String proposalHash;
     for (final rel in paths.keys.toList()..sort()) {
       final path = paths[rel]!;
       if (FileSystemEntity.typeSync(path, followLinks: false) !=
@@ -411,10 +413,26 @@ class _DesignArtifacts {
         );
       }
       files[rel] = bytes;
-      final evidence = rel == 'proposal.md' ? _proposalEvidence(bytes) : bytes;
-      ids.add([rel, sha256.convert(evidence).toString()]);
+      final contentHash = sha256.convert(bytes).toString();
+      if (rel == 'proposal.md') {
+        proposalHash = contentHash;
+        final evidence = _proposalEvidence(bytes);
+        ids.add([
+          rel,
+          identical(evidence, bytes)
+              ? contentHash
+              : sha256.convert(evidence).toString(),
+        ]);
+      } else {
+        ids.add([rel, contentHash]);
+      }
     }
-    return _DesignArtifacts(files, _designHash(ids));
+    final identity = _designHash(ids);
+    return _DesignArtifacts(
+      files,
+      identity,
+      _designHash([identity, proposalHash]),
+    );
   }
 
   Map<String, Object?> write(Directory root) {
@@ -567,7 +585,12 @@ List<int> _proposalEvidence(List<int> bytes) {
     }
     if (marker != null) {
       final run = marker[1]!;
-      if (!run.startsWith('`') || !marker[2]!.contains('`')) fence = run;
+      if (!run.startsWith('`') || !marker[2]!.contains('`')) {
+        // Without parsing list containers, an indented fence may end at a
+        // dedent rather than at another marker. Don't erase any proposal text.
+        if (!line.startsWith(run)) return bytes;
+        fence = run;
+      }
       paragraph = null;
       continue;
     }
@@ -593,5 +616,6 @@ List<int> _proposalEvidence(List<int> bytes) {
       paragraph ??= row.start;
     }
   }
+  if (fence != null) return bytes;
   return start == null ? bytes : utf8.encode(text.substring(0, start));
 }

@@ -479,6 +479,7 @@ class _DesignController {
           scratch,
           route,
           state.fingerprint,
+          state.artifacts.exactIdentity,
           recheck,
           repair,
           files,
@@ -492,6 +493,7 @@ class _DesignController {
           File(p.join(dir.path, 'attempt.json')).writeAsStringSync(
             jsonEncode({
               'fingerprint': state.fingerprint,
+              'capture': attempt.captureIdentity,
               'recheck': recheck,
               'repairs': repair,
             }),
@@ -533,6 +535,7 @@ class _DesignController {
       scratch,
       'subagent',
       obj['fingerprint'] as String,
+      obj['capture'] as String? ?? '',
       obj['recheck'] as bool,
       obj['repairs'] as String,
       const {},
@@ -658,6 +661,7 @@ class _DesignAttempt {
     this.scratch,
     this.route,
     this.fingerprint,
+    this.captureIdentity,
     this.recheck,
     this.repairs,
     this.files,
@@ -672,6 +676,7 @@ class _DesignAttempt {
   final String scratch;
   final String route;
   final String fingerprint;
+  final String captureIdentity;
   final bool recheck;
   final String repairs;
   final Map<String, Object?> files;
@@ -681,7 +686,8 @@ class _DesignAttempt {
   final int? round;
   final String? scope;
 
-  String get token => _designHash([scratch, fingerprint, recheck, repairs]);
+  String get token =>
+      _designHash([scratch, fingerprint, captureIdentity, recheck, repairs]);
   Map<String, Object?> instructions() => {
     'ok': true,
     'scratch': _normal(scratch),
@@ -797,7 +803,16 @@ class _DesignAttempt {
       controller.pruneBaselines(oldBaseline);
       try {
         if (nextBaseline != null) {
-          state.artifacts.write(controller.baselineAt(nextBaseline));
+          final captured = _DesignArtifacts.read(
+            Directory(p.join(dir.path, 'current')),
+          );
+          if (captured.exactIdentity != captureIdentity) {
+            throw ReviewStop(
+              'stale_review',
+              'the FULL dispatch capture changed; the prior review was not replaced',
+            );
+          }
+          captured.write(controller.baselineAt(nextBaseline));
         }
         _atomicWrite(controller.out, updated);
         published = {

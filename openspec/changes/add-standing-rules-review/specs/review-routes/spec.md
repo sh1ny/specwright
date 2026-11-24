@@ -78,6 +78,10 @@ Both FULL routes SHALL review a private capture. A stale result SHALL NOT replac
 - **WHEN** an edit changes a section under an H1 or H2 Setext heading following Release Notes
 - **THEN** the edit invalidates approval, even though the next title is not written with `#` markers
 
+#### Scenario: A fence in Release Notes has ambiguous boundaries
+- **WHEN** an unclosed fence starts inside a Release Notes list item before a dedented substantive section
+- **THEN** the review fingerprints the entire proposal rather than assuming the following section is part of Release Notes
+
 #### Scenario: An earlier FULL approval lacks a capture fingerprint
 - **WHEN** an in-flight change has an ordinary passing FULL report from before capture fingerprints were recorded
 - **THEN** tasks and apply need a fresh FULL review; a historical `USER_OVERRIDE` keeps its disposition
@@ -93,6 +97,10 @@ Both FULL routes SHALL review a private capture. A stale result SHALL NOT replac
 #### Scenario: A limited recheck cannot establish another baseline
 - **WHEN** either FULL route, during a limited recheck, returns `APPROVE_WITH_CHANGES` with `CHANGES_APPLIED: no` after an unrelated artifact change
 - **THEN** the result is rejected without replacing the previous report or promoting the recheck's capture; a valid `REVISE` instead closes the prior baseline and the next attempt must be a full review
+
+#### Scenario: Only the live Release Notes change during a conditional review
+- **WHEN** a full pass reviews a captured proposal and the live Release Notes alone change before it publishes a conditional verdict
+- **THEN** revalidation can accept the result, but the next recheck receives the exact dispatched bytes as its prior capture; a changed dispatch capture cannot become the baseline
 
 #### Scenario: Publishing a new result fails after its conditional capture is staged
 - **WHEN** a full pass stages a new conditional capture but replacement of `review.md` fails
