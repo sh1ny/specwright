@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <img alt="version" src="https://img.shields.io/badge/version-0.40.0-blue">
+  <img alt="version" src="https://img.shields.io/badge/version-0.40.1-blue">
   <img alt="OpenSpec" src="https://img.shields.io/badge/OpenSpec-1.16.0-8A2BE2">
   <img alt="agents" src="https://img.shields.io/badge/agents-Claude%20Code%20%7C%20Codex%20%7C%20OMP-555">
   <a href="./LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-green"></a>
@@ -897,20 +897,18 @@ A verdict covers only what was reviewed; the existing Required Changes confirmat
 
 ### Standing requirements and design checkpoint
 
-In the **code repository's** `openspec/specwright.yaml`, list only versioned review criteria:
+Create a rules file for your project, such as `rules/review-criteria.md`. Commit it to the code branch and list its repository-relative path under `review.standing_rules` in the **code repository's** `openspec/specwright.yaml`:
 
 ```yaml
 review:
   standing_rules:
-    - rules/windows-ci-tests.md
+    - rules/review-criteria.md
   design_max_rounds: 3
 ```
 
-Commit each UTF-8 text file to the code branch. Paths are relative to the code repo root, use `/`, and must name regular Git blobs, not links. The FULL brief includes the whole text in declaration order (up to 32 paths and 256 KiB total; it stops rather than truncating), including instructions to check existing tests the design preserves. These files are sent to the selected reviewer; do not list secrets or unrelated policy. Empty or omitted `standing_rules` adds no criteria to the brief. LIGHT, roadmap baseline and pre-ship do not use this section.
+Rules must be UTF-8 text in regular Git blobs, not links. Paths use `/` and are relative to the code repo root. The FULL brief includes the whole text in declaration order (up to 32 paths and 256 KiB total; it stops rather than truncating), including instructions to check existing tests the design preserves. These files are sent to the selected reviewer; do not list secrets or unrelated policy. Empty or omitted `standing_rules` adds no criteria to the brief. LIGHT, roadmap baseline and pre-ship do not use this section.
 
 `review.design_max_rounds` defaults to **3** for projects that set nothing, replacing the old two-consecutive-`REVISE` change-design escalation. At the limit, the report shows open findings and repairs, then waits for the owner to authorize one scoped pass, record a scope change with a reason, or stop. None of those choices grants approval. `pr.max_fix_rounds` and `pr.after_limit` still govern PR feedback only; their defaults and project values are unchanged.
-
-**Migration for the eight repositories:** after upgrading Specwright, copy `rules/windows-ci-tests.md` from Mastermind into each repository at that same relative path. Commit the copy and add the example `standing_rules` entry under that repository's existing `review:` block. Keep existing review and PR settings. Do not point at Mastermind via an absolute path or a symlink: each repository owns and versions its copy, including later rule updates.
 
 <details>
 <summary><b>Branch prefixes and commit messages</b></summary>
