@@ -50,4 +50,4 @@
 
 ## 2. Version and release notes
 
-- [ ] 2.1 `<sw> release bump --to 0.40.0`; verify with `<sw> release check` and `<sw> release notes --proposal openspec/changes/add-standing-rules-review/proposal.md`.
+- [x] 2.1 `<sw> release bump --to 0.40.0`; verify with `<sw> release check` and `<sw> release notes --proposal openspec/changes/add-standing-rules-review/proposal.md`.
