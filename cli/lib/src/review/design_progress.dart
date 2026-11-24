@@ -196,6 +196,13 @@ class _DesignProgress {
     }
     final text = utf8.decode(bytes);
     final boundary = _progressBoundary.firstMatch(text);
+    if (boundary == null &&
+        text.split(_designLines).contains(_progressMarker)) {
+      throw ReviewStop(
+        'bad_design_progress',
+        '$out has malformed owner checkpoint progress',
+      );
+    }
     final body = boundary == null ? text : text.substring(0, boundary.start);
     final verdict = _designLine(body, 'VERDICT');
     final result = _DesignProgress(

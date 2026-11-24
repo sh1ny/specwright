@@ -72,11 +72,12 @@ Future<String?> _standingRequirements(
     return result.stdout;
   }
 
-  final code = utf8
-      .decode(
-        await git(Directory.current.path, ['rev-parse', '--show-toplevel']),
-      )
-      .trim();
+  final toplevel = utf8.decode(
+    await git(Directory.current.path, ['rev-parse', '--show-toplevel']),
+  );
+  final code = toplevel.endsWith('\n')
+      ? toplevel.substring(0, toplevel.length - 1)
+      : toplevel;
   final branch = args['branch']!;
   final tip = utf8
       .decode(

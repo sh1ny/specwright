@@ -67,6 +67,16 @@ class TestDesignReview(Base):
         self.assertNotIn('Rule committed on the checked-out branch.', packet)
         self.assertNotIn('uncommitted replacement', packet)
 
+    @unittest.skipIf(sys.platform == 'win32', 'Win32 normalizes trailing spaces in paths')
+    def test_reads_rules_in_repository_with_trailing_space(self):
+        self.settings_for(rules='  standing_rules: [rules/windows.md]\n')
+        self.commit(self.code, {'rules/windows.md': 'Wait for the exit event.\n'}, 'rules')
+        renamed = self.code.with_name('code ')
+        self.code.rename(renamed)
+        self.review = renamed / self.review.relative_to(self.code)
+        self.code = renamed
+        self.assertIn('Wait for the exit event.', self.scratch()['standing_requirements'])
+
     def test_no_rules_leaves_both_briefs_unchanged(self):
         for setting in ('', '  standing_rules: []\n'):
             with self.subTest(setting=setting):
@@ -177,6 +187,22 @@ class TestDesignReview(Base):
         self.assertEqual((state['status'], state['verdict']), ('stopped', 'REVISE'))
         self.assertEqual(self.scratch(expect=1)['error'], 'stopped')
         self.assertIn(b'`stop`', self.review.read_bytes())
+
+    def test_stop_survives_a_missing_blank_line_before_the_progress_marker(self):
+        self.settings_for(limit='  design_max_rounds: 3\n')
+        legacy_round_one = REVISE.replace('# Review\n', '# Review\n\n- **Round:** 1\n')
+        for _ in range(3):
+            self.complete(self.scratch(), legacy_round_one)
+        self.choose(3, 'stop')
+        self.assertEqual(self.step()['status'], 'stopped')
+        marker = b'<!-- specwright-design-progress -->'
+        body, footer = self.review.read_bytes().split(marker)
+        damaged = body.rstrip(b'\n') + b'\n' + marker + footer
+        self.review.write_bytes(damaged)
+
+        self.assertEqual(self.step(expect=1)['error'], 'bad_design_progress')
+        self.assertEqual(self.scratch(expect=1)['error'], 'bad_design_progress')
+        self.assertEqual(self.review.read_bytes(), damaged)
 
 
 if __name__ == '__main__':

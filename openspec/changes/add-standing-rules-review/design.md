@@ -81,7 +81,7 @@ The existing author serializes design-review requests and is responsible for app
 |---|---|---|
 | Project review config and rule blobs | Code project config and named code branch tree | Invalid or missing declared blob fails before the reviewer; no truncated brief. |
 | Verdict and findings | Latest validated result in `review.md` | A failed review leaves the prior result in place, as today. |
-| Budget, repair log and owner choice | Progress footer in `review.md` | Malformed progress stops the change-design review; a failed result does not advance the round. No response means stop at the checkpoint. |
+| Budget, repair log and owner choice | Progress footer in `review.md` | A reserved marker with a malformed footer stops review instead of falling back to legacy parsing. A failed result does not advance the round. No response means stop at the checkpoint. |
 
 Rule reads permit at most 32 paths, at most 512 UTF-8 bytes per path, and 256 KiB total committed text, with a shared Git lookup budget. The footer is bounded by the existing 2 MiB answer limit; refuse a new result or choice rather than silently drop history. Review outputs, scratch, and transport failure handling keep main's bounds and behavior.
 
