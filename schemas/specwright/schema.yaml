@@ -570,6 +570,9 @@ artifacts:
       Ask the owner to choose one more scoped pass, a scope change with a
       reason, or stop. Record their actual answer with `<sw> review design-step
       --out <this change's review.md> --round <current round> --choice <choice>`.
+      If the owner raises the project limit above the current scope round,
+      that allows more rounds at a cap-only handoff without changing the
+      verdict. Never raise the setting yourself to get past a checkpoint.
       Use `scoped-pass --detail <scope>` to limit the author's repairs, not
       the reviewer's coverage. Ask for a full review of the entire current
       design, including all still-applicable open findings, before any

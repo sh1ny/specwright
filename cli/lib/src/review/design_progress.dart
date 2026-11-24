@@ -1,9 +1,15 @@
 part of 'run.dart';
 
 const _progressMarker = '<!-- specwright-design-progress -->';
-final _progressBoundary = RegExp('\r?\n\r?\n$_progressMarker\r?\n');
+const _progressStart = '\n\n$_progressMarker\n';
+const _progressMarkerPattern = '$_progressMarker[ \t]*';
+final _progressBoundary = RegExp('\r?\n\r?\n$_progressMarkerPattern\r?\n');
+final _progressMarkerLine = RegExp('^$_progressMarkerPattern\$');
 final _designLines = RegExp(r'\r\n|[\r\n\v\f\u001c-\u001e\u0085\u2028\u2029]');
 const _ownerChoices = ['scoped-pass', 'scope-change', 'stop'];
+
+bool _hasProgressMarker(String text) =>
+    text.split(_designLines).any(_progressMarkerLine.hasMatch);
 
 const _checkpointReviewInstruction =
     '## Owner checkpoint review\n\n'
@@ -97,7 +103,7 @@ class _DesignCheckpoint {
   }
 
   String record(String text, String? repairs, Never Function(String) invalid) {
-    if (text.split(_designLines).contains(_progressMarker)) {
+    if (_hasProgressMarker(text)) {
       invalid('review reply contains the reserved owner progress marker');
     }
     final state = _DesignProgress.read(out);
@@ -159,7 +165,7 @@ class _DesignProgress {
       ),
     );
     final footer = StringBuffer(
-      '\n\n$_progressMarker\n<!-- $payload -->\n\n## Review progress\n\n',
+      '$_progressStart<!-- $payload -->\n\n## Review progress\n\n',
     )..writeln('- Validated round: $round (scope round $scopeRound)');
     for (final entry in log) {
       final which = entry['round'];
@@ -196,8 +202,7 @@ class _DesignProgress {
     }
     final text = utf8.decode(bytes);
     final boundary = _progressBoundary.firstMatch(text);
-    if (boundary == null &&
-        text.split(_designLines).contains(_progressMarker)) {
+    if (boundary == null && _hasProgressMarker(text)) {
       throw ReviewStop(
         'bad_design_progress',
         '$out has malformed owner checkpoint progress',
@@ -238,7 +243,7 @@ class _DesignProgress {
       if (result.scopeRound < 1 ||
           result.scopeRound > result.round ||
           result.withProgress('') !=
-              text.substring(boundary.start).replaceAll('\r\n', '\n')) {
+              '$_progressStart${text.substring(boundary.end).replaceAll('\r\n', '\n')}') {
         throw const FormatException();
       }
       return result;

@@ -195,8 +195,19 @@ class TestDesignReview(Base):
             self.complete(self.scratch(), legacy_round_one)
         self.choose(3, 'stop')
         self.assertEqual(self.step()['status'], 'stopped')
+        stopped_record = self.review.read_bytes()
+        padded = stopped_record.replace(
+            b'<!-- specwright-design-progress -->\n',
+            b'<!-- specwright-design-progress --> \t\n',
+        )
+        self.review.write_bytes(padded)
+        state = self.step()
+        self.assertEqual((state['status'], state['verdict']), ('stopped', 'REVISE'))
+        self.assertEqual(self.scratch(expect=1)['error'], 'stopped')
+        self.assertEqual(self.review.read_bytes(), padded)
+
         marker = b'<!-- specwright-design-progress -->'
-        body, footer = self.review.read_bytes().split(marker)
+        body, footer = stopped_record.split(marker)
         damaged = body.rstrip(b'\n') + b'\n' + marker + footer
         self.review.write_bytes(damaged)
 

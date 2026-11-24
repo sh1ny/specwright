@@ -69,7 +69,7 @@ Source: setting; the coordinator delegated design choices within the approved co
 
 ## Release Notes
 
-FULL change-design reviews can use a repository's own versioned rules, including when the design preserves existing tests. The review hands off to the owner after three unresolved rounds by default; the reviewer verdict still controls readiness. Pre-ship and PR feedback policies are unchanged.
+FULL change-design reviews can use a repository's own versioned rules, including when the design preserves existing tests. If the result is unresolved at the configured number of validated rounds in the current scope (default three), the review hands off to the owner. The reviewer verdict still controls readiness. Pre-ship and PR feedback policies are unchanged.
 
 ### Added
 
@@ -77,5 +77,5 @@ FULL change-design reviews can use a repository's own versioned rules, including
 
 ### Changed
 
-- `review.design_max_rounds` controls the design review owner checkpoint, default three. The checkpoint records the owner's choice without turning outstanding findings into an approval (#172).
+- `review.design_max_rounds` controls how many validated rounds in the current scope can run before an unresolved result triggers the owner checkpoint (default three). The checkpoint records the owner's choice without turning outstanding findings into an approval (#172).
 - Migration: in each of the eight adopting repositories, copy `rules/windows-ci-tests.md` from Mastermind, commit it as a regular file, and add `review.standing_rules: [rules/windows-ci-tests.md]` to that repository’s `openspec/specwright.yaml`. No other repository is changed here.

@@ -20,7 +20,7 @@ FULL change-design review SHALL pause at `review.design_max_rounds` validated ro
 
 #### Scenario: Unresolved third round
 - **WHEN** the default applies and the third validated review remains `REVISE`, even if the finding count did not change
-- **THEN** the author hands off the open findings and repairs to the owner; no further review starts without the owner's choice and the verdict remains `REVISE`
+- **THEN** the author hands off the open findings and repairs to the owner; no further review starts without the owner's choice or an owner-raised limit above the current round, and the verdict remains `REVISE`
 
 #### Scenario: Configured round and conditional approval
 - **WHEN** a configured checkpoint is reached with `APPROVE_WITH_CHANGES` and `CHANGES_APPLIED: no`
@@ -40,4 +40,4 @@ The author SHALL record the owner's actual choice in `review.md`: one further sc
 
 #### Scenario: Stop or no choice
 - **WHEN** the owner chooses stop or has not answered at the checkpoint
-- **THEN** no further review starts and the existing unresolved verdict stays in place; an explicit stop is recorded
+- **THEN** the existing unresolved verdict stays in place. An explicit stop is recorded and blocks review even if the owner raises the limit. Without a recorded choice, a cap-only handoff can reopen only if the owner raises the limit above the current round.
