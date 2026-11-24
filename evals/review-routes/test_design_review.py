@@ -35,11 +35,10 @@ class TestDesignReview(Base):
     def select_full(self):
         return self.script("select", "--change-review", "--branch", BRANCH, "--runtime", "other")
 
-    def args(self, selection, repair="none", recheck=False):
+    def args(self, selection, repair="none"):
         path = self.put("selection.json", json.dumps(selection))
         return ["--kind", "design", "--change-review", "--change", CHANGE, "--branch", BRANCH,
-                "--out", self.review, "--selection", path, "--repairs", repair,
-                *(["--recheck"] if recheck else [])]
+                "--out", self.review, "--selection", path, "--repairs", repair]
 
     def step(self, *extra, expect=0):
         return self.script("design-step", "--branch", BRANCH, "--out", self.review, *extra, expect=expect)
@@ -47,8 +46,8 @@ class TestDesignReview(Base):
     def choice(self, round_, choice, detail=None):
         return self.step("--round", round_, "--choice", choice, *([] if detail is None else ["--detail", detail]))
 
-    def scratch(self, repair="none", recheck=False, expect=0):
-        args = self.args(self.select_full(), repair, recheck)
+    def scratch(self, repair="none", expect=0):
+        args = self.args(self.select_full(), repair)
         return self.script("record", "--scratch", *args, expect=expect)
 
     def complete(self, started, answer, expect=0):
@@ -58,10 +57,10 @@ class TestDesignReview(Base):
         return self.script("record", *self.args(self.select_full()), "--result", path,
                            "--attempt", started["attempt"], "--route", "subagent", expect=expect)
 
-    def run_cli(self, answer, repair="none", recheck=False, expect=0, selection=None):
+    def run_cli(self, answer, repair="none", expect=0, selection=None):
         self.stdout_file("claude", json.dumps({"type": "result", "result": answer}))
         selection = selection or self.select_full()
-        return self.script("run", *self.args(selection, repair, recheck), "--route", selection["route"],
+        return self.script("run", *self.args(selection, repair), "--route", selection["route"],
                            "--prompt-file", self.prompt, expect=expect)
 
     def subagent(self, limit=None):
@@ -101,7 +100,6 @@ class TestDesignReview(Base):
         self.subagent(1)
         self.complete(self.scratch(), REVISE)
         self.choice(1, "scope-change", "Remove cross-process feature")
-        self.proposal.write_text(self.proposal.read_text(encoding="utf-8").replace("Original notes.", "New notes."), encoding="utf-8")
         self.assertEqual(self.scratch(expect=1)["error"], "scope_unchanged")
         self.plan.write_text("TIER: FULL\nSmaller design\n", encoding="utf-8")
         self.complete(self.scratch(), VERDICT_OK)
@@ -122,13 +120,13 @@ class TestDesignReview(Base):
         self.cli(1)
         self.run_cli(CONDITIONAL)
         self.assertEqual(self.step()["status"], "owner_checkpoint")
-        self.assertEqual(self.run_cli(CONFIRMED, recheck=True, expect=1)["error"], "owner_checkpoint")
+        self.assertEqual(self.run_cli(VERDICT_OK, expect=1)["error"], "owner_checkpoint")
 
     def test_approval_at_cap(self):
         self.cli(2)
         self.run_cli(CONDITIONAL)
         self.plan.write_text("TIER: FULL\nWait for exit.\n", encoding="utf-8")
-        self.run_cli(CONFIRMED, recheck=True)
+        self.run_cli(VERDICT_OK)
         self.assertEqual(self.step()["status"], "pass")
         self.assertEqual(self.step()["round"], 2)
 
@@ -142,7 +140,6 @@ class TestDesignReview(Base):
             with self.subTest(verdict=old):
                 self.review.write_bytes(old.encode("utf-8"))
                 self.assertEqual(self.step()["status"], "review")
-                self.assertEqual(self.scratch(recheck=True, expect=1)["error"], "full_review_required")
                 self.assertEqual(self.review.read_bytes(), old.encode("utf-8"))
 
     def test_full_rules_use_branch_blobs_on_both_routes(self):
@@ -193,77 +190,14 @@ class TestDesignReview(Base):
             else:
                 link.unlink()
 
-    def test_fenced_release_heading_does_not_hide_proposal_edits(self):
+    def test_release_notes_edit_voids_approval(self):
         self.subagent()
-        for fence, info in (("````", "markdown"), ("~~~", "markdown"), ("<!--", "")):
-            with self.subTest(fence=fence):
-                close = "-->" if fence == "<!--" else fence
-                before = f"# Proposal\n\n{fence}{info}\n## Release Notes\n{close}\n\nRequire draining.\n"
-                self.proposal.write_bytes(before.encode("utf-8"))
-                attempt = self.scratch()
-                self.proposal.write_bytes(before.replace("draining", "aborting").encode("utf-8"))
-                self.assertEqual(self.complete(attempt, VERDICT_OK, expect=1)["error"], "stale_review")
-                self.assertFalse(self.review.exists())
-
-        before = "# Proposal\n\n## Release Notes\nExample:\n```\n## Sample\n```\nNotes here.\n\n## Rollback\nKeep the backup.\n"
-        self.proposal.write_bytes(before.encode("utf-8"))
-        attempt = self.scratch()
-        self.proposal.write_bytes(before.replace("Notes here.", "Updated notes.").encode("utf-8"))
-        self.complete(attempt, VERDICT_OK)
-        self.proposal.write_bytes(before.replace("Keep the backup.", "Delete the backup.").encode("utf-8"))
-        self.assertEqual(self.step()["status"], "review")
-
-    def test_raw_html_cannot_hide_proposal_edits(self):
-        self.subagent()
-        for opening, closing in (
-            ("<div class=\"example\">", "</div>"),
-            ("<pre>\n", "</pre>"),
-            ("<example-panel>", "</example-panel>"),
-            ("<?example", "?>"),
-        ):
-            with self.subTest(opening=opening):
-                before = f"# Proposal\n\n{opening}\n## Release Notes\n{closing}\n\nRequire draining.\n"
-                self.proposal.write_bytes(before.encode("utf-8"))
-                self.complete(self.scratch(), VERDICT_OK)
-                self.proposal.write_bytes(before.replace("draining", "aborting").encode("utf-8"))
-                self.assertEqual(self.step()["status"], "review")
-
-        before = "# Proposal\n\n<div>\n## A raw heading\n</div>\n\n## Release Notes\nOld notes.\n"
-        self.proposal.write_bytes(before.encode("utf-8"))
-        attempt = self.scratch()
-        self.proposal.write_bytes(before.replace("Old notes.", "New notes.").encode("utf-8"))
-        self.complete(attempt, VERDICT_OK)
+        self.complete(self.scratch(), VERDICT_OK)
         self.assertEqual(self.step()["status"], "pass")
-
-    def test_setext_heading_after_release_notes_stays_reviewed(self):
-        self.subagent()
-        for underline in ("--------", "========"):
-            with self.subTest(underline=underline):
-                before = f"# Proposal\n\n## Release Notes\nOriginal notes.\n\nRollback\n{underline}\nKeep the backup.\n"
-                self.proposal.write_bytes(before.encode("utf-8"))
-                self.complete(self.scratch(), VERDICT_OK)
-                self.proposal.write_bytes(before.replace("Keep the backup.", "Delete the backup.").encode("utf-8"))
-                self.assertEqual(self.step()["status"], "review")
-
-    def test_ambiguous_notes_fence_does_not_hide_dedented_heading(self):
-        self.subagent()
-        before = (
-            "# Proposal\n\n## Release Notes\n- Example:\n\n"
-            "  ```text\n  sample\n\n## Rollback\nKeep the backup.\n"
-        )
-        self.proposal.write_bytes(before.encode("utf-8"))
-        self.complete(self.scratch(), VERDICT_OK)
-        self.proposal.write_bytes(before.replace("Keep the backup.", "Delete the backup.").encode("utf-8"))
+        proposal = self.proposal.read_bytes()
+        self.proposal.write_bytes(proposal.replace(b"Original notes.", b"Updated notes."))
         self.assertEqual(self.step()["status"], "review")
-        self.proposal.write_bytes(before.replace("sample", "new sample").encode("utf-8"))
-        self.assertEqual(self.step()["status"], "review")
-
-    def test_release_heading_matches_release_validation(self):
-        self.subagent()
-        before = "# Proposal\n\n## \tReLeAsE nOtEs\nOriginal notes.\n\n## Rollback\nKeep the backup.\n"
-        self.proposal.write_bytes(before.encode("utf-8"))
         self.complete(self.scratch(), VERDICT_OK)
-        self.proposal.write_bytes(before.replace("Original notes.", "Updated notes.").encode("utf-8"))
         self.assertEqual(self.step()["status"], "pass")
 
     def test_bad_rule_fails_before_reviewer(self):
@@ -294,11 +228,12 @@ class TestDesignReview(Base):
 
     def test_rules_change_requires_full_review(self):
         self.cli()
-        self.run_cli(CONDITIONAL)
+        self.run_cli(VERDICT_OK)
         self.commit(self.code, {"rules.md": "Wait for exit.\n"}, "rules")
         self.project_settings("review:\n  order: [claude]\n  standing_rules: [rules.md]\n")
-        self.assertEqual(self.run_cli(CONFIRMED, recheck=True, expect=1)["error"], "full_review_required")
+        self.assertEqual(self.step()["status"], "review")
         self.run_cli(VERDICT_OK)
+        self.assertIn("Wait for exit.", self.runs("claude")[-1]["stdin"])
         self.assertEqual(self.step()["status"], "pass")
         self.commit(self.code, {"rules.md": "Wait for the exact process.\n"}, "update rules")
         self.assertEqual(self.step()["status"], "review")
@@ -313,119 +248,49 @@ class TestDesignReview(Base):
         self.assertEqual(self.script("select", "--change-review", "--branch", BRANCH, "--runtime", "other", expect=1)["error"], "settings_not_pinned")
         self.assertFalse(self.runs("claude"))
 
-    def test_subagent_capture_and_stale_publication(self):
-        from pathlib import Path
+    def test_stale_publication_preserves_scoped_permission(self):
         self.subagent(1)
         self.complete(self.scratch(), REVISE)
         self.choice(1, "scoped-pass", "Lock only")
-        first = self.scratch()
-        copy = Path(first["artifacts"]["design"])
-        self.plan.write_text("TIER: FULL\nDesign B\n", encoding="utf-8")
-        self.assertIn("Design A", copy.read_text(encoding="utf-8"))
-        self.plan.write_text("TIER: FULL\nDesign A\n", encoding="utf-8")
-        self.complete(first, REVISE)
-        self.choice(2, "scoped-pass", "Lock only again")
-        second = self.scratch()
-        old = self.review.read_bytes()
-        self.plan.write_text("TIER: FULL\nDesign C\n", encoding="utf-8")
-        self.assertEqual(self.complete(second, VERDICT_OK, expect=1)["error"], "stale_review")
-        self.assertEqual(self.review.read_bytes(), old)
-        self.complete(self.scratch(), VERDICT_OK)
-        self.assertEqual(self.step()["round"], 3)
-
-    def test_conditional_baseline_preserves_exact_dispatch_bytes(self):
-        self.subagent()
-        original = self.proposal.read_bytes()
-        live = original.replace(b"Original notes.", b"Notes changed after dispatch.")
-        first = self.scratch()
-        self.assertEqual(Path(first["artifacts"]["proposal"]).read_bytes(), original)
-        self.proposal.write_bytes(live)
-        self.complete(first, CONDITIONAL)
-        recheck = self.scratch(recheck=True)
-        self.assertEqual(Path(recheck["prior_artifacts"]["proposal"]).read_bytes(), original)
-        self.assertEqual(Path(recheck["artifacts"]["proposal"]).read_bytes(), live)
-        self.complete(recheck, CONFIRMED)
-        self.assertEqual(self.step()["status"], "pass")
-
-    def test_changed_dispatch_capture_cannot_create_conditional_baseline(self):
-        self.subagent(1)
-        self.complete(self.scratch(), REVISE)
-        self.choice(1, "scoped-pass", "Verify graceful exit")
+        attempt = self.scratch()
         previous = self.review.read_bytes()
-        first = self.scratch()
-        capture = Path(first["artifacts"]["proposal"])
-        capture.write_bytes(capture.read_bytes().replace(b"Original notes.", b"Modified private copy."))
-        self.assertEqual(self.complete(first, CONDITIONAL, expect=1)["error"], "stale_review")
+        proposal = self.proposal.read_bytes()
+        self.proposal.write_bytes(proposal.replace(b"Original notes.", b"Notes changed during review."))
+        self.assertEqual(self.complete(attempt, VERDICT_OK, expect=1)["error"], "stale_review")
         self.assertEqual(self.review.read_bytes(), previous)
         self.complete(self.scratch(), VERDICT_OK)
         self.assertEqual(self.step()["status"], "pass")
+        self.assertEqual(self.step()["round"], 2)
 
-    def test_changed_attempt_evidence_rejects_full_and_recheck_verdicts(self):
-        self.subagent(1)
-        self.complete(self.scratch(), REVISE)
-        self.choice(1, "scoped-pass", "Verify graceful exit")
-        previous = self.review.read_bytes()
-        first = self.scratch()
-        Path(first["artifacts"]["design"]).unlink()
-        self.assertEqual(self.complete(first, VERDICT_OK, expect=1)["error"], "stale_review")
-        self.assertEqual(self.review.read_bytes(), previous)
-        self.complete(self.scratch(), CONDITIONAL)
-        self.choice(2, "scoped-pass", "Check the Required Changes")
-        previous = self.review.read_bytes()
-
-        for artifact in ("artifacts", "prior_artifacts", "prior_review"):
-            with self.subTest(artifact=artifact):
-                attempt = self.scratch(recheck=True)
-                path = Path(attempt[artifact] if artifact == "prior_review" else attempt[artifact]["proposal"])
-                original = b"Wait for exit." if artifact == "prior_review" else b"Original notes."
-                path.write_bytes(path.read_bytes().replace(original, b"Modified captured evidence."))
-                self.assertEqual(self.complete(attempt, CONFIRMED, expect=1)["error"], "stale_review")
-                self.assertEqual(self.review.read_bytes(), previous)
-        self.complete(self.scratch(recheck=True), CONFIRMED)
-        self.assertEqual(self.step()["status"], "pass")
-
-    def test_reopened_recheck_refuses_changed_cached_baseline(self):
-        self.subagent()
-        first = self.scratch()
-        self.complete(first, CONDITIONAL)
-        previous = self.review.read_bytes()
-        # Corrupt only Release Notes in the persisted cache: the normalized
-        # review fingerprint is unchanged, but these are not the reviewed bytes.
-        cached, = self.state_dir.glob("change-review/*/baselines/*/proposal.md")
-        cached.write_bytes(cached.read_bytes().replace(b"Original notes.", b"Incorrect baseline notes."))
-        self.assertEqual(self.scratch(recheck=True, expect=1)["error"], "full_review_required")
-        self.assertEqual(self.review.read_bytes(), previous)
-        self.complete(self.scratch(), CONDITIONAL)
-        self.complete(self.scratch(recheck=True), CONFIRMED)
-        self.assertEqual(self.step()["status"], "pass")
-
-    def test_recheck_cannot_renew_baseline(self):
-        from pathlib import Path
-        self.subagent()
-        first = self.scratch()
-        self.complete(first, CONFIRMED, expect=3)
-        self.assertFalse(self.review.exists())
-        self.complete(self.scratch(), CONDITIONAL)
-        self.plan.write_text("TIER: FULL\nWait for exit, plus unrelated policy.\n", encoding="utf-8")
-        recheck = self.scratch(recheck=True)
-        self.assertIn("Design A", Path(recheck["prior_artifacts"]["design"]).read_text(encoding="utf-8"))
-        self.assertIn("unrelated policy", Path(recheck["artifacts"]["design"]).read_text(encoding="utf-8"))
-        self.assertEqual(recheck["mode"], "recheck")
-        self.assertIn("## Required Changes\nWait for exit.", Path(recheck["prior_review"]).read_text(encoding="utf-8"))
-        old = self.review.read_bytes()
-        self.complete(recheck, CONDITIONAL, expect=3)
-        self.assertEqual(self.review.read_bytes(), old)
-        self.complete(self.scratch(recheck=True), REVISE)
-        self.assertEqual(self.scratch(recheck=True, expect=1)["error"], "full_review_required")
-        self.cli(4)
+    def test_required_changes_need_another_full_approval(self):
+        self.cli(2)
         self.run_cli(CONDITIONAL)
-        old = self.review.read_bytes()
-        self.run_cli(CONDITIONAL, recheck=True, expect=3)
-        prompt = self.runs("claude")[-1]["stdin"]
-        self.assertIn("Prior full-review artifacts:", prompt)
-        self.assertIn("Prior review:", prompt)
-        self.assertRegex(prompt, r"(?i)if .*outside the Required Changes, return REVISE\b")
-        self.assertEqual(self.review.read_bytes(), old)
+        pending = self.review.read_bytes()
+        self.plan.write_text("TIER: FULL\nWait for exit.\n", encoding="utf-8")
+        self.run_cli(CONFIRMED, expect=3)
+        self.assertEqual(self.review.read_bytes(), pending)
+        self.assertEqual(self.step()["round"], 1)
+        self.run_cli(VERDICT_OK)
+        self.assertEqual(self.step()["status"], "pass")
+        self.assertEqual(self.step()["round"], 2)
+
+    def test_bad_selection_cleans_completed_scratch_without_spending_pass(self):
+        self.subagent(1)
+        self.complete(self.scratch(), REVISE)
+        self.choice(1, "scoped-pass", "Lock only")
+        previous = self.review.read_bytes()
+        for _ in range(2):
+            attempt = self.scratch()
+            scratch = Path(attempt["scratch"])
+            scratch.write_text(VERDICT_OK, encoding="utf-8")
+            args = self.args(self.select_full())
+            Path(args[args.index("--selection") + 1]).unlink()
+            self.script("record", *args, "--result", scratch, "--attempt", attempt["attempt"],
+                        "--route", "subagent", expect=1)
+            self.assertFalse(scratch.parent.exists())
+            self.assertEqual(self.review.read_bytes(), previous)
+        self.complete(self.scratch(), VERDICT_OK)
+        self.assertEqual(self.step()["status"], "pass")
 
     def test_other_writers_cannot_erase_checkpoint(self):
         self.cli(1)
@@ -502,7 +367,7 @@ class TestDesignReview(Base):
         self.complete(self.scratch(), VERDICT_OK)
         self.assertEqual(self.step()["status"], "pass")
 
-    def test_unreadable_route_refuses_before_capture(self):
+    def test_unreadable_route_refuses_before_dispatch(self):
         self.install("claude", "omp")
         for route in ("omp", "claude"):
             with self.subTest(route=route):

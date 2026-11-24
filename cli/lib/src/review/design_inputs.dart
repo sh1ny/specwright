@@ -289,7 +289,7 @@ class _DesignProject {
     if (required != null && tools != null && !tools.contains(required)) {
       throw ReviewStop(
         'design_route_cannot_read',
-        'FULL design route $route needs $required in review.routes.$route.tools to read captured artifacts',
+        'FULL design route $route needs $required in review.routes.$route.tools to read planning artifacts',
       );
     }
   }
@@ -345,277 +345,69 @@ class _DesignRules {
   final String? section;
 }
 
-class _DesignArtifacts {
-  _DesignArtifacts(this.files, this.identity, this.exactIdentity);
-  final Map<String, List<int>> files;
-  final String identity;
-  final String exactIdentity;
-
-  static _DesignArtifacts read(Directory root) {
-    final files = <String, List<int>>{};
-    final paths = <String, String>{
-      'proposal.md': p.join(root.path, 'proposal.md'),
-      'design.md': p.join(root.path, 'design.md'),
-    };
-    final specs = Directory(p.join(root.path, 'specs'));
-    void walk(Directory dir) {
-      for (final entry in dir.listSync(followLinks: false)) {
-        if (entry is Link) {
-          throw ReviewStop(
-            'bad_design_artifact',
-            '${entry.path} is a link in the FULL spec tree',
-          );
-        }
-        if (entry is Directory) {
-          walk(entry);
-        } else if (p.basename(entry.path) == 'spec.md') {
-          if (paths.length == 256) {
-            throw ReviewStop(
-              'design_input_too_large',
-              'too many FULL planning artifacts',
-            );
-          }
-          paths[p.posix.joinAll(
-                p.split(p.relative(entry.path, from: root.path)),
-              )] =
-              entry.path;
-        }
-      }
-    }
-
-    final specType = FileSystemEntity.typeSync(specs.path, followLinks: false);
-    if (specType == FileSystemEntityType.directory) {
-      walk(specs);
-    } else if (specType != FileSystemEntityType.notFound) {
-      throw ReviewStop(
-        'bad_design_artifact',
-        '${specs.path} is not a regular spec directory',
-      );
-    }
-    var remaining = _designArtifactBytes;
-    final ids = <List<String>>[];
-    late String proposalHash;
-    for (final rel in paths.keys.toList()..sort()) {
-      final path = paths[rel]!;
-      if (FileSystemEntity.typeSync(path, followLinks: false) !=
-          FileSystemEntityType.file) {
+String _designArtifactsIdentity(Directory root) {
+  final paths = <String, String>{
+    'proposal.md': p.join(root.path, 'proposal.md'),
+    'design.md': p.join(root.path, 'design.md'),
+  };
+  final specs = Directory(p.join(root.path, 'specs'));
+  void walk(Directory dir) {
+    for (final entry in dir.listSync(followLinks: false)) {
+      if (entry is Link) {
         throw ReviewStop(
           'bad_design_artifact',
-          '$path is not a regular planning artifact',
+          '${entry.path} is a link in the FULL spec tree',
         );
       }
-      final bytes = readRegularFile(path, limit: remaining + 1)!;
-      remaining -= bytes.length;
-      if (remaining < 0) {
-        throw ReviewStop(
-          'design_input_too_large',
-          'FULL planning artifacts exceed 16 MiB',
-        );
-      }
-      files[rel] = bytes;
-      final contentHash = sha256.convert(bytes).toString();
-      if (rel == 'proposal.md') {
-        proposalHash = contentHash;
-        final evidence = _proposalEvidence(bytes);
-        ids.add([
-          rel,
-          identical(evidence, bytes)
-              ? contentHash
-              : sha256.convert(evidence).toString(),
-        ]);
-      } else {
-        ids.add([rel, contentHash]);
+      if (entry is Directory) {
+        walk(entry);
+      } else if (p.basename(entry.path) == 'spec.md') {
+        if (paths.length == 256) {
+          throw ReviewStop(
+            'design_input_too_large',
+            'too many FULL planning artifacts',
+          );
+        }
+        paths[p.posix.joinAll(
+              p.split(p.relative(entry.path, from: root.path)),
+            )] =
+            entry.path;
       }
     }
-    final identity = _designHash(ids);
-    return _DesignArtifacts(
-      files,
-      identity,
-      _designHash([identity, proposalHash]),
+  }
+
+  final specType = FileSystemEntity.typeSync(specs.path, followLinks: false);
+  if (specType == FileSystemEntityType.directory) {
+    walk(specs);
+  } else if (specType != FileSystemEntityType.notFound) {
+    throw ReviewStop(
+      'bad_design_artifact',
+      '${specs.path} is not a regular spec directory',
     );
   }
-
-  Map<String, Object?> write(Directory root) {
-    final specs = <String>[];
-    for (final MapEntry(key: rel, value: bytes) in files.entries) {
-      final file = File(p.joinAll([root.path, ...rel.split('/')]));
-      file.parent.createSync(recursive: true);
-      file.writeAsBytesSync(bytes);
-      if (rel.startsWith('specs/')) specs.add(_normal(file.absolute.path));
+  var remaining = _designArtifactBytes;
+  final ids = <List<String>>[];
+  for (final rel in paths.keys.toList()..sort()) {
+    final path = paths[rel]!;
+    final bytes =
+        FileSystemEntity.typeSync(path, followLinks: false) ==
+            FileSystemEntityType.file
+        ? readRegularFile(path, limit: remaining + 1)
+        : null;
+    if (bytes == null) {
+      throw ReviewStop(
+        'bad_design_artifact',
+        '$path is not a regular planning artifact',
+      );
     }
-    return _paths(root, specs);
+    remaining -= bytes.length;
+    if (remaining < 0) {
+      throw ReviewStop(
+        'design_input_too_large',
+        'FULL planning artifacts exceed 16 MiB',
+      );
+    }
+    ids.add([rel, sha256.convert(bytes).toString()]);
   }
-
-  static Map<String, Object?> _paths(Directory root, List<String> specs) => {
-    'proposal': _normal(p.join(root.absolute.path, 'proposal.md')),
-    'design': _normal(p.join(root.absolute.path, 'design.md')),
-    'specs': specs,
-  };
-}
-
-final _proposalLine = RegExp(r'([^\r\n]*)(?:\r\n|\r|\n|$)');
-final _proposalFence = RegExp(r'^ {0,3}(`{3,}|~{3,})(.*)$');
-final _proposalHeading = RegExp(r'^ {0,3}(#{1,6})(?:[ \t]|$)');
-final _proposalSetext = RegExp(r'^ {0,3}(?:=+|-+)[ \t]*$');
-final _proposalNonParagraph = RegExp(
-  r'^(?:[ \t]*$| {0,3}(?:>|[-+*][ \t]|\d{1,9}[.)][ \t]))',
-);
-
-// CommonMark 4.6: tagged raw blocks and declarations close on tokens; named
-// block tags close on a blank line, not on their closing tag.
-final _proposalHtmlStart = RegExp(
-  r'^( {0,3})(?:<[!?]|</?([A-Za-z][A-Za-z0-9-]*)(?=[ \t]|/?>|$))',
-);
-final _proposalRawTag = RegExp(
-  r'^<(?:pre|script|style|textarea)(?:[ \t>]|$)',
-  caseSensitive: false,
-);
-final _proposalRawEnd = RegExp(
-  r'</(?:pre|script|style|textarea)>',
-  caseSensitive: false,
-);
-final _proposalDeclaration = RegExp(r'^<![A-Za-z]');
-final _proposalBlankLine = RegExp(r'^[ \t]*$');
-const _proposalBlockTags = {
-  'address',
-  'article',
-  'aside',
-  'base',
-  'basefont',
-  'blockquote',
-  'body',
-  'caption',
-  'center',
-  'col',
-  'colgroup',
-  'dd',
-  'details',
-  'dialog',
-  'dir',
-  'div',
-  'dl',
-  'dt',
-  'fieldset',
-  'figcaption',
-  'figure',
-  'footer',
-  'form',
-  'frame',
-  'frameset',
-  'h1',
-  'h2',
-  'h3',
-  'h4',
-  'h5',
-  'h6',
-  'head',
-  'header',
-  'hr',
-  'html',
-  'iframe',
-  'legend',
-  'li',
-  'link',
-  'main',
-  'menu',
-  'menuitem',
-  'nav',
-  'noframes',
-  'ol',
-  'optgroup',
-  'option',
-  'p',
-  'param',
-  'search',
-  'section',
-  'summary',
-  'table',
-  'tbody',
-  'td',
-  'tfoot',
-  'th',
-  'thead',
-  'title',
-  'tr',
-  'track',
-  'ul',
-};
-
-Pattern? _proposalHtmlEnd(String line, String? tag) {
-  if (line.startsWith('<!--')) return '-->';
-  if (line.startsWith('<?')) return '?>';
-  if (line.startsWith('<![CDATA[')) return ']]>';
-  if (_proposalDeclaration.hasMatch(line)) return '>';
-  if (_proposalRawTag.hasMatch(line)) return _proposalRawEnd;
-  if (_proposalBlockTags.contains(tag?.toLowerCase())) {
-    return _proposalBlankLine;
-  }
-  return null;
-}
-
-List<int> _proposalEvidence(List<int> bytes) {
-  final text = utf8.decode(bytes);
-  String? fence;
-  Pattern? htmlEnd;
-  int? start;
-  int? paragraph;
-  for (final row in _proposalLine.allMatches(text)) {
-    final line = row[1]!;
-    if (htmlEnd != null) {
-      if (line.contains(htmlEnd)) htmlEnd = null;
-      continue;
-    }
-    final marker = _proposalFence.firstMatch(line);
-    if (fence != null) {
-      final run = marker?[1];
-      if (run != null && run.startsWith(fence) && marker![2]!.trim().isEmpty) {
-        fence = null;
-      }
-      continue;
-    }
-    final html = _proposalHtmlStart.firstMatch(line);
-    if (html != null) {
-      final end = html[1]!.isEmpty ? _proposalHtmlEnd(line, html[2]) : null;
-      // Generic tags and possible container nesting need a full Markdown
-      // parse. Hash every byte rather than guessing which text can be ignored.
-      if (end == null) return bytes;
-      if (!line.contains(end)) htmlEnd = end;
-      paragraph = null;
-      continue;
-    }
-    if (marker != null) {
-      final run = marker[1]!;
-      if (!run.startsWith('`') || !marker[2]!.contains('`')) {
-        // Without parsing list containers, an indented fence may end at a
-        // dedent rather than at another marker. Don't erase any proposal text.
-        if (!line.startsWith(run)) return bytes;
-        fence = run;
-      }
-      paragraph = null;
-      continue;
-    }
-    final heading = _proposalHeading.firstMatch(line);
-    if (heading != null) {
-      if (start != null && heading[1]!.length <= 2) {
-        return utf8.encode(
-          text.substring(0, start) + text.substring(row.start),
-        );
-      }
-      if (start == null && isReleaseNotesHeading(line)) start = row.start;
-      paragraph = null;
-    } else if (_proposalSetext.hasMatch(line)) {
-      if (start != null && paragraph != null) {
-        return utf8.encode(
-          text.substring(0, start) + text.substring(paragraph),
-        );
-      }
-      paragraph = null;
-    } else if (_proposalNonParagraph.hasMatch(line)) {
-      paragraph = null;
-    } else {
-      paragraph ??= row.start;
-    }
-  }
-  if (fence != null) return bytes;
-  return start == null ? bytes : utf8.encode(text.substring(0, start));
+  return _designHash(ids);
 }

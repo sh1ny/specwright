@@ -18,7 +18,6 @@ import '../process/limit_line.dart';
 import '../process/limits.dart';
 import '../process/platform_tree.dart';
 import '../process/resolve.dart';
-import '../release/notes.dart' show isReleaseNotesHeading;
 import '../settings/reviewer_config.dart' show reviewerHome;
 import '../settings/rules.dart' show SettingsStop;
 import '../vcs/text_result.dart';
@@ -388,9 +387,8 @@ class _ReviewOperations {
 
   Future<Map<String, Object?>> _run(List<String> argv) async {
     final full = argv.contains('--change-review');
-    final recheck = argv.contains('--recheck');
     final args = await _parseArgs(
-      argv.where((a) => a != '--change-review' && a != '--recheck').toList(),
+      argv.where((a) => a != '--change-review').toList(),
       const {
         '--kind',
         '--route',
@@ -415,10 +413,10 @@ class _ReviewOperations {
     if (kind != 'preship' && kind != 'design') {
       throw ReviewStop('usage', '--kind is preship or design', code: 2);
     }
-    if ((full && kind != 'design') || (recheck && !full)) {
+    if (full && kind != 'design') {
       throw ReviewStop(
         'usage',
-        '--change-review and --recheck are for FULL change design',
+        '--change-review is for FULL change design',
         code: 2,
       );
     }
@@ -523,13 +521,8 @@ class _ReviewOperations {
         File(promptPath).writeAsStringSync(prompt, encoding: utf8, flush: true);
         cwd = view ?? codeDir;
       } else if (full) {
-        attempt = await _DesignController(args.values).prepare(
-          args.values,
-          route,
-          recheck: recheck,
-          work: work,
-          project: project,
-        );
+        attempt = await _DesignController(args.values)
+            .prepare(args.values, route, project: project);
         promptPath = p.join(work.path, 'prompt.md');
         final original = File(promptArg!);
         File(promptPath)
@@ -545,10 +538,7 @@ class _ReviewOperations {
         final belowFloor = _ompFloorReason(probe.version);
         if (belowFloor != null) throw ReviewStop('omp_too_old', belowFloor);
       }
-      final allowedDirs = <String>[
-        if (storeArg != null) p.absolute(storeArg),
-        if (attempt != null) attempt.dir.absolute.path,
-      ];
+      final allowedDirs = <String>[if (storeArg != null) p.absolute(storeArg)];
       final environment = _environment;
       final windows =
           (environment['REVIEW_RUN_TEST_OS_NAME'] ??
@@ -580,7 +570,8 @@ class _ReviewOperations {
         bases: bases,
         publishDesign: attempt == null
             ? null
-            : (text, receipt) => attempt!.publish(args.values, text, receipt),
+            : (text, receipt) =>
+                  attempt!.publish(args.values, text: text, receipt: receipt),
       );
     } finally {
       if (work.existsSync()) {
@@ -596,17 +587,8 @@ class _ReviewOperations {
   Future<Map<String, Object?>> _record(List<String> argv) async {
     final scratch = argv.contains('--scratch');
     final full = argv.contains('--change-review');
-    final recheck = argv.contains('--recheck');
     final args = await _parseArgs(
-      argv
-          .where(
-            (arg) => !const {
-              '--scratch',
-              '--change-review',
-              '--recheck',
-            }.contains(arg),
-          )
-          .toList(),
+      argv.where((a) => a != '--scratch' && a != '--change-review').toList(),
       const {
         '--kind',
         '--change',
@@ -644,44 +626,9 @@ class _ReviewOperations {
         return (await controller.prepare(
           args.values,
           'subagent',
-          recheck: recheck,
         )).instructions();
       }
-      final attempt = controller.resume(args.values);
-      final path = attempt.scratch;
-      final bytes =
-          FileSystemEntity.typeSync(path, followLinks: false) ==
-              FileSystemEntityType.file
-          ? readRegularFile(path, limit: _maxAnswer + 1)
-          : null;
-      String? text;
-      String? inputProblem;
-      if (bytes == null) {
-        inputProblem = 'expected a regular FULL scratch reply';
-      } else if (bytes.length <= _maxAnswer) {
-        try {
-          text = utf8.decode(bytes);
-        } on FormatException {
-          inputProblem = 'FULL scratch reply is not valid UTF-8';
-        }
-      }
-      final receipt = _makeReceipt(
-        route: 'subagent',
-        skipped: _loadSelection(args.values['selection'], 'subagent'),
-        requestedModel: null,
-        requestedThinking: null,
-        version: null,
-        started: _now(),
-        actualModel: 'unknown',
-        actualThinking: 'unknown',
-        processGroup: 'session',
-      );
-      return attempt.publish(
-        args.values,
-        text,
-        receipt,
-        inputProblem: inputProblem,
-      );
+      return controller.resume(args.values).publish(args.values);
     }
     if (scratch) {
       _need(args.values, const ['kind', 'change']);

@@ -18,8 +18,6 @@ class _DesignHistory {
     this.artifacts = '',
     this.rules = '',
     this.extended = false,
-    this.baseline = false,
-    this.baselineDigest,
     List<Map<String, Object?>>? history,
   }) : history = history ?? [];
 
@@ -28,8 +26,6 @@ class _DesignHistory {
   String artifacts;
   String rules;
   bool extended;
-  bool baseline;
-  String? baselineDigest;
   final List<Map<String, Object?>> history;
 
   Map<String, Object?>? get choice {
@@ -48,8 +44,6 @@ class _DesignHistory {
           'artifacts': artifacts,
           'rules': rules,
           'extended': extended,
-          'baseline': baseline,
-          'baseline_digest': ?baselineDigest,
           'history': history,
         }),
       ),
@@ -98,18 +92,11 @@ class _DesignHistory {
         artifacts: obj['artifacts'] as String,
         rules: obj['rules'] as String,
         extended: obj['extended'] as bool,
-        baseline: obj['baseline'] as bool,
-        baselineDigest: obj['baseline_digest'] as String?,
         history: (obj['history'] as List).cast<Map<String, Object?>>(),
       );
       if (result.round < 1 ||
           result.scopeRound < 1 ||
           result.scopeRound > result.round) {
-        throw const FormatException();
-      }
-      final digest = result.baselineDigest;
-      if (digest != null &&
-          (!result.baseline || !RegExp(r'^[a-f0-9]{64}$').hasMatch(digest))) {
         throw const FormatException();
       }
       for (final item in result.history) {
@@ -157,10 +144,9 @@ class _DesignReport {
   bool get unresolved =>
       verdict == 'REVISE' ||
       (verdict == 'APPROVE_WITH_CHANGES' && applied == 'no');
-  bool get passing =>
-      verdict == 'APPROVE' ||
-      (verdict == 'APPROVE_WITH_CHANGES' && applied == 'yes');
-  bool get needsFull => managed || unresolved || passing;
+  bool get passing => verdict == 'APPROVE';
+  bool get needsFull =>
+      managed || unresolved || passing || verdict == 'APPROVE_WITH_CHANGES';
 
   static _DesignReport read(String path, {bool legacyRound = true}) {
     final type = FileSystemEntity.typeSync(path, followLinks: false);
@@ -268,19 +254,6 @@ class _DesignController {
 
   final String out;
   late final Directory state;
-  Directory get baselines => Directory(p.join(state.path, 'baselines'));
-  Directory baselineAt(int round) =>
-      Directory(p.join(baselines.path, 'round-$round'));
-
-  void pruneBaselines(int? keepRound) {
-    final root = baselines;
-    if (!root.existsSync()) return;
-    final keep = 'round-$keepRound';
-    for (final entry in root.listSync(followLinks: false)) {
-      if (p.basename(entry.path) != keep) entry.deleteSync(recursive: true);
-    }
-  }
-
   Directory get slots => Directory(p.join(state.path, 'attempts'));
   File get lastFailed => File(p.join(state.path, 'last-failed'));
 
@@ -312,7 +285,7 @@ class _DesignController {
     final limit = project.limit;
     final rules = await project.rules(render: render);
     final report = _DesignReport.read(out);
-    final artifacts = _DesignArtifacts.read(File(out).parent);
+    final artifacts = _designArtifactsIdentity(File(out).parent);
     return _DesignState(project, limit, rules, report, artifacts);
   }
 
@@ -355,7 +328,7 @@ class _DesignController {
         'round': history.round,
         'choice': choice,
         'detail': ?detail,
-        if (choice == 'scope-change') 'at_artifacts': state.artifacts.identity,
+        if (choice == 'scope-change') 'at_artifacts': state.artifacts,
       });
       _atomicWrite(out, state.report.body + history.footer());
       return state.document();
@@ -392,38 +365,12 @@ class _DesignController {
         return {'ok': true, 'status': 'ok', 'out': _normal(out)};
       });
 
-  _DesignArtifacts? baseline(_DesignState state) {
-    final record = state.report;
-    final digest = record.history.baselineDigest;
-    if (digest == null ||
-        record.applied != 'no' ||
-        record.history.rules != state.rules.identity) {
-      return null;
-    }
-    try {
-      final prior = baselineAt(record.history.round);
-      if (FileSystemEntity.typeSync(prior.path, followLinks: false) !=
-          FileSystemEntityType.directory) {
-        return null;
-      }
-      final captured = _DesignArtifacts.read(prior);
-      return captured.exactIdentity == digest &&
-              captured.identity == record.history.artifacts
-          ? captured
-          : null;
-    } on Object {
-      return null;
-    }
-  }
-
   Future<_DesignAttempt> prepare(
     Map<String, String> args,
     String route, {
-    required bool recheck,
-    Directory? work,
     _DesignProject? project,
   }) async {
-    Future<_DesignAttempt> capture() async {
+    Future<_DesignAttempt> start() async {
       final state = await load(args, render: true, project: project);
       state.project.checkSelection(args, route);
       final status = state.status;
@@ -438,16 +385,6 @@ class _DesignController {
           extra: {'round': state.report.history.round},
         );
       }
-      final original =
-          recheck && state.report.history.choice?['choice'] != 'scope-change'
-          ? baseline(state)
-          : null;
-      if (recheck && original == null) {
-        throw ReviewStop(
-          'full_review_required',
-          'required changes must be based on a verified full conditional review under current rules',
-        );
-      }
       final repair = args['repairs'] ?? 'none';
       if (repair.trim().isEmpty ||
           _lineBreak.hasMatch(repair) ||
@@ -458,7 +395,8 @@ class _DesignController {
           code: 2,
         );
       }
-      if (work == null) {
+      Directory? dir;
+      if (route == 'subagent') {
         slots.createSync(recursive: true);
         final occupied = slots.listSync(followLinks: false);
         if (occupied.length >= 2) {
@@ -468,61 +406,35 @@ class _DesignController {
             extra: {'attempts': occupied.map((e) => _normal(e.path)).toList()},
           );
         }
+        dir = slots.createTempSync('attempt-');
       }
-      final dir =
-          work == null
-                ? slots.createTempSync('attempt-')
-                : Directory(p.join(work.path, 'capture'))
-            ..createSync();
-      try {
-        final files = state.artifacts.write(
-          Directory(p.join(dir.path, 'current')),
-        );
-        final prior = original?.write(Directory(p.join(dir.path, 'prior')));
-        final priorReview = state.report.raw.isEmpty
-            ? null
-            : (File(
-                p.join(dir.path, 'prior-review.md'),
-              )..writeAsStringSync(state.report.raw)).absolute.path;
-        final scratch = p.join(dir.absolute.path, 'result.md');
-        final choice = state.report.history.choice;
-        final scope = choice?['choice'] == 'scoped-pass'
+      final choice = state.report.history.choice;
+      final attempt = _DesignAttempt(
+        this,
+        route,
+        state.fingerprint,
+        repair,
+        dir: dir,
+        section: state.rules.section,
+        round: state.report.history.round + 1,
+        scope: choice?['choice'] == 'scoped-pass'
             ? choice!['detail'] as String
-            : null;
-        final attempt = _DesignAttempt(
-          this,
-          dir,
-          scratch,
-          route,
-          state.fingerprint,
-          state.artifacts.exactIdentity,
-          recheck,
-          repair,
-          files,
-          prior,
-          priorReview,
-          state.rules.section,
-          state.report.history.round + 1,
-          scope,
-        );
-        if (work == null) {
+            : null,
+      );
+      if (dir != null) {
+        try {
           File(p.join(dir.path, 'attempt.json')).writeAsStringSync(
-            jsonEncode({
-              'fingerprint': state.fingerprint,
-              'capture': attempt.captureIdentity,
-              'recheck': recheck,
-              'repairs': repair,
-            }),
+            jsonEncode({'fingerprint': attempt.fingerprint, 'repairs': repair}),
           );
+        } on Object {
+          dir.deleteSync(recursive: true);
+          rethrow;
         }
-        return attempt;
-      } on Object {
-        dir.deleteSync(recursive: true);
-        rethrow;
       }
+      return attempt;
     }
 
-    return work == null ? locked(capture) : capture();
+    return route == 'subagent' ? locked(start) : start();
   }
 
   _DesignAttempt resume(Map<String, String> args) {
@@ -541,25 +453,16 @@ class _DesignController {
     if (!meta.existsSync()) {
       throw ReviewStop(
         'bad_design_attempt',
-        'FULL scratch capture is not active',
+        'FULL scratch reservation is not active',
       );
     }
     final obj = jsonDecode(meta.readAsStringSync()) as Map<String, Object?>;
     final attempt = _DesignAttempt(
       this,
-      dir,
-      scratch,
       'subagent',
       obj['fingerprint'] as String,
-      obj['capture'] as String? ?? '',
-      obj['recheck'] as bool,
       obj['repairs'] as String,
-      const {},
-      null,
-      null,
-      null,
-      null,
-      null,
+      dir: dir,
     );
     if (attempt.token != args['attempt']) {
       throw ReviewStop(
@@ -622,7 +525,7 @@ class _DesignState {
   final int limit;
   final _DesignRules rules;
   final _DesignReport report;
-  final _DesignArtifacts artifacts;
+  final String artifacts;
 
   String get fingerprint => _designHash([
     project.identity,
@@ -630,21 +533,21 @@ class _DesignState {
     rules.identity,
     limit,
     report.identity,
-    artifacts.identity,
+    artifacts,
   ]);
   String get status {
     final history = report.history;
     final choice = history.choice;
     if (choice?['choice'] == 'stop') return 'stopped';
     if (choice?['choice'] == 'scope-change' &&
-        choice?['at_artifacts'] == artifacts.identity) {
+        choice?['at_artifacts'] == artifacts) {
       return 'scope_unchanged';
     }
     if (report.verdict == 'USER_OVERRIDE' && !report.managed) return 'pass';
     if (report.managed &&
         report.passing &&
         history.rules == rules.identity &&
-        history.artifacts == artifacts.identity) {
+        history.artifacts == artifacts) {
       return 'pass';
     }
     if (report.unresolved &&
@@ -663,81 +566,49 @@ class _DesignState {
     'limit': limit,
     'verdict': ?report.verdict,
     'choice': ?report.history.choice?['choice'],
-    'recheck_candidate':
-        report.history.baselineDigest != null &&
-        report.history.rules == rules.identity &&
-        report.history.choice?['choice'] != 'scope-change',
   };
 }
 
 class _DesignAttempt {
   _DesignAttempt(
     this.controller,
-    this.dir,
-    this.scratch,
     this.route,
     this.fingerprint,
-    this.captureIdentity,
-    this.recheck,
-    this.repairs,
-    this.files,
-    this.prior,
-    this.priorReview,
+    this.repairs, {
+    this.dir,
     this.section,
     this.round,
     this.scope,
-  );
+  });
+
   final _DesignController controller;
-  final Directory dir;
-  final String scratch;
   final String route;
   final String fingerprint;
-  final String captureIdentity;
-  final bool recheck;
   final String repairs;
-  final Map<String, Object?> files;
-  final Map<String, Object?>? prior;
-  final String? priorReview;
+  final Directory? dir;
   final String? section;
   final int? round;
   final String? scope;
 
-  String get token =>
-      _designHash([scratch, fingerprint, captureIdentity, recheck, repairs]);
+  String get scratch => p.join(dir!.absolute.path, 'result.md');
+  String get token => _designHash([scratch, fingerprint, repairs]);
   Map<String, Object?> instructions() => {
     'ok': true,
     'scratch': _normal(scratch),
     'attempt': token,
-    'artifacts': files,
-    'prior_artifacts': ?prior,
-    'prior_review': ?priorReview,
     'standing_requirements': ?section,
     'round': ?round,
     'scope': ?scope,
-    'mode': recheck ? 'recheck' : 'full',
   };
 
   String get packet {
     final result = StringBuffer(
-      '\n\n## Captured review inputs\n\nRead the captured planning artifacts below. Do not open the live originals.\n',
-    )..writeln(jsonEncode(files));
-    result.writeln(
-      'Review round: $round. Mode: ${recheck ? 'Required Changes recheck' : 'full'}',
+      '\n\nReview round: $round. Use the full checklist.\n',
     );
     if (scope != null) {
       result.writeln(
         'Owner-authorized scope of this additional pass: ${_designQuote(scope!)}',
       );
-    }
-    if (priorReview != null) {
-      result.writeln('Prior review: ${jsonEncode(_normal(priorReview!))}');
-    }
-    if (recheck) {
-      result
-        ..writeln('Prior full-review artifacts: ${jsonEncode(prior)}')
-        ..writeln(
-          'Compare both captures. Ignore edits confined to Release Notes. If any other edit is outside the Required Changes, return REVISE. Otherwise verify those changes; only this recheck may confirm them.',
-        );
     }
     if (section != null) {
       result
@@ -747,79 +618,71 @@ class _DesignAttempt {
     return result.toString();
   }
 
-  _DesignArtifacts? _readCapture(String name, String digest) {
+  (String?, String?) _readScratch() {
+    final path = scratch;
+    final bytes =
+        FileSystemEntity.typeSync(path, followLinks: false) ==
+            FileSystemEntityType.file
+        ? readRegularFile(path, limit: _maxAnswer + 1)
+        : null;
+    if (bytes == null) return (null, 'expected a regular FULL scratch reply');
+    if (bytes.length > _maxAnswer) return (null, 'output too large');
     try {
-      final root = p.join(dir.path, name);
-      if (FileSystemEntity.typeSync(root, followLinks: false) !=
-          FileSystemEntityType.directory) {
-        return null;
-      }
-      final captured = _DesignArtifacts.read(Directory(root));
-      return captured.exactIdentity == digest ? captured : null;
-    } catch (error) {
-      if (error is! ReviewStop &&
-          error is! FileSystemException &&
-          error is! FormatException) {
-        rethrow;
-      }
-      return null;
-    }
-  }
-
-  bool _matchesPriorReport(String identity) {
-    final path = p.join(dir.path, 'prior-review.md');
-    try {
-      if (FileSystemEntity.typeSync(path, followLinks: false) !=
-          FileSystemEntityType.file) {
-        return false;
-      }
-      final bytes = readRegularFile(path, limit: 2 * _maxAnswer + 1);
-      return bytes != null && sha256.convert(bytes).toString() == identity;
-    } on FileSystemException {
-      return false;
+      return (utf8.decode(bytes), null);
+    } on FormatException {
+      return (null, 'FULL scratch reply is not valid UTF-8');
     }
   }
 
   Future<Map<String, Object?>> publish(
-    Map<String, String> args,
+    Map<String, String> args, {
     String? text,
-    Map<String, Object?> receipt, {
-    String? inputProblem,
+    Map<String, Object?>? receipt,
   }) => controller.locked(() async {
     Object? originalError;
     Map<String, Object?>? published;
     try {
       final state = await controller.load(args);
       state.project.checkSelection(args, route);
-      if (state.fingerprint != fingerprint ||
-          (recheck && controller.baseline(state) == null)) {
+      if (state.fingerprint != fingerprint) {
         throw ReviewStop(
           'stale_review',
           'review inputs changed; the prior review was not replaced',
         );
       }
+      String? inputProblem;
+      if (dir != null) {
+        (text, inputProblem) = _readScratch();
+        receipt = _makeReceipt(
+          route: route,
+          skipped: _loadSelection(args['selection'], route),
+          requestedModel: null,
+          requestedThinking: null,
+          version: null,
+          started: _now(),
+          actualModel: 'unknown',
+          actualThinking: 'unknown',
+          processGroup: 'session',
+        );
+      }
+      final answer = text;
       final problem =
           inputProblem ??
-          (text == null ? 'output too large' : _validateDesign(text));
-      final verdict = text == null ? null : _designLine(text, 'VERDICT');
-      final applied = text == null
+          (answer == null ? 'output too large' : _validateDesign(answer));
+      final applied = answer == null
           ? null
-          : _designLine(text, 'CHANGES_APPLIED');
-      final modeValid = recheck
-          ? verdict == 'REVISE' ||
-                (verdict == 'APPROVE_WITH_CHANGES' && applied == 'yes')
-          : applied != 'yes';
+          : _designLine(answer, 'CHANGES_APPLIED');
       if (problem != null ||
-          !modeValid ||
-          text!.split(_lineBreak).contains(_progressMarker)) {
+          applied == 'yes' ||
+          answer!.split(_lineBreak).contains(_progressMarker)) {
         final extra = <String, Object?>{
           'status': 'invalid',
           'route': route,
           'receipt': receipt,
         };
-        if (text != null && utf8.encode(text).length <= _maxAnswer) {
+        if (answer != null && utf8.encode(answer).length <= _maxAnswer) {
           try {
-            controller.lastFailed.writeAsStringSync(text, flush: true);
+            controller.lastFailed.writeAsStringSync(answer, flush: true);
             extra['diagnostic'] = _normal(controller.lastFailed.absolute.path);
           } on FileSystemException catch (error) {
             extra['diagnostic_error'] = error.message;
@@ -827,78 +690,43 @@ class _DesignAttempt {
         }
         throw ReviewStop(
           'invalid_output',
-          problem ?? 'verdict does not fit the FULL review attempt',
+          problem ?? 'use APPROVE after reviewing the complete revised design',
           code: 3,
           extra: extra,
         );
       }
-      final captured = _readCapture('current', captureIdentity);
-      if (captured == null ||
-          (recheck &&
-              _readCapture('prior', state.report.history.baselineDigest!) ==
-                  null) ||
-          (state.report.raw.isNotEmpty &&
-              !_matchesPriorReport(state.report.identity))) {
-        throw ReviewStop(
-          'stale_review',
-          'the FULL dispatch capture changed; the prior review was not replaced',
-        );
-      }
       final history = state.report.history;
-      final oldBaseline = history.baseline ? history.round : null;
       final choice = history.choice?['choice'];
       history.scopeRound = choice == 'scope-change' || !state.report.unresolved
           ? 1
           : history.scopeRound + 1;
       history.round++;
-      history.artifacts = state.artifacts.identity;
+      history.artifacts = state.artifacts;
       history.rules = state.rules.identity;
       history.extended =
           choice == 'scoped-pass' || history.scopeRound >= state.limit;
-      history.baseline = verdict == 'APPROVE_WITH_CHANGES' && applied == 'no';
-      history.baselineDigest = history.baseline ? captured.exactIdentity : null;
       history.history.add({'round': history.round, 'detail': repairs});
-      final updated = text + history.footer();
-      final nextBaseline = history.baseline ? history.round : null;
-      // A crash can leave an unreferenced staged capture. Reclaim it without
-      // touching the baseline named by the report still on disk.
-      controller.pruneBaselines(oldBaseline);
-      try {
-        if (nextBaseline != null) {
-          // Stage the verified bytes, never another read of live artifacts.
-          captured.write(controller.baselineAt(nextBaseline));
-        }
-        _atomicWrite(controller.out, updated);
-        published = {
-          'ok': true,
-          'status': 'ok',
-          'out': _normal(controller.out),
-          'route': route,
-          'receipt': receipt,
-        };
-      } finally {
-        try {
-          controller.pruneBaselines(
-            published == null ? oldBaseline : nextBaseline,
-          );
-        } on FileSystemException catch (error) {
-          // A later publication reclaims any unreferenced baseline.
-          published?['baseline_cleanup_error'] = error.message;
-        }
-      }
-      return published;
+      _atomicWrite(controller.out, answer + history.footer());
+      return published = {
+        'ok': true,
+        'status': 'ok',
+        'out': _normal(controller.out),
+        'route': route,
+        'receipt': receipt,
+      };
     } on Object catch (error) {
       originalError = error;
       rethrow;
     } finally {
-      if (route == 'subagent') {
+      final scratchDir = dir;
+      if (scratchDir != null) {
         try {
-          dir.deleteSync(recursive: true);
+          scratchDir.deleteSync(recursive: true);
         } on FileSystemException catch (error) {
           final previous = originalError;
           final cleanup = {
             'cleanup_error': error.message,
-            'attempt_dir': _normal(dir.path),
+            'attempt_dir': _normal(scratchDir.path),
           };
           if (published != null) {
             published.addAll(cleanup);

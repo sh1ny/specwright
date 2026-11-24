@@ -10,7 +10,7 @@
 <!-- - **Deferred to:** <changes or milestones> -->
 <!-- - **User decision:** "<the user's words>" -->
 
-<!-- This verdict covers only the contents reviewed. Editing proposal, specs or design afterward (other than applying Required Changes, or an edit confined to the proposal's `## Release Notes` section) voids it. -->
+<!-- A FULL change-design verdict covers only the contents reviewed. Any subsequent proposal, spec or design edit, including Release Notes or Required Changes, requires another full review. -->
 
 ## Findings
 
@@ -29,7 +29,7 @@ VERDICT: <VALUE>
 
 <!-- APPROVE_WITH_CHANGES only: numbered exact edits. -->
 
-<!-- yes (applied, and re-checked by the reviewer - only the reviewer sets it) | no (outstanding) | n/a (any other verdict) -->
+<!-- FULL change design: no for outstanding Required Changes, n/a otherwise. After edits, run a fresh full review. Roadmap baseline retains its own yes confirmation. -->
 CHANGES_APPLIED: <VALUE>
 
 ## Rebuttals

@@ -2,10 +2,10 @@
 
 ## Metadata
 
-- **Round:** 6
-- **Prior round:** APPROVE_WITH_CHANGES. Required Change 1 aligned FULL failure retention and reporting across the spec, schema and review skill.
-- **Reviewer:** cross-model CLI (Codex)
-- **Reviewed:** Round 5 review and submitted edits, `proposal.md`, `design.md`, both spec deltas, the current `review-routes` spec, applicable ADRs, and the tracked review recorder, schema and review skill. Scope limited to Required Change 1.
+- **Round:** 8
+- **Prior round:** Round 7 required two scenario wording changes after the owner narrowed the scope.
+- **Reviewer:** Codex, independent read-only confirmation (0.171.0, Windows job isolation)
+- **Reviewed:** Round 7 Required Changes, both live spec deltas, and the relevant accepted text in `design.md`. Confirmation was limited to this change's prior-authoring workflow.
 
 ## Findings
 
@@ -15,7 +15,7 @@ None.
 
 ### Moderate
 
-None. The amended refusal requirement and its legacy scenario limit original scratch retention and reporting to reviews outside FULL change-design review. The FULL requirement and planned schema and skill reporting expose a diagnostic path only when the current attempt successfully retains a bounded diagnostic. The new FULL subagent scenario asserts scratch removal, the retained diagnostic path, a byte-identical prior review, and preservation of both the review round and scoped permission. The repeated-failure and oversized-reply scenario remains in place.
+None outstanding.
 
 ### Suggestions
 
@@ -27,7 +27,8 @@ VERDICT: APPROVE_WITH_CHANGES
 
 ## Required Changes
 
-1. Applied and verified. The `review-routes` delta directs FULL refusals to the bounded retention requirement, scopes legacy scratch retention and reporting to other design reviews, and covers bounded invalid FULL subagent output while preserving the repeated-failure and oversized-reply scenario. The planned schema and skill reporting follows the same per-attempt diagnostic contract.
+1. Confirmed. “A reason alone does not restart the budget” refuses a review if the proposal, design and spec deltas are unchanged. It no longer exempts Release Notes, and the separate Release Notes scenario still requires a full review.
+2. Confirmed. “A design input changes during an authorized pass” predicates refusal on different live planning digests at dispatch and publication; the previous report and scoped permission remain intact.
 
 CHANGES_APPLIED: yes
 
@@ -39,4 +40,5 @@ None.
 
 - **Round 3:** `scoped-pass` — “one more scoped design pass on the six open findings, with no change in product scope.”
 - **Round 4:** `scoped-pass` — “one more scoped pass on the three open findings, with no change in product scope.”
-- **Round 5:** The reviewer issued `APPROVE_WITH_CHANGES`. The author applied only the required edits to the refusal and diagnostic contract, and the independent recheck above confirmed them.
+- **Rounds 5–6:** The reviewer issued `APPROVE_WITH_CHANGES` in round 5, and the independent round-6 recheck confirmed the amendments to the refusal and diagnostic contract under the previous design.
+- **After round 6:** `scope-change` (owner; superseded the earlier approval for the revised design) — “Pre-ship kept finding holes in the review-capture tracking; incremental rechecks were never part of the brief (delta-only rounds were rejected by the experiment). Design review keeps today's behaviour: every round is a full review, and any later edit voids a pass.” Round 7 reviewed the removal and resulting text.

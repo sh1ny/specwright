@@ -11,9 +11,6 @@ import 'package:test/test.dart';
 import '../helper_support.dart';
 
 const revise = 'VERDICT: REVISE\nCHANGES_APPLIED: n/a\n';
-const conditional =
-    'VERDICT: APPROVE_WITH_CHANGES\nCHANGES_APPLIED: no\n\n'
-    '## Required Changes\nWait for exit.\n';
 const approve = 'VERDICT: APPROVE\nCHANGES_APPLIED: n/a\n';
 
 void main() {
@@ -22,7 +19,6 @@ void main() {
   late Directory work;
   late Directory repo;
   late File review;
-  late File design;
   late File selection;
   late String branch;
 
@@ -92,8 +88,8 @@ void main() {
       p.join(repo.path, 'openspec', 'changes', 'example'),
     )..createSync(recursive: true);
     review = File(p.join(change.path, 'review.md'));
-    design = File(p.join(change.path, 'design.md'))
-      ..writeAsStringSync('TIER: FULL\nOriginal design.\n');
+    File(p.join(change.path, 'design.md'))
+        .writeAsStringSync('TIER: FULL\nOriginal design.\n');
     File(p.join(change.path, 'proposal.md')).writeAsStringSync('Proposal.\n');
     selection = File(p.join(work.path, 'selection.json'))
       ..writeAsStringSync(
@@ -125,8 +121,8 @@ void main() {
     selection.path,
   ];
 
-  Future<Map<String, Object?>> start({bool recheck = false}) =>
-      command([...recordArgs(), '--scratch', if (recheck) '--recheck']);
+  Future<Map<String, Object?>> start() =>
+      command([...recordArgs(), '--scratch']);
 
   List<String> result(Map<String, Object?> attempt, String verdict) {
     final scratch = attempt['scratch']! as String;
@@ -216,13 +212,12 @@ void main() {
   );
 
   test(
-    'a failed report write leaves the original conditional baseline usable',
+    'a failed report write leaves the verdict and scoped pass intact',
     () async {
-      await command(result(await start(), conditional));
+      await command(result(await start(), revise));
       await scope();
       final recorded = review.readAsBytesSync();
-      design.writeAsStringSync('TIER: FULL\nWait for exit.\n');
-      final attempt = result(await start(), conditional);
+      final attempt = result(await start(), approve);
       final outside = Zone.current;
       await expectLater(
         command(
@@ -237,14 +232,8 @@ void main() {
         throwsA(isA<FileSystemException>()),
       );
       expect(review.readAsBytesSync(), recorded);
-      final recheck = await start(recheck: true);
-      final prior = recheck['prior_artifacts']! as Map<String, Object?>;
-      expect(
-        File(prior['design']! as String).readAsStringSync(),
-        contains('Original design.'),
-      );
-      await command(result(recheck, conditional.replaceFirst('no', 'yes')));
-      expect(review.readAsStringSync(), contains('CHANGES_APPLIED: yes'));
+      await command(result(await start(), approve));
+      expect(review.readAsStringSync(), contains('VERDICT: APPROVE'));
     },
     timeout: const Timeout(Duration(minutes: 3)),
   );

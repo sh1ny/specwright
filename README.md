@@ -884,7 +884,7 @@ No trigger → **LIGHT** (triage, context, decisions). Any trigger → **FULL**:
 |---|---|
 | `SKIPPED_LIGHT` | LIGHT tier; triage re-checked, no review needed |
 | `APPROVE` | Tasks may be written |
-| `APPROVE_WITH_CHANGES` | Apply the listed changes; tasks wait for `CHANGES_APPLIED: yes` |
+| `APPROVE_WITH_CHANGES` | Apply the listed changes, then run a fresh full review; tasks wait for `APPROVE` |
 | `REVISE` | Fix and re-review until the configured owner checkpoint; the verdict stays in force there |
 | `USER_OVERRIDE` | Historical change-design override or a separate roadmap baseline disposition; not issued by the change-design checkpoint |
 | `DEFERRED` | The user declared a FULL-tier change a parking change that is never applied; `Deferred to:` names where its parts get reviewed. Tasks may be written; apply refuses it |
@@ -892,7 +892,7 @@ No trigger → **LIGHT** (triage, context, decisions). Any trigger → **FULL**:
 
 The agent never offers `DEFERRED` or `WAIVED`. A project that recorded a deferral as `USER_OVERRIDE` may rewrite it as `DEFERRED`.
 
-A verdict covers what was reviewed. Changing the proposal, specs, design or standing rules requires a new review, except for an edit confined to Release Notes or Required Changes confirmed by the reviewer.
+A FULL verdict covers what was reviewed. Any edit to the proposal, specs, design or standing rules, including Release Notes or Required Changes, requires another full review.
 On upgrade, an in-flight FULL approval from before Specwright tracked review inputs needs one new FULL review. Historical `USER_OVERRIDE` records retain their disposition.
 </details>
 

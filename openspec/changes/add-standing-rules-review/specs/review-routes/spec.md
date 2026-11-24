@@ -40,11 +40,11 @@ A design review that fails validation or passes the deadline SHALL leave any ear
 
 ### Requirement: A design review pass covers its standing rules
 
-The FULL change-design result SHALL record the effective rule identity. A change to the declared rule inputs SHALL require a full review, not a Required Changes recheck, and an earlier passing result SHALL NOT let the change enter tasks or apply under the changed rules.
+The FULL change-design result SHALL record the effective rule identity. A change to the declared rule inputs SHALL require a new full review; an earlier passing result SHALL NOT let the change enter tasks or apply under the changed rules.
 
-#### Scenario: Rules added between conditional approval and its recheck
-- **WHEN** a change with no standing rules gets `APPROVE_WITH_CHANGES` with `CHANGES_APPLIED: no`, then its project declares a committed rule
-- **THEN** a Required Changes-only recheck is refused; a full review includes the new rule
+#### Scenario: A project first declares standing rules after approval
+- **WHEN** a change passes without standing rules and the project subsequently declares a committed rule
+- **THEN** the earlier approval no longer passes, and the next full review includes the rule
 
 #### Scenario: Rule text changes after approval
 - **WHEN** the approved change's configured rule file is updated on its code branch
@@ -58,61 +58,21 @@ The FULL change-design result SHALL record the effective rule identity. A change
 - **WHEN** FULL route selection succeeds and the code branch's settings change before dispatch
 - **THEN** the prior selection cannot start either a CLI or subagent attempt; the author selects again from the current pinned settings
 
-### Requirement: Review results apply only to captured design inputs
+### Requirement: FULL review results apply only to the current design
 
-Both FULL routes SHALL review a private capture. A stale result SHALL NOT replace the report. Only a full attempt SHALL establish a conditional baseline. A recheck SHALL compare captures and SHALL NOT confirm if edits exceed the Required Changes. A recheck SHALL NOT create or extend a baseline; a valid confirmation or `REVISE` retires it. Incomplete or unpinned input SHALL NOT produce a passing result.
+Both FULL routes SHALL review the live proposal, design and spec deltas using the full checklist each round. The controller SHALL compare those files' byte digests and the recorded review state at dispatch and publication. A stale result SHALL NOT replace the report. The workflow SHALL NOT publish a limited confirmation or retain planning copies.
 
-#### Scenario: Live artifacts change and change back during dispatch
-- **WHEN** the live design is edited and restored while the reviewer is running
-- **THEN** the reviewer receives the captured design, not the intervening edit; a persistent edit instead makes the result stale at publication
+#### Scenario: A design input changes during an authorized pass
+- **WHEN** the digest of the live planning inputs at publication differs from its digest at dispatch
+- **THEN** the result is refused; the earlier report and scoped permission remain intact
 
 #### Scenario: A capability directory in the spec tree is a link
-- **WHEN** a FULL packet would have to walk a linked capability directory to find a spec delta
-- **THEN** capture refuses before dispatch instead of sending an incomplete packet
+- **WHEN** the controller would have to follow a linked capability directory to find a spec delta
+- **THEN** it refuses before dispatch instead of fingerprinting an incomplete input
 
-#### Scenario: A proposal example contains a Release Notes heading
-- **WHEN** a fenced example or a raw HTML block contains a `## Release Notes` heading, and substantive proposal text outside it changes
-- **THEN** the edit invalidates the result; only a verified top-level Release Notes section is excluded
-
-#### Scenario: A Setext heading follows Release Notes
-- **WHEN** an edit changes a section under an H1 or H2 Setext heading following Release Notes
-- **THEN** the edit invalidates approval, even though the next title is not written with `#` markers
-
-#### Scenario: A fence in Release Notes has ambiguous boundaries
-- **WHEN** an unclosed fence starts inside a Release Notes list item before a dedented substantive section
-- **THEN** the review fingerprints the entire proposal rather than assuming the following section is part of Release Notes
-
-#### Scenario: An earlier FULL approval lacks a capture fingerprint
-- **WHEN** an in-flight change has an ordinary passing FULL report from before capture fingerprints were recorded
+#### Scenario: An earlier FULL approval lacks input fingerprints
+- **WHEN** an in-flight change has an ordinary passing FULL report from before input fingerprints were recorded
 - **THEN** tasks and apply need a fresh FULL review; a historical `USER_OVERRIDE` keeps its disposition
-
-#### Scenario: A conditional recheck receives unrelated changes
-- **WHEN** the artifacts contain a Required Change plus an unrelated change to a requirement
-- **THEN** the recheck gets the prior and current captures and must not confirm unless all changes are within the Required Changes, excluding Release Notes-only changes
-
-#### Scenario: A full pass cannot confirm a recheck
-- **WHEN** either FULL route returns `APPROVE_WITH_CHANGES` with `CHANGES_APPLIED: yes` on an initial review or after an unavailable prior capture or changed rule identity forced full review
-- **THEN** validation refuses the result and does not replace any prior review record or consume permission for a scoped pass
-
-#### Scenario: A limited recheck cannot establish another baseline
-- **WHEN** either FULL route, during a limited recheck, returns `APPROVE_WITH_CHANGES` with `CHANGES_APPLIED: no` after an unrelated artifact change
-- **THEN** the result is rejected without replacing the previous report or promoting the recheck's capture; a valid `REVISE` instead closes the prior baseline and the next attempt must be a full review
-
-#### Scenario: Only the live Release Notes change during a conditional review
-- **WHEN** a full pass reviews a captured proposal and the live Release Notes alone change before it publishes a conditional verdict
-- **THEN** revalidation can accept the result, but the next recheck receives the exact dispatched bytes as its prior capture; a changed dispatch capture cannot become the baseline
-
-#### Scenario: Evidence in an active attempt is changed or removed
-- **WHEN** the current capture or the copied prior evidence changes after dispatch, even if live inputs are unchanged
-- **THEN** no FULL verdict replaces the report or consumes a round or scoped permission
-
-#### Scenario: The cached conditional baseline no longer matches the recorded digest
-- **WHEN** the baseline digest is missing or the cache differs from the exact reviewed bytes, including an edit to cached Release Notes
-- **THEN** a recheck is refused and only a new full review can establish a fresh baseline
-
-#### Scenario: Publishing a new result fails after its conditional capture is staged
-- **WHEN** a full pass stages a new conditional capture but replacement of `review.md` fails
-- **THEN** the old report still refers to its own baseline, which remains usable for an otherwise eligible recheck
 
 #### Scenario: The ordinary writer targets an open checkpoint
 - **WHEN** either ordinary design route omits the FULL change option but targets the active `review.md` of a change at its checkpoint
@@ -122,9 +82,17 @@ Both FULL routes SHALL review a private capture. A stale result SHALL NOT replac
 - **WHEN** the publication check cannot finish its Git reads within its budget
 - **THEN** the recorded verdict and owner choices stay unchanged and a subsequent authorized write can acquire the lock
 
+#### Scenario: A failed report write preserves the verdict and scoped pass
+- **WHEN** the atomic report replacement fails during an authorized pass
+- **THEN** the previous report is unchanged and a fresh attempt can still use that permission
+
+#### Scenario: A completed scratch attempt has an unusable route selection
+- **WHEN** a valid attempt token is used to submit scratch but the selection file cannot be used
+- **THEN** the attempt is refused without spending a round or scoped pass, and its scratch slot is released
+
 #### Scenario: Interrupted attempts reach the slot limit
-- **WHEN** two unfinished subagent attempts for the same review record still have captures
-- **THEN** another scratch request names those attempts and refuses before allocating a third; it deletes neither existing capture and does not consume a scoped pass
+- **WHEN** two unfinished subagent attempts for the same review record still have scratch reservations
+- **THEN** another scratch request names the occupied paths and refuses before allocating a third or spending a scoped pass
 
 ### Requirement: FULL design review requires usable evidence and bounds failure retention
 
@@ -132,7 +100,7 @@ A FULL change-design route without local file reads SHALL be refused before disp
 
 #### Scenario: A selected route cannot read the packet
 - **WHEN** an OMP or Claude route is selected for FULL change-design review with no effective `read` or `Read` tool respectively
-- **THEN** dispatch identifies the missing tool without starting the reviewer, creating a capture or mutating the prior report
+- **THEN** dispatch identifies the missing tool without starting the reviewer, reserving scratch or mutating the prior report
 
 #### Scenario: A bounded invalid FULL subagent reply
 - **WHEN** the FULL subagent returns a bounded, well-formed UTF-8 reply with an invalid verdict during an authorized scoped pass
@@ -144,4 +112,4 @@ A FULL change-design route without local file reads SHALL be refused before disp
 
 #### Scenario: Repeated failures and oversized scratch output
 - **WHEN** multiple FULL attempts are refused with bounded invalid results, followed by an oversized scratch reply
-- **THEN** at most one bounded diagnostic remains, the oversized reply and completed attempt captures are removed, and no refused result replaces the review or uses scoped permission
+- **THEN** at most one bounded diagnostic remains, the oversized reply and completed attempt directories are removed, and no refused result replaces the review or uses scoped permission

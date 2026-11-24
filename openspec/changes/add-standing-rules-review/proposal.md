@@ -8,7 +8,7 @@ In the replay of Kumiko #26, the existing reviewer caught the profile-lock race 
 
 - Make explicitly declared, versioned project rules binding input to FULL change-design reviews, including for existing tests the design preserves. Leave the brief alone when no rules are declared.
 - Replace the change-design escalation after two consecutive `REVISE` verdicts with a per-project checkpoint after three unresolved rounds by default. Record the owner's choice to allow one scoped pass, change the scope with a reason, or stop, without changing the review verdict.
-- Keep the checklist, existing Required Changes recheck, pre-ship review, roadmap baseline and PR feedback policy separate. Do not add a finding-count stop or the experimental findings format.
+- Keep the existing checklist and run it in full every round. Any later edit to design inputs, including Release Notes or Required Changes, voids a pass. Pre-ship, roadmap baseline and PR feedback policies stay separate. Do not add a finding-count stop or the experimental findings format.
 - Document the config and rollout of `rules/windows-ci-tests.md`; this change modifies no other repository.
 
 ## Capabilities
@@ -49,6 +49,15 @@ Source: setting; the coordinator delegated design choices within the approved co
 - **Important:** yes (changes the design gate users see).
 - **Chosen by:** user.
 
+### S3: Remove planning captures and incremental rechecks
+
+- **Choice:** Keep standing rules and the owner checkpoint; read live design files in every full pass, and require a new pass after any edit.
+- **Rejected:** Private planning snapshots, a Markdown Release Notes exclusion, and a persisted conditional baseline.
+- **Reason (owner):** “Pre-ship kept finding holes in the review-capture tracking; incremental rechecks were never part of the brief (delta-only rounds were rejected by the experiment). Design review keeps today's behaviour: every round is a full review, and any later edit voids a pass.”
+- **Reversal cost:** Medium.
+- **Important:** yes (removes incremental rechecks).
+- **Chosen by:** user.
+
 ## Release Notes
 
 FULL change-design reviews can use a repository's own versioned rules, including when the design preserves existing tests. The review hands off to the owner after three unresolved rounds by default; the reviewer verdict still controls readiness. Pre-ship and PR feedback policies are unchanged.
@@ -61,3 +70,4 @@ FULL change-design reviews can use a repository's own versioned rules, including
 
 - `review.design_max_rounds` controls the design review owner checkpoint, default three. The checkpoint records the owner's choice without turning outstanding findings into an approval (#172).
 - An in-flight FULL approval recorded before Specwright tracked review inputs needs a fresh FULL review before tasks or apply. Historical `USER_OVERRIDE` records keep their disposition.
+- FULL change-design review runs the whole checklist after edits, including Required Changes and Release Notes.
