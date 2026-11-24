@@ -6,7 +6,7 @@ No spec scenarios or runtime behavior change. Verify both published examples use
 
 ## 1. Generic standing-rules docs
 
-- [ ] 1.1 Replace the rollout-specific README guidance and template example with project-owned criteria; check both examples agree.
+- [x] 1.1 Replace the rollout-specific README guidance and template example with project-owned criteria; check both examples agree.
 
 ## 2. Patch version
 
