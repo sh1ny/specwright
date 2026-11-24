@@ -136,6 +136,21 @@ class TestDesignReview(Base):
         self.review.write_text("VERDICT: USER_OVERRIDE\nCHANGES_APPLIED: n/a\n", encoding="utf-8")
         self.assertEqual(self.step()["status"], "pass")
 
+    def test_legacy_revise_survives_recording_owner_choice(self):
+        self.subagent(1)
+        legacy = b"# Review\n\n- **Round:** 3\n\nVERDICT:REVISE \nCHANGES_APPLIED: n/a\n"
+        self.review.write_bytes(legacy)
+        self.assertEqual(self.step()["status"], "owner_checkpoint")
+        self.choice(3, "scoped-pass", "Recheck lock lifetime.")
+        self.assertTrue(self.review.read_bytes().startswith(legacy))
+        state = self.step()
+        self.assertEqual((state["status"], state["verdict"], state["choice"]),
+                         ("review", "REVISE", "scoped-pass"))
+        self.complete(self.scratch(), VERDICT_OK)
+        self.assertEqual(self.step()["status"], "pass")
+        self.assertIn(b"Owner round 3", self.review.read_bytes())
+        self.assertNotIn(b"VERDICT:REVISE", self.review.read_bytes())
+
     def test_legacy_unpinned_approval_requires_full_review(self):
         self.subagent()
         for old in (VERDICT_OK, CONFIRMED):
@@ -203,22 +218,20 @@ class TestDesignReview(Base):
         self.assertEqual(self.step()["status"], "pass")
 
     @unittest.skipUnless(shutil.which("openspec"), "openspec CLI not on PATH")
-    def test_apply_gate_blocks_next_task_after_release_notes_edit(self):
-        # OpenSpec renders apply guidance; it doesn't execute tasks. Exercise
-        # the installed gate command as the consumer of that guidance, without
-        # asking a model to follow it.
+    def test_apply_gate_blocks_next_delegated_task_after_release_notes_edit(self):
+        # OpenSpec renders the delegation instructions; it does not execute
+        # them. Drive the installed command as their consumer, not with a model.
         self.subagent()
         openspec = self.code / "openspec"
         shutil.copytree(ROOT / "schemas" / "specwright", openspec / "schemas" / "specwright")
         (openspec / "config.yaml").write_text("schema: specwright\n", encoding="utf-8")
         tasks = self.root / "tasks.md"
-        tasks.write_text("## 1. Work\n\n- [x] 1.1 Add release note\n- [ ] 1.2 Implement next task\n", encoding="utf-8")
+        tasks.write_text("## 1. Work\n\n- [ ] 1.1 Add release note\n- [ ] 1.2 Implement next task\n", encoding="utf-8")
         self.complete(self.scratch(), VERDICT_OK)
-        self.proposal.write_bytes(self.proposal.read_bytes() + b"\n### Fixed\n\n- Correct the lock lifetime.\n")
-        before = tasks.read_bytes()
+        note = b"\n### Fixed\n\n- Correct the lock lifetime.\n"
         target = self.code / "next-task.txt"
 
-        def apply_next_task(expect):
+        def dispatch_next(expect):
             rendered = subprocess.run(
                 [shutil.which("openspec"), "instructions", "apply", "--change", CHANGE, "--json"],
                 cwd=self.code, capture_output=True, text=True, encoding="utf-8", check=True,
@@ -226,18 +239,21 @@ class TestDesignReview(Base):
             apply = json.loads(rendered.stdout)
             self.assertEqual(apply["state"], "ready")
             instruction = " ".join(apply["instruction"].split())
-            gate = re.search(
-                r"For a FULL change, .*?`<sw> review ([^`]+)` from the code repo before "
-                r"starting the next task\. On nonzero, STOP",
-                instruction,
-            )
-            self.assertIsNotNone(gate, "installed apply instructions lack a fail-closed next-task gate")
+            delegation = instruction.split("DELEGATION.", 1)[1].split("Once per apply run", 1)[0]
+            self.assertRegex(delegation, r"FULL.{0,130}one task at a time")
+            self.assertRegex(delegation, r"Never parallelize FULL tasks")
+            self.assertRegex(delegation, r"before every FULL task dispatch, even within (?:the )?same group")
+            gate = re.search(r"`<sw> review ([^`]+)` from the code repo", instruction.split("DELEGATION.", 1)[0])
+            self.assertIsNotNone(gate, "installed apply precheck lacks an executable gate")
             words = gate[1].replace("<review.md>", "REVIEW").replace("<change branch>", "BRANCH").split()
             args = [{"REVIEW": self.review, "BRANCH": BRANCH}.get(word, word) for word in words]
             result = self.script(*args, expect=None)
             if result["_rc"] == 0:
                 pending = next(task for task in apply["tasks"] if not task["done"])
-                target.write_text(pending["description"], encoding="utf-8")
+                if pending["description"].startswith("1.1 "):
+                    self.proposal.write_bytes(self.proposal.read_bytes() + note)
+                else:
+                    target.write_text(pending["description"], encoding="utf-8")
                 source = Path(pending["sourcePath"])
                 lines = source.read_bytes().splitlines(keepends=True)
                 index = pending["line"] - 1
@@ -246,13 +262,34 @@ class TestDesignReview(Base):
             self.assertEqual(result["_rc"], expect, result)
             return result
 
-        self.assertEqual(apply_next_task(1)["status"], "review")
+        self.assertEqual(dispatch_next(0)["status"], "pass")
+        before = tasks.read_bytes()
+        self.assertIn(b"- [x] 1.1 Add release note", before)
+        self.assertEqual(dispatch_next(1)["status"], "review")
         self.assertEqual(tasks.read_bytes(), before)
         self.assertFalse(target.exists())
         self.complete(self.scratch(), VERDICT_OK)
-        self.assertEqual(apply_next_task(0)["status"], "pass")
+        self.assertEqual(dispatch_next(0)["status"], "pass")
         self.assertEqual(target.read_text(encoding="utf-8"), "1.2 Implement next task")
         self.assertIn(b"- [x] 1.2 Implement next task", tasks.read_bytes())
+
+    def test_apply_gate_accepts_valid_waiver_and_refuses_template_placeholders(self):
+        self.subagent()
+        footer = "VERDICT: WAIVED\nCHANGES_APPLIED: n/a\n"
+        self.review.write_text(
+            '<!--\n- **User decision:** "Apply without design review."\nNo design review ran.\n-->\n' + footer,
+            encoding="utf-8",
+        )
+        self.assertEqual(self.step("--require-pass", expect=1)["error"], "design_not_approved")
+        self.review.write_text(
+            '- **User decision:** "<the user\'s words>"\nNo design review ran.\n' + footer, encoding="utf-8",
+        )
+        self.assertEqual(self.step("--require-pass", expect=1)["error"], "design_not_approved")
+        waiver = ('- **User decision:** "Apply without design review."\nNo design review ran.\n' + footer)
+        self.review.write_text(waiver, encoding="utf-8")
+        before = self.review.read_bytes()
+        self.assertEqual(self.step("--require-pass")["status"], "waived")
+        self.assertEqual(self.review.read_bytes(), before)
 
     def test_bad_rule_fails_before_reviewer(self):
         self.cli()

@@ -5,6 +5,10 @@ const _progressJoin = '\n\n$_progressMarker\n';
 final _progressBoundary = RegExp('\r?\n\r?\n$_progressMarker\r?\n');
 const _choiceNames = ['scoped-pass', 'scope-change', 'stop'];
 final _lineBreak = RegExp(r'\r\n|[\r\n\v\f\u001c-\u001e\u0085\u2028\u2029]');
+final _reviewComment = RegExp(r'<!--[\s\S]*?(?:-->|$)');
+final _waiverDecision = RegExp(
+  r'^(?:- )?(?:\*\*User decision:\*\*|User decision:) "(.+)"[ \t]*$',
+);
 
 String _designQuote(String value) => jsonEncode(value).replaceAllMapped(
   _lineBreak,
@@ -176,13 +180,21 @@ class _DesignReport {
         '$path has an invalid FULL progress marker',
       );
     }
-    final verdict = _designLine(body, 'VERDICT', full: managed);
-    final applied = _designLine(body, 'CHANGES_APPLIED', full: managed);
     final history = managed
         ? _DesignHistory.parse(
             raw.substring(boundary.start).replaceAll('\r\n', '\n'),
           )
         : _DesignHistory();
+    // An owner choice can add a footer to a legacy body without publishing a
+    // result. Only publication writes the reviewed artifact and rule hashes.
+    final legacyChoice =
+        managed &&
+        history.choice != null &&
+        history.artifacts.isEmpty &&
+        history.rules.isEmpty;
+    final full = managed && !legacyChoice;
+    final verdict = _designLine(body, 'VERDICT', full: full);
+    final applied = _designLine(body, 'CHANGES_APPLIED', full: full);
     final result = _DesignReport(
       raw,
       sha256.convert(bytes).toString(),
@@ -192,7 +204,9 @@ class _DesignReport {
       applied,
       managed,
     );
-    if (managed && _validateDesign(body, full: true) != null) {
+    if (managed &&
+        ((legacyChoice && !result.unresolved) ||
+            _validateDesign(body, full: full) != null)) {
       throw ReviewStop(
         'bad_design_progress',
         '$path has an invalid reviewer verdict',
@@ -283,13 +297,54 @@ class _DesignController {
     Map<String, String> args, {
     bool render = false,
     _DesignProject? project,
+    _DesignReport? report,
   }) async {
     project ??= await _DesignProject.read(args);
     final limit = project.limit;
     final rules = await project.rules(render: render);
-    final report = _DesignReport.read(out);
+    report ??= _DesignReport.read(out);
     final artifacts = _designArtifactsIdentity(File(out).parent);
     return _DesignState(project, limit, rules, report, artifacts);
+  }
+
+  Future<Map<String, Object?>> requireApplyPass(
+    Map<String, String> args,
+  ) async {
+    final report = _DesignReport.read(out, legacyRound: false);
+    final lines = _reviewLines(
+      report.body.replaceAll(_reviewComment, ' '),
+      full: true,
+    );
+    if (lines.contains('VERDICT: ${report.verdict}')) {
+      switch (report.verdict) {
+        case 'WAIVED':
+          if (lines.contains('CHANGES_APPLIED: n/a') &&
+              lines.contains('No design review ran.')) {
+            for (final line in lines) {
+              final decision = _waiverDecision.firstMatch(line)?[1]?.trim();
+              if (decision != null &&
+                  decision.isNotEmpty &&
+                  decision != "<the user's words>") {
+                return {'ok': true, 'status': 'waived'};
+              }
+            }
+          }
+        case 'SKIPPED_LIGHT':
+          if (!report.needsFull && _lightDesign(out)) {
+            return {'ok': true, 'status': 'light'};
+          }
+        case 'USER_OVERRIDE':
+          return {'ok': true, 'status': 'pass'};
+        case 'APPROVE':
+          final state = await load(args, report: report);
+          if (state.status == 'pass') return state.document();
+      }
+    }
+    throw ReviewStop(
+      'design_not_approved',
+      'design review did not pass the apply precheck for the current inputs',
+      extra: {'status': 'review'},
+    );
   }
 
   Future<Map<String, Object?>> step(

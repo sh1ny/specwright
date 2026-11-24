@@ -714,22 +714,33 @@ apply:
     a design review first; never rewrite the verdict. A `VERDICT: WAIVED`
     without its `User decision:` line or `No design review ran.` line fails
     the tasks precheck. If the precheck fails, STOP.
-    This includes the FULL controller's `pass` for a FULL disposition,
-    even if the current design says LIGHT, or `light` for `SKIPPED_LIGHT`. Review changed inputs before
-    implementing or ticking any task.
+    Run `<sw> review design-step --require-pass --out <review.md> --branch
+    <change branch>` from the code repo. Nonzero means STOP before work and
+    resolve the review state. A FULL approval must still pass even if the
+    current design says LIGHT. A valid WAIVED or USER_OVERRIDE disposition
+    does not require a new review; DEFERRED never passes. Only `light` from
+    the gate permits the LIGHT apply path.
+    Before each inline FULL task, rerun this gate on the current record.
 
     Work through pending tasks in order and mark each complete as you go.
 
     DELEGATION. If a `specwright-implementer` agent is available, you are the
-    orchestrator: dispatch one task group at a time to it with a packet -
-    the group's tasks and test map rows, the requirement and scenario blocks
+    orchestrator. For FULL work (anything not cleared as LIGHT), dispatch
+    only one task at a time. Never parallelize FULL tasks, even in disjoint
+    groups. Run the apply gate before every FULL task dispatch, even within
+    the same group. Wait for the previous worker to exit, verify and tick
+    its task, and finish all resulting planning edits (including Release
+    Notes) before running the gate again.
+    Never give a FULL worker another task in the same packet. For LIGHT
+    work, dispatch by task group. Each packet carries the selected tasks
+    and their test map rows, the requirement and scenario blocks
     those rows cover, the design decisions and bounds that govern them
     (quoted or cited by heading), the files to touch, and the installed
     project skills that apply to the group, each by name with the path of
     its installed `SKILL.md` as you resolved it (project or user level), or
     `none`. Never name a `specwright-*` workflow skill. Not the whole
-    change: the packet is what keeps the cheap model cheap. Run groups in
-    parallel only when they touch disjoint files. You own verification:
+    change: the packet is what keeps the cheap model cheap. Only LIGHT groups
+    touching disjoint files may run in parallel. You own verification:
     re-run the group's tests yourself, then tick tasks, flip test map rows
     and commit per the configured granularity (`commit_granularity`: one
     commit per task, or per task group; the commit rules say how). A
@@ -738,8 +749,9 @@ apply:
     toplevel>` (`<sw>` as in the skills). It prints `{"ok": true, "cheap_tier": <bool>}` and
     maybe a `note`; repeat a note once. A failed call, or output with no
     `cheap_tier` field, means the tier is off: say once that the setting
-    could not be read. With the tier on and `TIER: LIGHT` in the change's
-    `design.md`, dispatch every group to `specwright-implementer-light`
+    could not be read. With the tier on, the `light` gate result and
+    `TIER: LIGHT` in the change's `design.md`, dispatch every group to
+    `specwright-implementer-light`
     instead, small groups included, with no inline exception; the packet,
     your verification and the commits stay the same. If that agent is not
     available, use `specwright-implementer` and say so once. With the tier
@@ -759,11 +771,9 @@ apply:
     - A task that changes what the change ships updates the proposal's
       `## Release Notes` section in its own task commit; every commit that
       edits the section runs `<sw> release notes --proposal <proposal.md>`.
-      For a FULL change, run `<sw> review design-step --require-pass --out
-      <review.md> --branch <change branch>` from the code repo before
-      starting the next task. On nonzero, STOP: do not implement or tick the
-      next task. Resolve the review state and obtain a fresh FULL approval
-      before resuming.
+      After editing Release Notes, run the apply gate again before starting
+      the next task. An approval made stale by the edit needs a fresh FULL
+      review and approval; an explicit waiver stays a waiver.
     - On an unexpected failure or regression, find the root cause before
       fixing. No symptom patches.
     - SPEC OR DESIGN DRIFT: if implementation shows a requirement, scenario or

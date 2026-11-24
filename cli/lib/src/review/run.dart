@@ -323,20 +323,14 @@ class _ReviewOperations {
     if (requirePass && (light || args.values.containsKey('choice'))) {
       throw ReviewStop(
         'usage',
-        '--require-pass checks a FULL disposition; it cannot record a choice',
+        '--require-pass checks the apply disposition; it cannot record a choice',
         code: 2,
       );
     }
-    final result = await _DesignController(args.values)
-        .step(args.values, light: light);
-    if (requirePass && result['status'] != 'pass') {
-      throw ReviewStop(
-        'design_not_approved',
-        'FULL design review did not pass for the current inputs',
-        extra: result..remove('ok'),
-      );
-    }
-    return result;
+    final controller = _DesignController(args.values);
+    return requirePass
+        ? controller.requireApplyPass(args.values)
+        : controller.step(args.values, light: light);
   }
 
   Future<Map<String, Object?>> _preflight(List<String> argv) async {
