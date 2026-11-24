@@ -10,4 +10,4 @@ No spec scenarios or runtime behavior change. Verify both published examples use
 
 ## 2. Patch version
 
-- [ ] 2.1 Run `sw release bump --to 0.40.1`; verify version agreement with `sw release check` and validate the proposal with `sw release notes`.
+- [x] 2.1 Run `sw release bump --to 0.40.1`; verify version agreement with `sw release check` and validate the proposal with `sw release notes`.
