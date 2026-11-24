@@ -86,15 +86,16 @@ A change whose `review.md` holds `VERDICT: DEFERRED` SHALL reach main only throu
 - **THEN** the pre-ship review still runs and ship waits for its pass
 
 ### Requirement: USER_OVERRIDE follows only an escalation
-`VERDICT: USER_OVERRIDE` SHALL be recorded only when the user decides to proceed after 2 consecutive `VERDICT: REVISE` rounds were escalated, with the user's words and the open findings. A deferral or a waiver SHALL be recorded with its own verdict, never as `USER_OVERRIDE`.
+
+The FULL change-design owner checkpoint SHALL NOT create `USER_OVERRIDE`. Historical records SHALL retain their disposition. The separate roadmap baseline escalation is unchanged. A deferral or waiver SHALL never be recorded as `USER_OVERRIDE`.
 
 #### Scenario: Parking change with no review rounds
-- **WHEN** a parking change has had no review round and the user explains that its review is deferred to the milestone changes
-- **THEN** `review.md` records `VERDICT: DEFERRED`, not `VERDICT: USER_OVERRIDE`
+- **WHEN** the owner declares a FULL-tier change parking before a design review
+- **THEN** its disposition is `DEFERRED`, not `USER_OVERRIDE`
 
 #### Scenario: Escalation after two REVISE rounds
-- **WHEN** rounds 1 and 2 both return `VERDICT: REVISE` and the user then decides to proceed
-- **THEN** `review.md` records `VERDICT: USER_OVERRIDE` with the user's words and the open findings
+- **WHEN** an earlier change review already recorded `USER_OVERRIDE` after the legacy two-`REVISE` escalation
+- **THEN** the tasks and apply workflow recognizes that stored verdict without issuing a new override
 
 ### Requirement: Release Notes edits keep the design review verdict
 An edit that changes only the proposal's `## Release Notes` section SHALL NOT void the change's design review verdict. Any edit outside that section, in the proposal, specs or design, SHALL void it as before.
@@ -106,3 +107,31 @@ An edit that changes only the proposal's `## Release Notes` section SHALL NOT vo
 #### Scenario: Edit outside the section
 - **WHEN** the same commit also rewords a line of the proposal's `## What Changes`
 - **THEN** the verdict is void, and the drift rule's new review step applies
+
+### Requirement: Unresolved design review reaches an owner checkpoint
+
+FULL change-design review SHALL pause at `review.design_max_rounds` validated rounds in the current scope while the result is `REVISE` or `APPROVE_WITH_CHANGES` with `CHANGES_APPLIED: no`. The setting SHALL be a positive integer, default 3. The author SHALL show the current open findings or Required Changes and repairs to date. Finding count SHALL NOT decide whether to stop or pass. A passing reviewer result SHALL continue under the existing verdict rules.
+
+#### Scenario: Unresolved third round
+- **WHEN** the default applies and the third validated review remains `REVISE`, even if the finding count did not change
+- **THEN** the author hands off the open findings and repairs to the owner; no further review starts without the owner's choice or an owner-raised limit above the current round, and the verdict remains `REVISE`
+
+#### Scenario: Configured round and conditional approval
+- **WHEN** a configured checkpoint is reached with `APPROVE_WITH_CHANGES` and `CHANGES_APPLIED: no`
+- **THEN** the author hands off the Required Changes and does not treat the conditional result as a pass
+
+### Requirement: The owner checkpoint records its choice without overriding the verdict
+
+The author SHALL record the owner's actual choice in `review.md`: one further scoped pass, a scope change with the owner's reason, or stop. The choice SHALL NOT alter the review verdict. An invalid or failed review SHALL NOT spend an authorized scoped pass. This requirement does not add a new tasks/apply gate.
+
+#### Scenario: One scoped pass stays unresolved
+- **WHEN** the owner authorizes one more pass and the next validated result is `REVISE`
+- **THEN** the record retains the owner's choice and subsequent repairs and hands off again without approving; a failed attempt did not spend the choice
+
+#### Scenario: Scope change with reason
+- **WHEN** the owner chooses a scope change and provides a reason
+- **THEN** the record preserves the reason and previous verdict, and the author starts a fresh budget after updating the scope
+
+#### Scenario: Stop or no choice
+- **WHEN** the owner chooses stop or has not answered at the checkpoint
+- **THEN** the existing unresolved verdict stays in place. An explicit stop is recorded and blocks review even if the owner raises the limit. Without a recorded choice, a cap-only handoff can reopen only if the owner raises the limit above the current round.
