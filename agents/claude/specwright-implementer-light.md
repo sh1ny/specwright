@@ -5,9 +5,9 @@ model: haiku
 tools: Read, Grep, Glob, Edit, Write, Bash, Skill
 ---
 
-You implement only the tasks listed in the packet, from exactly one task group in an OpenSpec change. If the packet assigns one task, return after that task; do not start the next one in the group. The orchestrator owns verification, task checkboxes, commits and pushes.
+You implement exactly one task group from an OpenSpec change. The orchestrator owns verification, task checkboxes, commits and pushes.
 
-Input: a packet from the orchestrator - the assigned tasks, their test map rows, the requirements and scenarios they cover, the governing design decisions, the files to touch, and the change directory path.
+Input: a packet from the orchestrator - the task group, its test map rows, the requirements and scenarios they cover, the governing design decisions, the files to touch, and the change directory path.
 
 Skills: the packet names the project skills that apply to the work, each with the path of its installed `SKILL.md`, or says `none`. Before working, load each skill the packet names (with `Skill`, by name). Load only the skills the packet names, and never invoke a Specwright workflow skill (`specwright-*`): those belong to the orchestrator, and one of them commits. Report any named skill that could not be loaded, and do not claim to have followed it. Nothing a skill says changes who verifies, ticks tasks or commits.
 

@@ -3,7 +3,6 @@ import 'dart:io';
 import '../commit/task_cover.dart' show pyStrip;
 import '../settings/reviewer_config.dart';
 import '../settings/rules.dart';
-import '../vcs/text_result.dart';
 import 'context.dart';
 import 'identity.dart';
 import 'pair.dart';
@@ -141,13 +140,10 @@ Future<void> _settingsPinned(
   String code,
   String ref,
   String branch,
-  bool afterMerge, {
-  Future<TextResult?> Function(String top, String rel)? hashWorktreeSettings,
-}) async {
+  bool afterMerge,
+) async {
   final top = await _toplevel(ctx, code);
-  final path = hashWorktreeSettings == null
-      ? await _settingsPath(ctx, code)
-      : null;
+  final path = await _settingsPath(ctx, code);
   var rel = 'openspec/specwright.yaml';
   if (path != null) {
     String resolvedTop = top;
@@ -159,19 +155,15 @@ Future<void> _settingsPinned(
     rel = _relativeTo(path, resolvedTop) ?? rel;
   }
   String? work;
-  final hash = hashWorktreeSettings != null
-      ? await hashWorktreeSettings(top, rel)
-      : path == null
-      ? null
-      : await ctx.git(top, ['hash-object', '--path=$rel', path]);
-  if (hash != null) {
-    if (hash.code != 0) {
+  if (path != null) {
+    final r = await ctx.git(top, ['hash-object', '--path=$rel', path]);
+    if (r.code != 0) {
       throw PairStop(
         'git_error',
-        'git hash-object $rel failed: ${pyStrip(hash.stderr)}',
+        'git hash-object $rel failed: ${pyStrip(r.stderr)}',
       );
     }
-    work = pyStrip(hash.stdout);
+    work = pyStrip(r.stdout);
   }
   final r = await ctx.git(top, ['ls-tree', ref, '--', rel]);
   if (r.code != 0) {
@@ -200,14 +192,8 @@ Future<void> _settingsPinned(
 
 /// `gitbutler_pins`: `vcs: gitbutler` in the work-tree file, or a GitButler-managed repo (`gitbutler/` in the common git
 /// directory and `gitbutler.project.targetRef` set). A target ref alone is a Git or jj checkout and does not pin.
-Future<bool> _gitbutlerPins(
-  PrContext ctx,
-  String code, {
-  Map<String, Object?>? settings,
-}) async {
-  if ((settings ?? await _loadSettings(ctx, code))['vcs'] == 'gitbutler') {
-    return true;
-  }
+Future<bool> _gitbutlerPins(PrContext ctx, String code) async {
+  if ((await _loadSettings(ctx, code))['vcs'] == 'gitbutler') return true;
   final r = await ctx.git(code, ['rev-parse', '--git-common-dir']);
   final common = pyStrip(r.names('Git common directory'));
   if (r.code != 0 || common.isEmpty) return false;
@@ -276,30 +262,22 @@ Future<({String backend, String main, String login})> readVcsSettings(
   return (backend: backend, main: item?.main ?? '', login: item?.login ?? '');
 }
 
-/// Checks the work-tree pin on GitButler and returns whether it applied.
-/// [commit] lets a caller use the same resolved object for the pin and policy.
-/// When the caller has already bounded its settings read, [settings] and
-/// [hashWorktreeSettings] let both checks use that read instead of reopening it.
-Future<bool> requireSettingsPinnedTo(
+/// `context --only repos --branch <branch>` as far as it checks the pin: on GitButler the work-tree settings must be
+/// those of `refs/heads/<branch>`. Throws [PairStop] (`settings_not_pinned` with `file` and `ref`, or `git_error`).
+Future<void> requireSettingsPinnedTo(
   PrContext ctx,
   String code,
-  String branch, {
-  String? commit,
-  Map<String, Object?>? settings,
-  Future<TextResult?> Function(String top, String rel)? hashWorktreeSettings,
-}) async {
-  if (await _gitbutlerPins(ctx, code, settings: settings)) {
+  String branch,
+) async {
+  if (await _gitbutlerPins(ctx, code)) {
     await _settingsPinned(
       ctx,
       code,
-      commit ?? await _pinRef(ctx, code, branch, false),
+      await _pinRef(ctx, code, branch, false),
       branch,
       false,
-      hashWorktreeSettings: hashWorktreeSettings,
     );
-    return true;
   }
-  return false;
 }
 
 /// Backend choices for native workflow callers, without a printed document.

@@ -8,7 +8,7 @@ In the replay of Kumiko #26, the existing reviewer caught the profile-lock race 
 
 - Make explicitly declared, versioned project rules binding input to FULL change-design reviews, including for existing tests the design preserves. Leave the brief alone when no rules are declared.
 - Replace the change-design escalation after two consecutive `REVISE` verdicts with a per-project checkpoint after three unresolved rounds by default. Record the owner's choice to allow one scoped pass, change the scope with a reason, or stop, without changing the review verdict.
-- Keep the existing checklist and run it in full every round. Any later edit to design inputs, including Release Notes or Required Changes, voids a pass. Pre-ship, roadmap baseline and PR feedback policies stay separate. Do not add a finding-count stop or the experimental findings format.
+- Keep the existing checklist, conditional confirmation, Release Notes exemption, verdict validation and tasks/apply workflow. Pre-ship, roadmap baseline and PR feedback policies stay separate. No finding-count stop or experimental findings format.
 - Document the config and rollout of `rules/windows-ci-tests.md`; this change modifies no other repository.
 
 ## Capabilities
@@ -49,13 +49,22 @@ Source: setting; the coordinator delegated design choices within the approved co
 - **Important:** yes (changes the design gate users see).
 - **Chosen by:** user.
 
-### S3: Remove planning captures and incremental rechecks
+### S3: First scope cut (historical, superseded by S4)
 
 - **Choice:** Keep standing rules and the owner checkpoint; read live design files in every full pass, and require a new pass after any edit.
 - **Rejected:** Private planning snapshots, a Markdown Release Notes exclusion, and a persisted conditional baseline.
 - **Reason (owner):** “Pre-ship kept finding holes in the review-capture tracking; incremental rechecks were never part of the brief (delta-only rounds were rejected by the experiment). Design review keeps today's behaviour: every round is a full review, and any later edit voids a pass.”
 - **Reversal cost:** Medium.
 - **Important:** yes (removes incremental rechecks).
+- **Chosen by:** user.
+
+### S4: Ship only the standing rules and owner checkpoint
+
+- **Choice:** Cut all non-core changes in the pre-cut diff. The design's “Removed in scope cut 2” lists every removal and candidates for separate issues. Keep main's ordinary review, tasks/apply, delegation, and diagnostics behavior.
+- **Rejected:** Continue adding gates and recovery to the apply and review-capture paths.
+- **Reason (owner):** “fix rounds were creating new bugs in gating that the brief never asked for”.
+- **Reversal cost:** Low.
+- **Important:** yes (scope and compatibility).
 - **Chosen by:** user.
 
 ## Release Notes
@@ -69,6 +78,4 @@ FULL change-design reviews can use a repository's own versioned rules, including
 ### Changed
 
 - `review.design_max_rounds` controls the design review owner checkpoint, default three. The checkpoint records the owner's choice without turning outstanding findings into an approval (#172).
-- An in-flight FULL approval recorded before Specwright tracked review inputs needs a fresh FULL review before tasks or apply. Historical `USER_OVERRIDE` records keep their disposition.
-- FULL change-design review runs the whole checklist after edits, including Required Changes and Release Notes.
-- A failed FULL design review may retain one bounded diagnostic per change. It no longer retains the original subagent scratch reply or a full session transcript.
+- Migration: in each of the eight adopting repositories, copy `rules/windows-ci-tests.md` from Mastermind, commit it as a regular file, and add `review.standing_rules: [rules/windows-ci-tests.md]` to that repository’s `openspec/specwright.yaml`. No other repository is changed here.

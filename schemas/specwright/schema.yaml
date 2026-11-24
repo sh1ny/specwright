@@ -432,11 +432,7 @@ artifacts:
     description: Review gate before tasks - LIGHT records SKIPPED_LIGHT, FULL gets a fresh-context architecture review
     template: review.md
     instruction: |
-      Read the `TIER:` line in design.md. Resolve `<sw>` as the
-      `specwright-review` skill defines. If the tier is LIGHT, run
-      `<sw> review design-step --light --out <this change's review.md>`.
-      Use LIGHT only on `status: light`; on `full_required`, use the FULL
-      path even if the revised design now triages LIGHT.
+      Read the `TIER:` line in design.md first.
 
       Referenced stores are read-only context for the review as well
       (read through `openspec context --json`, never written); name an
@@ -454,39 +450,60 @@ artifacts:
       a passing re-check, review.md gets `VERDICT: SKIPPED_LIGHT` with each
       earlier finding marked fixed. If the triage still holds and the
       re-check finds nothing, write only the metadata with
-      `VERDICT: SKIPPED_LIGHT`, `CHANGES_APPLIED: n/a` and a one-line reason.
-      In either case write the LIGHT report to a temporary file and publish
-      with `<sw> review record --kind light --out <this change's review.md>
-      --result <temp file>`. If this returns `full_required`, do not write
-      directly: enter the FULL path. If a trigger applies after all, fix
+      `VERDICT: SKIPPED_LIGHT`, `CHANGES_APPLIED: n/a` and a one-line reason,
+      and stop. If a trigger applies after all, fix
       design.md to FULL and run the full review.
 
+      `<sw>` is the project's `sw` binary, `<home>/.specwright/bin/<project VERSION>/sw`, checked with `<sw> version --json` as the Specwright skills define.
+
       FULL: the review MUST NOT be written in the context that authored
-      proposal, specs or design. Follow `specwright-review` **Design
-      reviews**, including the `design-step` owner checkpoint, FULL
-      `select --change-review`, and the CLI or subagent dispatch below it.
-      Run `design-step` before any attempt and again after every valid
-      result. On `pass`, finish the review step; on `owner_checkpoint`,
-      show the latest open findings or outstanding Required Changes and
-      repairs already applied from `review.md`. Ask the owner in every
-      decision mode: one more scoped pass (record its scope), a scope
-      change (record its reason and change the artifacts), or stop. Use the
-      harness's ask tool when available; otherwise ask in text and wait.
-      Record the actual answer with `design-step --choice`, not a verdict.
-      No answer or `stopped` → stop; `scope_unchanged` → wait for the approved
-      artifact changes. No finding count can stop or approve a review.
-      Do not start another attempt, write tasks, or convert REVISE into
-      `USER_OVERRIDE` at the checkpoint. Earlier recorded USER_OVERRIDE
-      decisions remain distinct from this workflow, as do deferral and waiver.
+      proposal, specs or design. Choose the reviewer with the
+      `specwright-review` skill's routes (its Routes and Design reviews
+      sections): `<sw> review select --runtime <the harness you run in>`,
+      its output saved to a file (the select output below), walks
+      `review.order` in openspec/specwright.yaml (default codex,
+      claude, omp), skips your own harness and takes the first reviewer CLI
+      that is installed and passes its probe, else the fresh-context
+      `specwright-reviewer` agent. `review.cross_model: false` means the
+      agent only.
+      Before a FULL review or recheck, run `<sw> review design-step --out
+      <this change's review.md>` from the code repo. On `owner_checkpoint`
+      follow the handoff below; on `stopped`, stop. Do not dispatch again
+      unless the recorded owner decision permits it. Do not route an
+      unresolved FULL checkpoint through the LIGHT or legacy override path.
+      - CLI route: write the review request to a file and run
+        `<sw> review run --kind design --route <route> --prompt-file <file>
+        --out <this change's review.md> --change <name> --selection <select
+        output> --change-review --branch <code change branch> --repairs
+        <short repair summary>` (store-backed: `--store <store toplevel>`,
+        so the Claude route can read the planning files). The script runs
+        the CLI with a fixed, isolated, read-only command line and writes
+        review.md only when the output validates. Never build or change a
+        reviewer command line yourself.
+      - Subagent route: first get a scratch result path with
+        `<sw> review record --kind design --change <name> --scratch
+        --change-review --out <this change's review.md> --branch <code change branch>`
+        (it prints `scratch`, a fresh file outside the change). The
+        `specwright-reviewer` agent, given file paths, not your reasoning,
+        writes its review to that file; include `standing_requirements` in
+        its request verbatim when present. Then run
+        `<sw> review record --kind design --change <name> --result
+        <scratch> --out <this change's review.md> --route subagent
+        --selection <select output> --change-review --repairs <short repair summary>`, which writes review.md only when the
+        review validates. On exit 3 review.md is untouched and the report
+        names the scratch file.
+      The CLI includes declared rules automatically. In either route, treat
+      them as binding requirements, including for existing tests the design
+      preserves. With no declared rules, add no section. Omit `--repairs`
+      for the initial review; list the actual repairs in later rounds.
       Either way, the request names the installed project skills that apply
       to the reviewed work, each by name with the path of its installed
       `SKILL.md` as you resolved it (project or user level), or `none`; never
       a `specwright-*` workflow skill.
       Exit 3 (invalid output, timeout, the reviewer crashed) is a failed
-      review: never try the next route; report the route, status and error.
-      Report `diagnostic` only if this failure supplies it, never the original
-      scratch path. If no route works, STOP and tell the user. Never review
-      in the authoring context and never fabricate a verdict.
+      review: never try the next route; report it and offer to run it
+      again. If no route works, STOP and tell the user. Never review in the
+      authoring context and never fabricate a verdict.
 
       The reviewer: writes only the one file the request names (or prints the review for the script to write); reads the change's artifacts, the
       in-force ADRs and the source they reference, never the authoring
@@ -534,12 +551,28 @@ artifacts:
       Emit exactly one machine-readable verdict line:
       `VERDICT: APPROVE` | `VERDICT: APPROVE_WITH_CHANGES` | `VERDICT: REVISE`
       Any open Critical forbids APPROVE. APPROVE_WITH_CHANGES lists exact
-      Required Changes and `CHANGES_APPLIED: no`. After applying any
-      Required Changes, run the full checklist again; a new pass is
-      `APPROVE` with `CHANGES_APPLIED: n/a`, not `CHANGES_APPLIED: yes`.
-      A verdict covers only the contents reviewed: any edit to the proposal
-      (including Release Notes), specs, design or standing-rule inputs
-      voids the pass and requires a fresh full review.
+      Required Changes and `CHANGES_APPLIED: no`; the author applies them,
+      then the reviewer re-checks only those items in a new run, and only
+      that run may change it to `yes` - never the author. Other verdicts use
+      `CHANGES_APPLIED: n/a`. A verdict covers only the contents reviewed:
+      editing proposal, specs or design for any other reason voids it; an
+      edit confined to the proposal's `## Release Notes` section does not,
+      one that also touches a line outside that section does.
+
+      Owner checkpoint: after each validated FULL result, read `design-step`.
+      `REVISE` and `APPROVE_WITH_CHANGES`/`no` stay unresolved. At the configured
+      `review.design_max_rounds` (default 3) without approval, stop. Show the
+      open findings or Required Changes and the repairs to date in `review.md`.
+      Ask the owner to choose one more scoped pass, a scope change with a
+      reason, or stop. Record their actual answer with `<sw> review design-step
+      --out <this change's review.md> --round <current round> --choice <choice>`.
+      Use `scoped-pass --detail <scope>` for one more pass limited to that
+      repair scope; if unresolved, hand off again. Use `scope-change --detail
+      <owner reason>` and apply the revised scope before reviewing it with a
+      new round budget; use `stop` to leave work paused. A choice never alters
+      the verdict, grants approval or creates `USER_OVERRIDE`. Never stop
+      because the finding count stalled. Earlier legacy overrides remain as
+      recorded; a deferral or waiver is never recorded as `USER_OVERRIDE`.
 
       Required Changes and decisions: before applying a Required Change that
       reverses a `Chosen by: user` decision, put it to the user, in any mode
@@ -581,7 +614,8 @@ artifacts:
     instruction: |
       PRECHECK: review.md must contain a line exactly equal to
       `VERDICT: APPROVE`, `VERDICT: SKIPPED_LIGHT` or `VERDICT: USER_OVERRIDE`,
-      or exactly `VERDICT: DEFERRED` together with
+      or exactly `VERDICT: APPROVE_WITH_CHANGES` together with a line exactly
+      `CHANGES_APPLIED: yes`, or exactly `VERDICT: DEFERRED` together with
       `CHANGES_APPLIED: n/a` and a `Deferred to:` line naming at least one
       target (without one, STOP and ask the user where each part's review
       will happen), or exactly `VERDICT: WAIVED` together with
@@ -595,12 +629,6 @@ artifacts:
       placeholder and counts as missing. Match whole lines: `APPROVE` is a prefix of `APPROVE_WITH_CHANGES`, and
       `VERDICT: DEFERRED_LATER` or `VERDICT: WAIVED?` match nothing.
       Otherwise STOP and finish the review loop first.
-      For `APPROVE`, run `<sw> review design-step --out <review.md>
-      --branch <change branch>` from the code repo and also require `pass`;
-      this checks the live planning artifacts and standing-rule identity. If the
-      current design says LIGHT, use this same check for a FULL disposition.
-      For `SKIPPED_LIGHT`, require `design-step --light --out <review.md>`
-      to still report `light`. Otherwise STOP and review the current design.
 
       Before writing tasks, check design.md for Open Questions. If any of them
       would change what gets built, resolve them with the user first - do not
@@ -714,33 +742,19 @@ apply:
     a design review first; never rewrite the verdict. A `VERDICT: WAIVED`
     without its `User decision:` line or `No design review ran.` line fails
     the tasks precheck. If the precheck fails, STOP.
-    Run `<sw> review design-step --require-pass --out <review.md> --branch
-    <change branch>` from the code repo. Nonzero means STOP before work and
-    resolve the review state. A FULL approval must still pass even if the
-    current design says LIGHT. A valid WAIVED or USER_OVERRIDE disposition
-    does not require a new review; DEFERRED never passes. Only `light` from
-    the gate permits the LIGHT apply path.
-    Before each inline FULL task, rerun this gate on the current record.
 
     Work through pending tasks in order and mark each complete as you go.
 
     DELEGATION. If a `specwright-implementer` agent is available, you are the
-    orchestrator. For FULL work (anything not cleared as LIGHT), dispatch
-    only one task at a time. Never parallelize FULL tasks, even in disjoint
-    groups. Run the apply gate before every FULL task dispatch, even within
-    the same group. Wait for the previous worker to exit, verify and tick
-    its task, and finish all resulting planning edits (including Release
-    Notes) before running the gate again.
-    Never give a FULL worker another task in the same packet. For LIGHT
-    work, dispatch by task group. Each packet carries the selected tasks
-    and their test map rows, the requirement and scenario blocks
+    orchestrator: dispatch one task group at a time to it with a packet -
+    the group's tasks and test map rows, the requirement and scenario blocks
     those rows cover, the design decisions and bounds that govern them
     (quoted or cited by heading), the files to touch, and the installed
     project skills that apply to the group, each by name with the path of
     its installed `SKILL.md` as you resolved it (project or user level), or
     `none`. Never name a `specwright-*` workflow skill. Not the whole
-    change: the packet is what keeps the cheap model cheap. Only LIGHT groups
-    touching disjoint files may run in parallel. You own verification:
+    change: the packet is what keeps the cheap model cheap. Run groups in
+    parallel only when they touch disjoint files. You own verification:
     re-run the group's tests yourself, then tick tasks, flip test map rows
     and commit per the configured granularity (`commit_granularity`: one
     commit per task, or per task group; the commit rules say how). A
@@ -749,9 +763,8 @@ apply:
     toplevel>` (`<sw>` as in the skills). It prints `{"ok": true, "cheap_tier": <bool>}` and
     maybe a `note`; repeat a note once. A failed call, or output with no
     `cheap_tier` field, means the tier is off: say once that the setting
-    could not be read. With the tier on, the `light` gate result and
-    `TIER: LIGHT` in the change's `design.md`, dispatch every group to
-    `specwright-implementer-light`
+    could not be read. With the tier on and `TIER: LIGHT` in the change's
+    `design.md`, dispatch every group to `specwright-implementer-light`
     instead, small groups included, with no inline exception; the packet,
     your verification and the commits stay the same. If that agent is not
     available, use `specwright-implementer` and say so once. With the tier
@@ -771,9 +784,6 @@ apply:
     - A task that changes what the change ships updates the proposal's
       `## Release Notes` section in its own task commit; every commit that
       edits the section runs `<sw> release notes --proposal <proposal.md>`.
-      After editing Release Notes, run the apply gate again before starting
-      the next task. An approval made stale by the edit needs a fresh FULL
-      review and approval; an explicit waiver stays a waiver.
     - On an unexpected failure or regression, find the root cause before
       fixing. No symptom patches.
     - SPEC OR DESIGN DRIFT: if implementation shows a requirement, scenario or

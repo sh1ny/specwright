@@ -352,6 +352,23 @@ class TestSchemaText(unittest.TestCase):
         self.assertRegex(tpl, r"release\.enabled: true")
         self.assertRegex(tpl, r"(?i)delete")
 
+    def test_voiding_rule_exempts_release_notes_section(self):
+        ins = self._instruction("review")
+        voiding = re.search(r"A verdict covers only the contents reviewed:.{0,400}", ins).group(0)
+        self.assertIn("Release Notes", voiding)
+        tpl = read(ROOT / "schemas" / "specwright" / "templates" / "review.md")
+        line = line_with(tpl, r"<!-- This verdict covers only", "review.md voiding comment")
+        self.assertIn("Release Notes", line)
+
+    def test_voiding_rule_still_voids_other_edits(self):
+        ins = self._instruction("review")
+        self.assertRegex(ins, r"editing proposal, specs or design for any other reason voids it")
+        self.assertRegex(ins, r"(?i)outside (that|the) section")
+        tpl = read(ROOT / "schemas" / "specwright" / "templates" / "review.md")
+        line = line_with(tpl, r"<!-- This verdict covers only", "review.md voiding comment")
+        self.assertRegex(line, r"Editing proposal, specs or design afterward")
+        self.assertRegex(line, r"(?i)confined")
+
 
 class TestBriefText(unittest.TestCase):
     def setUp(self):

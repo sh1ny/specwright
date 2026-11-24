@@ -125,12 +125,17 @@ class AgentDelegation(unittest.TestCase):
         self.assertTrue(init5, "roadmap init has no step 5 Review")
         self.assertRegex(init5.group(0), r"SKILL\.md", "roadmap init step 5's request does not name skills with paths")
 
-    def test_roadmap_design_reviews_use_review_routes(self):
-        block = mode_step("init", 5)
-        self.assertRegex(block, r"specwright-review")
-        self.assertRegex(block, r"<sw> review select")
-        self.assertRegex(block, r"(?s)run\s+--kind\s+design")
-        self.assertRegex(block, r"(?s)record\s+--kind\s+design")
+    def test_design_reviews_use_review_routes(self):
+        review = schema_block("- id: review")
+        self.assertNotRegex(review, r"(?i)author on\s+Claude\s*→\s*`codex`", "the review step still has the hardcoded pairing")
+        self.assertNotRegex(review, r"(?i)read its current flags", "the agent still builds the reviewer command line")
+        for name, block in (("design review", review), ("roadmap init step 5", mode_step("init", 5))):
+            self.assertRegex(block, r"specwright-review", f"{name}: does not use the specwright-review routes")
+            self.assertRegex(block, r"<sw> review select", f"{name}: no route selection")
+            self.assertRegex(block, r"(?s)run\s+--kind\s+design", f"{name}: a CLI route is not run through `<sw> review`")
+            self.assertRegex(block, r"(?s)record\s+--kind\s+design", f"{name}: a subagent review is not validated")
+        self.assertRegex(review, r"(?i)never try the next route", "an invalid review falls through to another route")
+        self.assertRegex(review, r"review\.cross_model: false", "cross_model false no longer means the agent only")
 
     def test_reviewer_agents_have_preship_mode(self):
         for p in [*CLAUDE_AGENTS[1:], ROOT / "agents" / "omp" / "specwright-reviewer.md"]:
@@ -1981,6 +1986,11 @@ class DesignReviewDispositions(unittest.TestCase):
     def test_waiver_does_not_waive_preship(self):
         r = self.review
         self.assertRegex(r, r"(?is)WAIVED.{0,1500}pre-ship.{0,120}(not waived|still runs|does not waive|never waive)", "WAIVED does not keep the pre-ship review")
+
+    def test_change_checkpoint_does_not_issue_override(self):
+        self.assertRegex(self.review, r"(?is)choice never alters the verdict, grants approval or creates `USER_OVERRIDE`")
+        self.assertRegex(self.review, r"(?is)(deferral|DEFERRED).{0,200}(waiver|WAIVED).{0,100}never.{0,80}USER_OVERRIDE")
+        self.assertIn("`VERDICT: USER_OVERRIDE`", self.precheck)
 
     def test_review_template_and_readme_list_new_verdicts(self):
         t = read(REVIEW_TEMPLATE)

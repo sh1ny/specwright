@@ -3,14 +3,12 @@ import 'dart:io';
 import 'dart:typed_data';
 import 'dart:math';
 
-import 'package:crypto/crypto.dart';
 import 'package:path/path.dart' as p;
 
 import '../entry/regular_file.dart' show readRegularFile;
 import '../pr/context.dart';
 import '../pr/pair.dart' show PairStop;
-import '../pr/settings_commands.dart'
-    show readVcsSettings, requireSettingsPinnedTo;
+import '../pr/settings_commands.dart' show readVcsSettings;
 import '../process/bounded_run.dart';
 import '../process/command_line.dart';
 import '../process/launch.dart' show checkLaunchInput;
@@ -20,7 +18,6 @@ import '../process/platform_tree.dart';
 import '../process/resolve.dart';
 import '../settings/reviewer_config.dart' show reviewerHome;
 import '../settings/rules.dart' show SettingsStop;
-import '../vcs/text_result.dart';
 import 'records.dart';
 import 'references.g.dart';
 import 'routes.dart';
@@ -232,11 +229,7 @@ class _ReviewOperations {
   }
 
   Future<Map<String, Object?>> _select(List<String> argv) async {
-    final full = argv.contains('--change-review');
-    final args = await _parseArgs(
-      argv.where((token) => token != '--change-review').toList(),
-      const {'--runtime', '--settings', '--branch'},
-    );
+    final args = await _parseArgs(argv, const {'--runtime', '--settings'});
     _need(args.values, const ['runtime']);
     final runtime = args.values['runtime']!;
     if (!_runtimes.contains(runtime)) {
@@ -246,9 +239,7 @@ class _ReviewOperations {
         code: 2,
       );
     }
-    final project = full ? await _DesignProject.read(args.values) : null;
-    final settings =
-        project?.settings ?? await _settings(args.values['settings']);
+    final settings = await _settings(args.values['settings']);
     final cfg = ReviewConfig(settings.review);
     if (!cfg.crossModel) {
       return {
@@ -258,7 +249,6 @@ class _ReviewOperations {
         'model': null,
         'thinking': null,
         'note': 'review.cross_model is false',
-        'design_settings': ?project?.identity,
       };
     }
 
@@ -308,29 +298,22 @@ class _ReviewOperations {
       'skipped': skipped,
       'model': chosen == null ? null : cfg.model(chosen),
       'thinking': chosen == null ? null : cfg.level(chosen),
-      'design_settings': ?project?.identity,
     };
   }
 
   Future<Map<String, Object?>> _designStep(List<String> argv) async {
-    final light = argv.contains('--light');
-    final requirePass = argv.contains('--require-pass');
-    final args = await _parseArgs(
-      argv.where((a) => a != '--light' && a != '--require-pass').toList(),
-      const {'--out', '--branch', '--choice', '--round', '--detail'},
-    );
+    final args = await _parseArgs(argv, const {
+      '--out',
+      '--choice',
+      '--round',
+      '--detail',
+    });
     _need(args.values, const ['out']);
-    if (requirePass && (light || args.values.containsKey('choice'))) {
-      throw ReviewStop(
-        'usage',
-        '--require-pass checks the apply disposition; it cannot record a choice',
-        code: 2,
-      );
-    }
-    final controller = _DesignController(args.values);
-    return requirePass
-        ? controller.requireApplyPass(args.values)
-        : controller.step(args.values, light: light);
+    final settings = await _settings(null);
+    return _DesignCheckpoint(
+      args.values['out']!,
+      settings.review['design_max_rounds'],
+    ).step(args.values);
   }
 
   Future<Map<String, Object?>> _preflight(List<String> argv) async {
@@ -397,9 +380,9 @@ class _ReviewOperations {
   }
 
   Future<Map<String, Object?>> _run(List<String> argv) async {
-    final full = argv.contains('--change-review');
+    final changeReview = argv.contains('--change-review');
     final args = await _parseArgs(
-      argv.where((a) => a != '--change-review').toList(),
+      argv.where((arg) => arg != '--change-review').toList(),
       const {
         '--kind',
         '--route',
@@ -423,16 +406,6 @@ class _ReviewOperations {
     final change = args.values['change']!;
     if (kind != 'preship' && kind != 'design') {
       throw ReviewStop('usage', '--kind is preship or design', code: 2);
-    }
-    if (full && kind != 'design') {
-      throw ReviewStop(
-        'usage',
-        '--change-review is for FULL change design',
-        code: 2,
-      );
-    }
-    if (kind == 'design' && !full) {
-      _DesignController.rejectOrdinary(args.values['out']!);
     }
     if (route == 'subagent') {
       throw ReviewStop(
@@ -468,11 +441,26 @@ class _ReviewOperations {
       );
     }
     final skipped = _loadSelection(args.values['selection'], route);
-    final project = full ? await _DesignProject.read(args.values) : null;
-    project?.checkSelection(args.values, route);
-    final settings =
-        project?.settings ?? await _settings(args.values['settings']);
+    if (changeReview &&
+        (kind != 'design' || args.values.containsKey('settings'))) {
+      throw ReviewStop(
+        'usage',
+        '--change-review uses the code project settings and --kind design',
+        code: 2,
+      );
+    }
+    final settings = await _settings(args.values['settings']);
     final cfg = ReviewConfig(settings.review);
+    final checkpoint = changeReview
+        ? _DesignCheckpoint(
+            args.values['out']!,
+            settings.review['design_max_rounds'],
+          )
+        : null;
+    checkpoint?.beforeReview();
+    final requirements = changeReview
+        ? await _standingRequirements(settings, args.values)
+        : null;
 
     final exe = _resolve(route, _environment);
     if (exe == null) {
@@ -487,7 +475,6 @@ class _ReviewOperations {
       Map<String, Object?> heads = const {};
       Map<String, Object?> bases = const {};
       String? codeDir;
-      _DesignAttempt? attempt;
       if (kind == 'preship') {
         codeDir = await _requireCodeRepo(Directory.current.path);
         final codeTip = await _codeTip(args.values, codeDir);
@@ -531,25 +518,20 @@ class _ReviewOperations {
         promptPath = p.join(work.path, 'prompt.md');
         File(promptPath).writeAsStringSync(prompt, encoding: utf8, flush: true);
         cwd = view ?? codeDir;
-      } else if (full) {
-        attempt = await _DesignController(args.values)
-            .prepare(args.values, route, project: project);
+      } else if (requirements != null) {
         promptPath = p.join(work.path, 'prompt.md');
-        final original = File(promptArg!);
+        File(promptArg!).copySync(promptPath);
         File(promptPath)
-          ..writeAsBytesSync(original.readAsBytesSync())
-          ..writeAsStringSync(
-            attempt.packet,
-            mode: FileMode.append,
-            flush: true,
-          );
+            .writeAsStringSync('\n\n$requirements', mode: FileMode.append);
       }
       probe = await _probe(route, executable: exe);
       if (route == 'omp') {
         final belowFloor = _ompFloorReason(probe.version);
         if (belowFloor != null) throw ReviewStop('omp_too_old', belowFloor);
       }
-      final allowedDirs = <String>[if (storeArg != null) p.absolute(storeArg)];
+      final allowedDirs = storeArg == null
+          ? const <String>[]
+          : <String>[p.absolute(storeArg)];
       final environment = _environment;
       final windows =
           (environment['REVIEW_RUN_TEST_OS_NAME'] ??
@@ -579,10 +561,9 @@ class _ReviewOperations {
         codeDir: codeDir,
         heads: heads,
         bases: bases,
-        publishDesign: attempt == null
+        designRecord: checkpoint == null
             ? null
-            : (text, receipt) =>
-                  attempt!.publish(args.values, text: text, receipt: receipt),
+            : (text) => checkpoint.record(text, args.values['repairs']),
       );
     } finally {
       if (work.existsSync()) {
@@ -597,9 +578,11 @@ class _ReviewOperations {
 
   Future<Map<String, Object?>> _record(List<String> argv) async {
     final scratch = argv.contains('--scratch');
-    final full = argv.contains('--change-review');
+    final changeReview = argv.contains('--change-review');
     final args = await _parseArgs(
-      argv.where((a) => a != '--scratch' && a != '--change-review').toList(),
+      argv
+          .where((arg) => arg != '--scratch' && arg != '--change-review')
+          .toList(),
       const {
         '--kind',
         '--change',
@@ -614,41 +597,40 @@ class _ReviewOperations {
         '--out',
         '--branch',
         '--store-branch',
-        '--attempt',
         '--repairs',
       },
     );
-    if (args.values['kind'] == 'light') {
-      _need(args.values, const ['out', 'result']);
-      return _DesignController(args.values).recordLight(args.values['result']!);
-    }
-    if (full) {
-      _need(args.values, const ['kind', 'change', 'out']);
+    ReviewSettings? project;
+    _DesignCheckpoint? checkpoint;
+    if (changeReview) {
+      _need(args.values, const ['out']);
       if (args.values['kind'] != 'design' ||
-          (!scratch && args.values['route'] != 'subagent')) {
+          args.values.containsKey('settings')) {
         throw ReviewStop(
           'usage',
-          'FULL record uses --kind design and the subagent route',
+          '--change-review uses the code project settings and --kind design',
           code: 2,
         );
       }
-      final controller = _DesignController(args.values);
-      if (scratch) {
-        return (await controller.prepare(
-          args.values,
-          'subagent',
-        )).instructions();
-      }
-      return controller.resume(args.values).publish(args.values);
+      project = await _settings(null);
+      checkpoint = _DesignCheckpoint(
+        args.values['out']!,
+        project.review['design_max_rounds'],
+      );
+      checkpoint.beforeReview();
     }
     if (scratch) {
       _need(args.values, const ['kind', 'change']);
       if (args.values['kind'] != 'design') {
         throw ReviewStop('usage', '--scratch is for --kind design', code: 2);
       }
+      final requirements = project == null
+          ? null
+          : await _standingRequirements(project, args.values);
       return {
         'ok': true,
         'scratch': _normal(_designScratch(args.values['change']!)),
+        'standing_requirements': ?requirements,
       };
     }
     _need(args.values, const ['kind', 'change', 'result', 'route']);
@@ -656,11 +638,6 @@ class _ReviewOperations {
     final route = args.values['route']!;
     if (kind != 'preship' && kind != 'design') {
       throw ReviewStop('usage', '--kind is preship or design', code: 2);
-    }
-    if (kind == 'design') {
-      final output = args.values['out'];
-      if (output != null) _DesignController.rejectOrdinary(output);
-      _DesignController.rejectOrdinary(args.values['result']!);
     }
     if (args.values['out'] != null && kind != 'design') {
       throw ReviewStop('usage', '--out is for --kind design', code: 2);
@@ -674,7 +651,7 @@ class _ReviewOperations {
       );
     }
     final text = _readResult(args.values['result']!);
-    final settings = await _settings(args.values['settings']);
+    final settings = project ?? await _settings(args.values['settings']);
     final cfg = ReviewConfig(settings.review);
     final started = _now();
     final skipped = _loadSelection(args.values['selection'], route);
@@ -752,7 +729,10 @@ class _ReviewOperations {
       };
       final outPath = args.values['out'];
       if (outPath != null) {
-        _atomicWrite(outPath, text);
+        _atomicWrite(
+          outPath,
+          checkpoint?.record(text, args.values['repairs']) ?? text,
+        );
         if (!_sameFile(args.values['result']!, outPath)) {
           try {
             File(args.values['result']!).deleteSync();
@@ -1642,8 +1622,7 @@ Future<Map<String, Object?>> runReviewer({
   required String? codeDir,
   required Map<String, Object?> heads,
   required Map<String, Object?> bases,
-  Future<Map<String, Object?>> Function(String, Map<String, Object?>)?
-  publishDesign,
+  String Function(String)? designRecord,
 }) async {
   final schemaPath = kind == 'preship'
       ? p.join(workDir.path, 'schema.json')
@@ -1695,7 +1674,6 @@ Future<Map<String, Object?>> runReviewer({
   final processGroup = run.processGroup;
   final processGroupReason = run.processGroupReason;
   Map<String, Object?> keepSession() {
-    if (publishDesign != null) return <String, Object?>{};
     if (sessionDir == null) return <String, Object?>{};
     sessionDir = _preserveSession(sessionDir!);
     return <String, Object?>{'session_dir': _normal(sessionDir!)};
@@ -1881,10 +1859,9 @@ Future<Map<String, Object?>> runReviewer({
         },
       };
     }
-    if (publishDesign != null) return await publishDesign(text!, receiptValue);
     final problem = _validateDesign(text!);
     if (problem != null) fail('invalid', 'invalid_output', problem);
-    _atomicWrite(outPath, text);
+    _atomicWrite(outPath, designRecord?.call(text) ?? text);
     return {
       'ok': true,
       'status': 'ok',
@@ -1893,16 +1870,14 @@ Future<Map<String, Object?>> runReviewer({
       'receipt': receiptValue,
     };
   } on ReviewStop {
-    if (publishDesign == null &&
-        sessionDir != null &&
+    if (sessionDir != null &&
         Directory(sessionDir!).existsSync() &&
         p.isWithin(workDir.path, sessionDir!)) {
       sessionDir = _preserveSession(sessionDir!);
     }
     rethrow;
   } on Object {
-    if (publishDesign == null &&
-        sessionDir != null &&
+    if (sessionDir != null &&
         Directory(sessionDir!).existsSync() &&
         p.isWithin(workDir.path, sessionDir!)) {
       sessionDir = _preserveSession(sessionDir!);
@@ -2395,8 +2370,10 @@ String? _validateFindings(Object? object) {
   return null;
 }
 
-String? _validateDesign(String text, {bool full = false}) {
-  final lines = _reviewLines(text, full: full);
+String? _validateDesign(String text) {
+  final lines = text.split(
+    RegExp(r'\r\n|[\r\n\v\f\u001c-\u001e\u0085\u2028\u2029]'),
+  );
   List<String> values(String key) => [
     for (final line in lines)
       if (line.trimRight().startsWith('$key:')) _lineValue(line, key)!,
@@ -2408,9 +2385,6 @@ String? _validateDesign(String text, {bool full = false}) {
   final verdict = verdicts.single;
   if (!_verdicts.contains(verdict)) {
     return 'VERDICT: ${_pyRepr(verdict)} is not one a reviewer may return; accepted: ${_verdicts.join(', ')}';
-  }
-  if (full && !lines.contains('VERDICT: $verdict')) {
-    return 'expected a whole line exactly equal to VERDICT: $verdict';
   }
   final applied = values('CHANGES_APPLIED');
   if (applied.length != 1) {

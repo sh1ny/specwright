@@ -277,41 +277,61 @@ ROADMAP = ROOT / "skills" / "specwright-roadmap" / "SKILL.md"
 
 
 class DesignReviewCallers(unittest.TestCase):
-    """The schema delegates FULL reviews; the roadmap still uses ordinary design review."""
+    """Every documented `run`/`record --kind design` passes the saved select output, so the receipt keeps the skipped routes."""
 
-    def test_schema_delegates_full_dispatch(self):
-        schema = " ".join(read(SCHEMA).split())
-        self.assertIn("Follow `specwright-review` **Design reviews**", schema)
-        self.assertIn("`select --change-review`", schema)
+    def check(self, path):
+        text = re.sub(r"\s+", " ", read(path))
+        calls = re.findall(r"<sw> review (?:run|record) --kind design[^`]*", text)
+        self.assertTrue(calls, f"{path.name} has no design review call")
+        for call in calls:
+            if "--scratch" in call:  # only prints a scratch path; it writes no receipt
+                continue
+            self.assertIn("--selection", call, f"{path.name}: `{call}` does not pass --selection")
 
-    def test_full_dispatch_passes_selection_and_attempt(self):
-        design = sections(read(REVIEW))["design reviews"]
-        full = design.split("**Roadmap baseline.**", 1)[0]
-        self.assertRegex(full, r"<sw> review select --change-review\b")
-        self.assertRegex(full, r"--kind design --change-review\b[^\n]*--selection")
-        self.assertRegex(full, r"<sw> review run`[^\n]*--store <store toplevel>")
-        self.assertRegex(
-            full, r"(?s)<sw> review record --scratch`.*<sw> review record`.*"
-                  r"--route subagent --result <scratch> --attempt",
-        )
-        self.assertRegex(full, r"report [^\n]*`diagnostic` only if supplied")
-        self.assertIn("never report the original FULL scratch as retained", full)
+    def test_design_runs_document_store(self):
+        # the claude route reads only the working directories, so a store-backed design run passes --store
+        for path in (SCHEMA, ROADMAP, REVIEW):
+            text = re.sub(r"\s+", " ", read(path))
+            for m in re.finditer(r"<sw> review run --kind design[^`]*`", text):
+                self.assertIn("--store <store toplevel>", text[m.start():m.end() + 160],
+                              f"{path.name}: `{m.group(0)}` has no store-backed --store variant")
 
-    def test_roadmap_dispatch_keeps_ordinary_scratch_contract(self):
-        design = " ".join(sections(read(REVIEW))["design reviews"].split())
-        baseline = design.split("**Roadmap baseline.**", 1)[1]
-        self.assertIn("ordinary design forms without `--change-review`", baseline)
-        self.assertIn("name the original subagent scratch", baseline)
-        roadmap = " ".join(read(ROADMAP).split())
-        calls = re.findall(r"<sw> review (?:run|record) --kind design[^`]*", roadmap)
-        self.assertEqual(len(calls), 3)
-        run, scratch, publish = calls
-        self.assertIn("--selection", run)
-        self.assertIn("--scratch", scratch)
-        self.assertIn("--result <scratch>", publish)
-        self.assertIn("--out openspec/architecture-review.md", publish)
-        self.assertIn("--selection", publish)
-        self.assertRegex(roadmap, r"<sw> review run --kind design[^`]*` \(store-backed: `--store")
+    def test_subagent_design_dispatch_uses_scratch_and_record_out(self):
+        # the subagent writes a scratch file named by `record --scratch`; `record --out` copies it to the review file only
+        # when it validates, so a refused review never replaces an earlier one (fix-m3-gaps, D5)
+        steps = {
+            "schema": re.search(r"(?s)Subagent route:.{0,1200}", re.sub(r"[ \t]*\n[ \t]*", "\n", read(SCHEMA))),
+            "roadmap": re.search(r"(?s)the `specwright-reviewer` agent in baseline mode.{0,900}", re.sub(r"\s+", " ", read(ROADMAP))),
+            "review": re.search(r"(?s)\*\*`subagent`:\*\*.{0,1500}", read(REVIEW)),
+        }
+        for name, m in steps.items():
+            self.assertTrue(m, f"{name}: no subagent design-review step found")
+            text = re.sub(r"\s+", " ", m.group(0))
+            self.assertRegex(text, r"record --kind design --change (<[^>]+>|baseline) --scratch", f"{name}: no `record --kind design --scratch` call")
+            self.assertRegex(text, r"--result <scratch[^>]*> --out [<\w]", f"{name}: record is not given the scratch result and --out")
+            self.assertLess(text.find("--scratch"), text.find("--out"), f"{name}: --out comes before the scratch file exists")
+            self.assertNotRegex(text, r"--result <review\.md>|--result <review file>|--result openspec/architecture-review\.md",
+                                f"{name}: still validates the review file in place")
+        review = re.sub(r"\s+", " ", steps["review"].group(0))
+        self.assertRegex(review, r"(?i)exit 3.{0,200}(earlier|untouched|unchanged)", "review: exit 3 does not say the review file is untouched")
+        self.assertRegex(review, r"(?i)scratch", "review: the scratch path is not reported")
+        for agent in (ROOT / "agents" / "claude" / "specwright-reviewer.md", ROOT / "agents" / "omp" / "specwright-reviewer.md"):
+            self.assertRegex(read(agent), r"(?i)single output file the request names",
+                             f"{agent.parent.name}: the agent does not write the single output file the request names")
+
+    def test_cli_design_route_names_the_value_check(self):
+        text = re.sub(r"\s+", " ", read(REVIEW))
+        self.assertRegex(text, r"(?i)CHANGES_APPLIED.{0,200}(APPROVE_WITH_CHANGES|REVISE)",
+                         "the CLI-route sentence does not name the verdict value check")
+
+    def test_schema(self):
+        self.check(SCHEMA)
+
+    def test_roadmap(self):
+        self.check(ROADMAP)
+
+    def test_review_skill(self):
+        self.check(REVIEW)
 
 
 COMMIT = ROOT / "skills" / "specwright-commit" / "SKILL.md"
