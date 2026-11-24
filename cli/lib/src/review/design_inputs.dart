@@ -89,8 +89,9 @@ Future<String?> _standingRequirements(
         ]),
       )
       .trim();
-  if (!_gitObjectId.hasMatch(tip))
+  if (!_gitObjectId.hasMatch(tip)) {
     throw ReviewStop('git_error', 'cannot resolve $branch');
+  }
   final tree = await git(code, [
     '--literal-pathspecs',
     'ls-tree',
@@ -104,8 +105,9 @@ Future<String?> _standingRequirements(
   for (final entry in utf8.decode(tree).split('\x00')) {
     if (entry.isEmpty) continue;
     final tab = entry.indexOf('\t');
-    if (tab < 0)
+    if (tab < 0) {
       throw ReviewStop('git_error', 'malformed standing-rule tree entry');
+    }
     rows[entry.substring(tab + 1)] = entry;
   }
 

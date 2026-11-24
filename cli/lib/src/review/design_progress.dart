@@ -230,8 +230,9 @@ class _DesignProgress {
     }
     try {
       final footer = text.substring(boundary.end).split(_designLines).first;
-      if (!footer.startsWith('<!-- ') || !footer.endsWith(' -->'))
+      if (!footer.startsWith('<!-- ') || !footer.endsWith(' -->')) {
         throw const FormatException();
+      }
       final data = jsonDecode(
         utf8.decode(base64Url.decode(footer.substring(5, footer.length - 4))),
       ) as Map<String, Object?>;
