@@ -55,6 +55,7 @@
   "no_eval": [
     ".gitattributes",
     "LICENSE",
+    "SECURITY.md",
     "docs/**"
   ]
 }
