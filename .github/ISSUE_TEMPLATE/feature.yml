@@ -1,0 +1,43 @@
+name: Feature request
+description: Suggest something Specwright should do.
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the idea. Only the first box is required.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem to solve
+      description: What are you trying to do, and what gets in the way today?
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed solution
+      description: Optional. How you'd like it to work, if you have an idea.
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Optional. Workarounds you use now, or other approaches you thought about.
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      description: Your best guess is fine.
+      options:
+        - Install or update
+        - specwright-branch
+        - specwright-commit
+        - specwright-review
+        - specwright-pr
+        - specwright-finish
+        - specwright-roadmap
+        - specwright-release
+        - sw CLI
+        - Schema and templates
+        - Docs and README
+        - Other

@@ -2,6 +2,19 @@
 
 Specwright is built with Specwright: changes to it go through the same branch → artifacts → apply → PR → archive flow it gives other projects.
 
+## If you're new here
+
+Most of this file is for working on Specwright with Specwright. You don't need all of it to help:
+
+- **Report a bug or suggest an idea.** Open an [issue](https://github.com/sh1ny/specwright/issues/new/choose). For "the agent did the wrong thing", the most useful facts are the Specwright and OpenSpec versions, the agent harness and model, and which skill was running. The form asks for them; only the first box is required.
+- **Fix a doc or a typo**: send a pull request straight away.
+- **Change a skill, the schema or `sw`**: open an issue first. Skill text is read by agents on several harnesses, so small wording changes can have large effects, and we'll want to agree on the change and how to test it.
+- **Found a security problem?** Report it privately through the repository's Security tab (Report a vulnerability), not in an issue.
+
+Pull requests use a short template: a **Summary**, what it's **Linked** to, and how you **tested** it. Everything else is optional. An automated reviewer may comment; a person makes every decision.
+
+By contributing, you agree that your contribution is licensed under the project's [MIT licence](LICENSE).
+
 ## Setup
 
 1. Install the OpenSpec CLI at the version in the README badge (`npm i -g @fission-ai/openspec@1.16.0`, which needs Node.js 22.12 or later), plus `git` and `gh` 2.48 or later. Running the evals also needs Python 3.8 or later; the skills and `sw` need neither Python nor bash.
