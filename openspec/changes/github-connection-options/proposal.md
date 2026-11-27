@@ -70,6 +70,14 @@ DECISION_MAKING: important
 - **Important:** yes; defines the supported store-backed publication states.
 - **Chosen by:** user
 
+### S5: Isolate only the jj release fetch
+
+- **Choice:** The owner said “Allow it for releases only.” The GitHub release fetch may write an invocation-private ref on jj, removes it immediately after reading, and writes no `FETCH_HEAD` or bookmark or tracking ref. Ordinary jj refreshes are unchanged.
+- **Rejected:** Require the shared `FETCH_HEAD` for release proof or allow private refs for ordinary jj reads.
+- **Reversal cost:** medium; exact fetch provenance and jj bookmark safety must both hold.
+- **Important:** yes; binds the release and VCS contract.
+- **Chosen by:** user
+
 ## Release Notes
 
 Use Specwright with SSH, GitHub Enterprise, token-only automation and a remote name other than `origin`, while keeping process-scoped GitHub identity fencing on by default. Ship can open the code PR even when planning stays local.

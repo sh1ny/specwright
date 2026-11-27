@@ -3,7 +3,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: The release commit is found on main
-Publish SHALL release version V at the first commit in main's first-parent history whose primary version file reads V. For GitHub, proof SHALL bind the exact commit from its own fetch to the selected tag/release destination, not a checkout, conventional tracking ref, or another fetch's result. Otherwise publish SHALL use local main. Missing version history, inconsistent proof or an observed destination change SHALL stop before any write.
+Publish SHALL release version V at the first commit in main's first-parent history whose primary version file reads V. For GitHub, proof SHALL bind the exact commit from its own fetch to the selected tag/release destination and a successful fetch receipt from this checkout, not a checkout tip, conventional tracking ref, or another fetch's result. Proof acquisition may write Git objects, its private ref and its checkout-local receipt; it SHALL remove the ref before issuing a proof or publishing. If removal cannot be confirmed, it SHALL issue no proof, record no successful receipt and stop. Otherwise non-GitHub publish SHALL use local main. Missing version history, an inconsistent or missing proof receipt, or a destination change observed before publication SHALL stop before creating, fetching or pushing a release tag or creating a release.
 
 #### Scenario: Squash-merged change
 - **WHEN** the PR that bumped to 0.4.2 was squash-merged as `4f9b823` and publish runs for 0.4.2
@@ -103,7 +103,7 @@ Publish SHALL create an annotated tag named by `release.tag` (default `v{version
 - **THEN** the code repo has the tag and the store has no new tag
 
 ### Requirement: Older untagged versions are published first
-`sw release untagged` SHALL list the versions in main's first-parent history of the primary file, after the latest published version (with none published: only the current version), that are not published, oldest first. Published means the tag is on the selected code remote (with no selected remote: a local tag). A version with a local tag not on that remote SHALL always be listed. Publish of V SHALL stop before any write while a version on that list is lower than V, naming it.
+`sw release untagged` SHALL list the versions in main's first-parent history of the primary file, after the latest published version (with none published: only the current version), that are not published, oldest first. Published means the tag is on the selected code remote (with no selected remote: a local tag). A version with a local tag not on that remote SHALL always be listed. Publish of V SHALL stop before release-tag or GitHub-release writes while a version on that list is lower than V, naming it.
 
 #### Scenario: Older version untagged
 - **WHEN** `v0.4.2` is the latest tag, 0.5.0 has no tag and publish runs for 0.5.1
@@ -122,7 +122,7 @@ Publish SHALL create an annotated tag named by `release.tag` (default `v{version
 - **THEN** publish is not blocked, and the notes range starts at the commit where `VERSION` first read 0.4.0
 
 ### Requirement: Re-runs never move a published tag
-Publish SHALL check the tag locally and on the selected code remote (`ls-remote`) before writing. A tag that already exists on the release commit SHALL be kept and that step counted done; one on that remote but not local SHALL be fetched, never created again. A tag on any other commit SHALL stop publish before any write, naming both commits. A lightweight tag, locally or on that remote, SHALL stop publish before any write, naming where it is. Publish SHALL NOT delete, move or force-push a tag.
+Publish SHALL check the tag locally and on the selected code remote (`ls-remote`) before release-tag or GitHub-release writes. A tag that already exists on the release commit SHALL be kept and that step counted done; one on that remote but not local SHALL be fetched, never created again. A tag on any other commit SHALL stop publish without changing tags or releases, naming both commits. A lightweight tag, locally or on that remote, SHALL also stop without changing tags or releases, naming where it is. Publish SHALL NOT delete, move or force-push a tag.
 
 #### Scenario: Re-run after an interrupted publish
 - **WHEN** `v0.5.0` exists on the selected remote at the release commit but no GitHub release exists
@@ -145,7 +145,7 @@ Publish SHALL check the tag locally and on the selected code remote (`ls-remote`
 - **THEN** publish stops before creating any tag and names the failed read
 
 ### Requirement: The tag is pushed where it was checked
-Publish SHALL stop before any write if a selected remote's push URL names a repository different from its fetch URL (on the configured GitHub host compare owner and name across transports; elsewhere compare URLs), or if a rewrite makes the fetch URL a different GitHub repository than the configured URL, naming both. It SHALL check tags at the fetch URL and target the configured GitHub repository for the release, using the effective fetch URL if only that URL is GitHub.
+Publish SHALL stop before fetching release proof, changing a release tag or creating a GitHub release if a selected remote's push URL names a repository different from its fetch URL (on the configured GitHub host compare owner and name across transports; elsewhere compare URLs), or if a rewrite makes the fetch URL a different GitHub repository than the configured URL, naming both. It SHALL check tags at the fetch URL and target the configured GitHub repository for the release, using the effective fetch URL if only that URL is GitHub.
 
 #### Scenario: Push URL elsewhere
 - **WHEN** `remote.publishing.pushurl` names a fork while the selected `publishing` remote fetches from upstream
@@ -156,7 +156,7 @@ Publish SHALL stop before any write if a selected remote's push URL names a repo
 - **THEN** publish exits non-zero naming both repositories before reading remote tags
 
 ### Requirement: A release uses the tag on origin
-A local tag and a tag on the selected code remote at the release commit that are different tag objects SHALL stop publish before any write, naming both objects, so the release body is always the message of the tag on that remote.
+A local tag and a tag on the selected code remote at the release commit that are different tag objects SHALL stop publish without changing tags or releases, naming both objects, so the release body is always the message of the tag on that remote.
 
 #### Scenario: Lost push race
 - **WHEN** `v0.5.0` is on the selected remote at the release commit, and the local `v0.5.0` is another annotated tag object at the same commit
