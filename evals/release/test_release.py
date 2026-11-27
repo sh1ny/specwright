@@ -1537,6 +1537,16 @@ class TestReleaseProof(PubFlow):
         self.assertEqual(fx.git(self.bare, "tag", "-l"), "")
         self.assertEqual(self.gh_calls(), [])
 
+    def test_off_host_publish_refuses_history_not_on_local_main(self):
+        fx.git(self.work, "remote", "set-url", "origin", str(self.bare))
+        fx.git(self.work, "reset", "--hard", self.base)
+        fx.git(self.work, "merge", "--no-ff", "-s", "ours", "-m", "Merge without the bump", self.rc)
+        code, doc, raw = self.publish("0.5.0", "--main", self.rc)
+        self.assertEqual((code, doc.get("error")), (2, "release_main_mismatch"), raw)
+        self.assertEqual(fx.git(self.work, "tag", "-l"), "")
+        self.assertEqual(fx.git(self.bare, "tag", "-l"), "")
+        self.assertEqual(self.gh_calls(), [])
+
     def test_release_proof_rejected_after_main_branch_changes(self):
         code, proof, raw = self.prove()
         self.assertEqual(code, 0, raw)

@@ -53,16 +53,24 @@ class Workflow {
     return settings;
   }
 
-  Future<String?> codeLogin(String configured) async {
-    if (!_connection.fence) return null;
-    if (_bound != null) return _bound!;
-    if (_providedLogin == null && _handoff && !_deferred) {
+  void _requireFencedHandoff() {
+    if (_connection.fence &&
+        _bound == null &&
+        _providedLogin == null &&
+        _handoff &&
+        !_deferred) {
       throw PairStop(
         'missing_run_login',
         'fenced handoff for ${_connection.host} needs a bound run login or deferred first lookup',
         code: 3,
       );
     }
+  }
+
+  Future<String?> codeLogin(String configured) async {
+    if (!_connection.fence) return null;
+    if (_bound != null) return _bound!;
+    _requireFencedHandoff();
     var login = _providedLogin ?? configured;
     final verifiedOuter =
         _providedLogin == null &&
@@ -197,6 +205,7 @@ class Workflow {
     if (!_connection.fence || slug == null) {
       return unfenced(unfencedEnvironment());
     }
+    _requireFencedHandoff();
     final login =
         _repoLogin[slug.toLowerCase()] ?? _bound ?? await ambientLogin();
     return WorkflowTransport.native(
@@ -319,6 +328,7 @@ class Workflow {
     String? repo,
     bool limitOk = false,
   }) async {
+    _requireFencedHandoff();
     for (var i = 0; i < args.length; i++) {
       final m = RegExp(r'^/?repos/([^/]+/[^/?]+)').firstMatch(args[i]);
       if (m != null) {

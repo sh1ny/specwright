@@ -398,7 +398,6 @@ class ReleaseGit {
           code: 3,
         );
       }
-      await verifyTarget();
     } finally {
       final id =
           observed ?? await text(['rev-parse', '--verify', '--quiet', ref]);
@@ -411,6 +410,7 @@ class ReleaseGit {
         );
       }
     }
+    await verifyTarget();
     final commit = observed;
     final digest = _proofDigest(target!, branch, commit);
     await _recordProof(await _receipt(digest));

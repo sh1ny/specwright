@@ -126,10 +126,23 @@ class TestPublishJj(JjRelease):
             "number": 7, "state": "closed", "merged_at": "2026-10-12T00:00:00Z", "merge_commit_sha": self.rc,
             "html_url": f"https://github.com/{CODE_SLUG}/pull/7",
             "head": {"ref": "feat/add-x", "label": "acme:feat/add-x", "repo": {"full_name": CODE_SLUG}}, "base": {"ref": "main"}})
+        fetch_head = Path(fx.git(self.work, "rev-parse", "--path-format=absolute", "--git-path", "FETCH_HEAD"))
+        prior_fetch = f"{self.base}\t\trefs/heads/main\n".encode("ascii")
+        fetch_head.write_bytes(prior_fetch)
         before = self.repo_state()
         rc, proof, raw = self.release("prove-main")
         self.assertEqual(rc, 0, raw)
         self.assertEqual((proof["main_branch"], proof["commit"]), ("main", self.rc))
+        self.assertEqual(fetch_head.read_bytes(), prior_fetch)
+        self.assertEqual(self.repo_state(), before)
+        proof_calls = [call["argv"] for call in self.git_calls()]
+        fetch_at, = [i for i, argv in enumerate(proof_calls)
+                     if argv[0] == "fetch" and argv[-1].startswith("refs/heads/main:")]
+        private_ref = proof_calls[fetch_at][-1].split(":", 1)[1]
+        read_at = proof_calls.index(["rev-parse", "--verify", "--quiet", private_ref], fetch_at + 1)
+        remove_at = proof_calls.index(["update-ref", "-d", private_ref, self.rc], read_at + 1)
+        self.assertFalse([a for a in proof_calls[read_at + 1:remove_at] if a[0] in ("remote", "config")],
+                         "the private ref must be removed before another destination check")
         code, doc, raw = self.release("publish", "--version", "0.5.0", "--proof", proof["proof"], "--store", str(store),
                                       "--store-main", store_main)
         self.assertEqual(code, 0, raw)
@@ -137,6 +150,8 @@ class TestPublishJj(JjRelease):
         api = [c for c in self.gh_calls() if c["argv"][0] == "api"]
         self.assertEqual(len(api), 1, api)
         self.assertTrue(any(a.startswith(f"repos/{CODE_SLUG}/pulls?state=closed&base=main&") for a in api[0]["argv"]), api)
+        self.assertEqual(fx.git(self.bare, "rev-parse", f"{TAG}^{{commit}}"), self.rc)
+        self.assertEqual(fetch_head.read_bytes(), prior_fetch)
         after = self.repo_state()
         for key in ("bookmarks", "head", "files"):
             self.assertEqual(after[key], before[key], key)

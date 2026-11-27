@@ -1103,6 +1103,27 @@ sys.exit(subprocess.call([git, *args]))
                 self.assertEqual(self.expected(expect=1)["error"], "not-github")
         self.assertEqual(self.gh_calls(), [])
 
+    def test_expected_uses_selected_project_connection_without_switching_targets(self):
+        project = self.make_repo("project", None)
+        self.write("project/openspec/specwright.yaml",
+                   "github:\n  host: github.example.com\n  fence: false\n"
+                   "remote: publishing\nplanning_store:\n  remote: plans\n")
+        self.write("code/openspec/specwright.yaml",
+                   "github:\n  host: github.example.net\n  login: wrong-account\n")
+        for repo, name, slug in ((self.code, "publishing", CODE), (self.store, "plans", STORE)):
+            self.git(repo, "remote", "add", name, f"git@github.example.com:{slug}.git")
+        self.commit(self.code, {"work": "code\n"}, "code work")
+        self.save_gh({**self.gh(), "host": "github.example.com", "user": None})
+        result = self.sw_pr("expected", "--code", self.code, "--store", self.store, "--branch", BRANCH,
+                            project=project, cwd=self.store, env={"GH_ENTERPRISE_TOKEN": "tok-k"})
+        self.assertEqual(result["set"], ["store", "code"])
+        self.assertEqual((result["code"]["repo"], result["store"]["repo"]), (CODE, STORE))
+        self.assertEqual((result["code"]["remote"], result["store"]["remote"]), ("publishing", "plans"))
+        calls = self.gh_calls()
+        self.assertTrue(calls)
+        self.assertTrue(all(c["argv"][0] == "api" and c["env"]["GH_HOST"] == "github.example.com"
+                            and c["env"]["GH_ENTERPRISE_TOKEN"] == "tok-k" for c in calls))
+
     def test_expected_same_canonical_repo_stops_before_discovery(self):
         self.git(self.store, "remote", "rename", "origin", "published-plans")
         self.git(self.store, "remote", "set-url", "published-plans", "ssh://git@ssh.github.com:443/ACME/CODE.git")
@@ -2022,8 +2043,8 @@ class PassBase(Base):
     def record_path(self):
         return self.state_dir / "feedback" / record_key(CODE, CHANGE)
 
-    def plan(self, code=None, store=None, sub="plan", expect=0, preserve_target=False):
-        args = ["pass", sub, *self.common()]
+    def plan(self, code=None, store=None, sub="plan", expect=0, preserve_target=False, flags=()):
+        args = ["pass", sub, *self.common(), *flags]
         if getattr(self, "owner", None):
             args += ["--owner", self.owner]
         for name, s, slug, n in (("code", code, CODE, 5), ("store", store, STORE, 3)):
@@ -2060,6 +2081,15 @@ class PassBase(Base):
 
 
 class PassPlan(PassBase):
+    def test_store_only_feedback_cannot_rebind_a_missing_handoff(self):
+        self.settings("github:\n  login: KintsugiBot\nplanning_store:\n  login: sh1ny\n")
+        self.write_record([self.finding(source="store", dest="store")])
+        self.gh_log.unlink(missing_ok=True)
+        result = self.plan(store=snap(threads=[thread()]), flags=("--handoff",), expect=3)
+        self.assertEqual(result["error"], "missing_run_login", result)
+        self.assertEqual(self.gh_calls(), [])
+        self.assertTrue(self.record_path().is_file())
+
     def test_feedback_record_is_isolated_by_host(self):
         self.write_record([self.finding()])
         public = self.record_path()

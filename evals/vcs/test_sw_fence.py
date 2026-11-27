@@ -71,6 +71,9 @@ if [ "$1 $2 $3" = "auth token --help" ]; then echo "--user"; exit 0; fi
 if [ "$1 $2" = "auth token" ]; then
   user=; prev=
   for a in "$@"; do if [ "$prev" = --user ]; then user=$a; fi; prev=$a; done
+  if [ -n "${SWF_TEST_RETARGET_PUSH:-}" ] && [ -n "$user" ]; then
+    "$SWF_REAL_GIT" config --local remote.origin.pushurl "$SWF_TEST_RETARGET_PUSH" || exit 2
+  fi
   if [ -n "${SWF_GH_EXIT:-}" ]; then exit "$SWF_GH_EXIT"; fi
   for pair in $SWF_GH_TOKENS; do if [ "${pair%%=*}" = "$user" ]; then echo "${pair#*=}"; exit 0; fi; done
   echo "no oauth token found for $user" >&2; exit 1
@@ -499,6 +502,31 @@ class FenceCase(gbnet.GitButlerNetworkCase):
         self.assertEqual(self.h.gh_calls(), [])
         self.assertFalse([c for c in self.h.git_calls() if c["argv"][:1] == ["push"]])
         self.assertEqual(world.origin_refs(), before)
+
+    def test_standalone_push_refuses_changed_effective_destination(self):
+        world = self.git_world()
+        another = self.root / "another.git"
+        self.git(self.root, "init", "-q", "--bare", str(another))
+        before = world.origin_refs()
+        doc, _ = self.h.run("push", "--branch", "feat/a", "--login", LOGIN, repo=world.repo, expected=3,
+                            env={"SWF_TEST_RETARGET_PUSH": another.as_posix()})
+        self.assertEqual(doc["error"], "push_destination_changed", doc)
+        self.assertEqual(world.origin_refs(), before)
+        self.assertEqual(self.git(another, "for-each-ref").stdout, "")
+        self.assertFalse(any(c["argv"][:1] == ["push"] for c in self.h.git_calls()))
+
+    def test_standalone_fenced_push_refuses_indexed_routing_drift(self):
+        world = self.git_world()
+        self.h.origin_url = ""
+        before = world.origin_refs()
+        doc, _ = self.h.run("push", "--branch", "feat/a", "--login", LOGIN, repo=world.repo, expected=3, env={
+            "GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": "remote.origin.pushurl",
+            "GIT_CONFIG_VALUE_0": GITHUB,
+        })
+        self.assertIn("destinations changed", doc["message"])
+        self.assertTrue(any("--user" in c["argv"] for c in self.h.gh_calls()))
+        self.assertEqual(world.origin_refs(), before)
+        self.assertFalse(any(c["argv"][:1] == ["push"] for c in self.h.git_calls()))
 
     def check_pull_environment(self, url, token):
         world = self.git_world()

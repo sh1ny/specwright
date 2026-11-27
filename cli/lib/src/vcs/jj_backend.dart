@@ -638,13 +638,14 @@ Future<TextResult> networkJj(
   String? login,
 ) async {
   final connection = s.info.connection;
-  final github = await networkUsesFence(
+  final route = await networkRoute(
     s.scripts,
     s.repo,
     connection,
     remote: s.info.remote.name,
     push: args[1] == 'push',
   );
+  final github = route.fenced;
   final who = await fenceLogin(
     s.scripts,
     s.repo,
@@ -657,7 +658,7 @@ Future<TextResult> networkJj(
     s.repo,
     ['jj', ...args],
     who,
-    fenced: github,
+    route: route,
     host: connection.host,
     remote: s.info.remote.name,
     expectedRepo: args[1] == 'push' ? s.request.expectedRepo : null,

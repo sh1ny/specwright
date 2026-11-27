@@ -47,9 +47,15 @@ Future<TextResult> gitChecked(
   return result;
 }
 
+typedef NetworkRoute = ({
+  bool fenced,
+  List<String> urlCommand,
+  String? pushUrls,
+});
+
 /// Classify the destinations the actual Git operation uses. A bare Git pull
 /// asks Git to expand its default remote without contacting it.
-Future<bool> networkUsesFence(
+Future<NetworkRoute> networkRoute(
   VcsScripts scripts,
   String repo,
   GitHubConnection connection, {
@@ -80,20 +86,21 @@ Future<bool> networkUsesFence(
       code: 3,
     );
   }
-  if (!connection.fence) return false;
-  if (!push) return ghUrl(output, host: connection.host);
-  final urls = output.split(RegExp(r'\r?\n'));
-  final onHost = ghUrl(urls.first, host: connection.host);
-  for (final url in urls.skip(1)) {
-    if (ghUrl(url, host: connection.host) != onHost) {
-      throw VcsStop(
-        'mixed_push_transport',
-        "remote '$name' mixes push URLs on and off ${connection.host}; refusing",
-        code: 3,
-      );
+  final urls = push && connection.fence ? output.split(RegExp(r'\r?\n')) : null;
+  final onHost =
+      connection.fence && ghUrl(urls?.first ?? output, host: connection.host);
+  if (urls != null) {
+    for (var i = 1; i < urls.length; i++) {
+      if (ghUrl(urls[i], host: connection.host) != onHost) {
+        throw VcsStop(
+          'mixed_push_transport',
+          "remote '$name' mixes push URLs on and off ${connection.host}; refusing",
+          code: 3,
+        );
+      }
     }
   }
-  return onHost;
+  return (fenced: onHost, urlCommand: command, pushUrls: push ? output : null);
 }
 
 /// The PR plan binds the destination before validation. Re-read the selected
@@ -103,7 +110,7 @@ Future<TextResult> launchNetwork(
   String repo,
   List<String> command,
   String who, {
-  required bool fenced,
+  required NetworkRoute route,
   required String host,
   required String? remote,
   String? expectedRepo,
@@ -143,20 +150,35 @@ Future<TextResult> launchNetwork(
     }
   }
 
-  if (fenced) {
+  Future<void> checkDestination(Map<String, String>? env) async {
+    if (expectedRepo != null) await checkTarget(env);
+    if (route.pushUrls case final planned?) {
+      final current = await runText(repo, route.urlCommand, environment: env);
+      if (current.code != 0 || current.stdout.trim() != planned) {
+        throw VcsStop(
+          'push_destination_changed',
+          "effective push destinations for remote '$remote' changed before launch",
+          code: 3,
+        );
+      }
+    }
+  }
+
+  final check = expectedRepo != null || route.pushUrls != null;
+  if (route.fenced) {
     return runAs(
       scripts,
       repo,
       who,
       command,
       host: host,
-      beforeLaunch: expectedRepo == null ? null : checkTarget,
+      beforeLaunch: check ? checkDestination : null,
     );
   }
   final environment = originalGitEnvironment(
     scripts.environmentFor?.call(command),
   );
-  if (expectedRepo != null) await checkTarget(environment);
+  if (check) await checkDestination(environment);
   return runText(repo, command, environment: environment);
 }
 
@@ -180,13 +202,14 @@ Future<TextResult> networkGit(
   required GitHubConnection connection,
   String? expectedRepo,
 }) async {
-  final github = await networkUsesFence(
+  final route = await networkRoute(
     scripts,
     repo,
     connection,
     remote: remote,
     push: args.first == 'push',
   );
+  final github = route.fenced;
   final who = await fenceLogin(
     scripts,
     repo,
@@ -199,7 +222,7 @@ Future<TextResult> networkGit(
     repo,
     ['git', ...args],
     who,
-    fenced: github,
+    route: route,
     host: connection.host,
     remote: remote,
     expectedRepo: expectedRepo,

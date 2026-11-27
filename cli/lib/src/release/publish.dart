@@ -21,17 +21,15 @@ Future<Map<String, Object?>> publishDocument(
     throw ReleaseStop('usage', 'publish needs --version', code: 2);
   }
   final remoteName = git.remote;
-  final target = await git.bindTarget();
+  final branch = await releaseMainBranch(git, settings, args.base);
   final proof = args.proof;
-  final verified = proof != null
-      ? await git.verifyProof(
-          proof,
-          await releaseMainBranch(git, settings, args.base),
-        )
-      : target?.slug != null
-      ? await git.proveMain(await releaseMainBranch(git, settings, args.base))
-      : null;
-  final loaded = await loadMain(git, settings, verified?.commit ?? args.main);
+  final main = proof == null
+      ? await git.proveMain(branch)
+      : await git.verifyProof(proof, branch);
+  final historyRef = main.proof == null && args.main != null
+      ? await _localHistoryRef(git, main, args.main!)
+      : main.commit;
+  final loaded = await loadMain(git, settings, historyRef);
   await releaseCommitOf(git, loaded, v);
   refuseOlderUntagged(
     settings.tag,
@@ -46,7 +44,7 @@ Future<Map<String, Object?>> publishDocument(
     settings,
     args,
     loaded: loaded,
-    mainBranch: verified?.branch,
+    mainBranch: main.branch,
     release: false,
     command: 'publish',
   );
@@ -161,6 +159,45 @@ Future<Map<String, Object?>> publishDocument(
     'release_url': ?url,
     'store': ?doc['store'],
   };
+}
+
+Future<String> _localHistoryRef(
+  ReleaseGit git,
+  ReleaseMain main,
+  String supplied,
+) async {
+  final requested = await git.text([
+    'rev-parse',
+    '--verify',
+    '--quiet',
+    '--end-of-options',
+    '$supplied^{commit}',
+  ]);
+  if (requested == main.commit) return requested;
+  if (requested.isNotEmpty) {
+    final depth = int.tryParse(
+      await git.text([
+        'rev-list',
+        '--count',
+        '--first-parent',
+        '$requested..${main.commit}',
+      ]),
+    );
+    if (depth != null && depth > 0) {
+      final at = await git.text([
+        'rev-parse',
+        '--verify',
+        '--quiet',
+        '${main.commit}~$depth',
+      ]);
+      if (at == requested) return requested;
+    }
+  }
+  throw ReleaseStop(
+    'release_main_mismatch',
+    '--main must name a commit in the first-parent history of local ${main.branch}',
+    code: 2,
+  );
 }
 
 /// Runs a network call, turning a bound's cut into the cut stop.

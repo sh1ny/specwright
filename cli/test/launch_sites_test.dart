@@ -1161,7 +1161,10 @@ const launchAllowlist = Allowlist(
     },
     'fence/fence.dart': {'launch': Call(1, _tool)},
     'fence/fenced_text.dart': {
-      'launch': Call(1, _tool), // Git runs in the verified destination environment.
+      'launch': Call(
+        1,
+        _tool,
+      ), // Git runs in the verified destination environment.
       'runTool': Call(2, _tool),
       'runGh': Call(1, _tool),
     },
@@ -1238,7 +1241,7 @@ const launchAllowlist = Allowlist(
     // `git status --porcelain -z`, drained to a no-op sink
     'vcs/git_backend.dart': {'launch': Call(1, _tool)},
     // Actual fetch and every push destination are resolved before launching a Git write.
-    'vcs/git_common.dart': {'runText': Call(3, _tool)},
+    'vcs/git_common.dart': {'runText': Call(4, _tool)},
     'vcs/gitbutler_backend.dart': {
       'runTool': Call(1, _tool),
       'runToolCapped': Call(1, _tool),
@@ -1292,7 +1295,10 @@ const launchAllowlist = Allowlist(
       ),
     },
     'fence/fence.dart': {
-      'as.sh': ScriptSite(32, 'native fence and destination refusal diagnostics'),
+      'as.sh': ScriptSite(
+        34,
+        'native fence and destination refusal diagnostics',
+      ),
     },
     'finish/undo_plan.dart': {'vcs.sh': ScriptSite(1, 'message text')},
     'pr/queries.dart': {

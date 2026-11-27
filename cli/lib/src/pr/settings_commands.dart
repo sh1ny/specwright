@@ -30,7 +30,9 @@ Future<Contexts> workflowContexts(
 ) async {
   final problems = <SettingProblem>[];
   try {
-    final settings = loadSettings(readSettingsText([projectRoot(code)]));
+    final settings = loadSettings(
+      readSettingsText([projectRoot(ctx.project ?? code)]),
+    );
     final mains = {
       code: await _detectMain(ctx, code, selectedRemote(settings).name),
     };
@@ -65,7 +67,7 @@ prGitHubSettings(
   bool? store,
 }) async {
   final dir = directory ?? ctx.cwd;
-  final project = projectRoot(code ?? ctx.project ?? dir);
+  final project = projectRoot(ctx.project ?? code ?? dir);
   try {
     final settings = loadSettings(readSettingsText([project]));
     String pathKey(String path) =>

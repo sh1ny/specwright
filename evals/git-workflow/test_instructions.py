@@ -1171,7 +1171,7 @@ class FencedGitHubCalls(unittest.TestCase):
         self.assertRegex(b, r"(?i)show the error|report the error", "a failed pull does not show the error")
 
     def test_finish_non_github_pull_runs_plain(self):
-        self.assertRegex(self.pull_bullet(), r"(?is)(other|another) host[^.]*plain|not on github\.com[^.]*plain|plain[^.]*(other|another) host",
+        self.assertRegex(self.pull_bullet(), r"(?i)plain[^;]*outside the configured GitHub host",
                          "finish does not run a non-GitHub pull plain")
 
     def test_commit_and_finish_handoffs_pass_run_login(self):
@@ -1189,10 +1189,10 @@ class FencedGitHubCalls(unittest.TestCase):
     def test_roadmap_next_hands_off_run_login(self):
         step4 = next((l for l in read(ROADMAP).splitlines() if l.startswith("4. Start `/opsx:propose")), "")
         self.assertRegex(step4, r"run login: <login>", "roadmap next does not hand its run login to the branch gate")
-        # PR #82: only a user-started step resolves (github-identity spec). Roadmap next, with no run login yet
-        # (local mode), resolves it itself and hands it, or hands `run login: none`; the handed-off gate never resolves.
-        self.assertRegex(step4, r"(?is)no run login yet.{0,80}user-started.{0,120}--resolve.{0,120}`run login: none`",
-                         "roadmap next with no run login (local mode) does not resolve it before handing off")
+        self.assertRegex(step4, r"(?i)with fencing off .*`ambient`; do not look up a stored account",
+                         "ambient mode must not try to bind a stored login")
+        self.assertRegex(step4, r"(?i)user-started step has no binding yet.*--resolve.*`run login: none`",
+                         "only a user-started, unbound fenced step resolves the account")
         self.assertNotRegex(step4, r"(?i)gate resolves", "roadmap next leaves the resolve to the handed-off gate")
 
     def test_store_login_chosen_per_repo(self):

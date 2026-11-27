@@ -713,12 +713,13 @@ class GitButler {
   /// Pull under the credential policy for the selected GitButler target.
   Future<String> fencedButPull(String? login) async {
     final connection = s.info.connection;
-    final github = await networkUsesFence(
+    final route = await networkRoute(
       scripts,
       root,
       connection,
       remote: s.info.remote.name,
     );
+    final github = route.fenced;
     final who = await fenceLogin(
       scripts,
       root,

@@ -90,6 +90,7 @@ Use Specwright with SSH, GitHub Enterprise, token-only automation and a remote n
 ### Changed
 
 - `sw pr snapshot` and `sw pr reply` default to the selected remote. Reply checks that the item belongs to the selected PR; `sw pr policy` requires its PR coordinates.
+- Direct `sw pr snapshot`, `sw pr reply` and `sw pr policy` bind a stored account with the fence on. Token-only callers must explicitly opt into `github.fence: false` (#167).
 - `sw release prove-main` binds the fetched main commit to the publication destination. Pass its receipt-backed `--proof` to `untagged` and `publish`.
 
 ### Fixed
