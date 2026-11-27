@@ -46,8 +46,9 @@ String? prRepoSlug(String value, String host) {
       uri.scheme != 'https' ||
       uri.host.isEmpty ||
       uri.userInfo.isNotEmpty ||
-      uri.port != 443)
+      uri.port != 443) {
     return null;
+  }
   final parts = uri.pathSegments;
   if (parts.length < 4 || parts[2] != 'pull') return null;
   final slug = '${parts[0]}/${parts[1]}';
@@ -55,8 +56,9 @@ String? prRepoSlug(String value, String host) {
   if (prRepoSlug(slug, canonicalHost(uri.host)) == null ||
       number == null ||
       number <= 0 ||
-      '$number' != parts[3])
+      '$number' != parts[3]) {
     return null;
+  }
   return (host: canonicalHost(uri.host), repo: slug, number: number);
 }
 

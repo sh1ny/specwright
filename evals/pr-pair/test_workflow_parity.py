@@ -44,6 +44,12 @@ class WorkflowParity(parity.PairParity):
         # is still compared byte-for-byte by run_pair.
         return parity.temp_names(argv)
 
+    def comparable_calls(self, calls):
+        # Account binding now precedes discovery, including the store check.
+        # Keep transport authorization in the dedicated tests with raw calls.
+        return [argv for argv in calls if argv[:2] != ["auth", "token"] and
+                argv != ["api", "--hostname", "github.com", "user", "--jq", ".login"]]
+
     def side(self, args, cwd):
         """sw's run of `pr <args>`, direct entry (evals/swcall.py), with the calls bound by command_binding."""
         args = args('new') if callable(args) else args
@@ -383,7 +389,8 @@ class WorkflowParity(parity.PairParity):
                     self.git(code, 'reset', '--hard', prior)
                     self.git(code, 'remote', 'set-url', 'origin', 'https://github.com/'+self.SLUG+'.git')
                 else:
-                    self.mutate(lambda st: st.update(fail=[{'match': 'api', 'stderr': 'matrix read unavailable'}]))
+                    self.mutate(lambda st: st.update(fail=[{'match': r'^api (?!.*\buser --jq \.login$)',
+                                                            'stderr': 'matrix read unavailable'}]))
                     before = self.gh_state.read_bytes()
                     self.run_pair(command, *args, code=3)
                     self.assertEqual(self.gh_state.read_bytes(), before)

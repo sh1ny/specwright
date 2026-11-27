@@ -32,13 +32,14 @@ Future<Contexts> workflowContexts(
     final settings = await _loadSettings(ctx, code);
     final mains = {
       code: await _detectMain(ctx, code, selectedRemote(settings).name),
-      if (store != null)
-        store: await _detectMain(
-          ctx,
-          store,
-          selectedRemote(settings, store: true).name,
-        ),
     };
+    if (store != null) {
+      mains[store] = await _detectMain(
+        ctx,
+        store,
+        selectedRemote(settings, store: true).name,
+      );
+    }
     final c = contexts(
       settings,
       code,

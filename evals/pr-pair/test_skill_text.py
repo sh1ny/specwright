@@ -37,7 +37,7 @@ def sections(text):
 SECTIONS = sections(TEXT)
 # The ship step that pushes each repo. The push itself is a script call (vcs.sh push) whose behaviour the evals/vcs tests own;
 # this anchor only orders the step among the others.
-PUSH = re.compile(r"Push each repo once its validate passed")
+PUSH = re.compile(r"<sw> vcs push --branch\b")
 NEGATION = re.compile(r"\b(not|never|instead|rather than|without|no longer|don't|do not)\b", re.I)
 
 
@@ -437,7 +437,7 @@ class RunLogin(unittest.TestCase):
     """The run login: resolved once at a user-started step, handed on, never re-resolved (default-identity-fencing)."""
 
     def ident(self):
-        m = re.search(r"^\*\*Run login\.?\*\*.*$", TEXT, re.M)
+        m = re.search(r"^\*\*Run login and host\.\*\*.*$", TEXT, re.M)
         self.assertTrue(m, "Settings and identity has no **Run login** paragraph")
         return m.group(0)
 
@@ -452,14 +452,13 @@ class RunLogin(unittest.TestCase):
 
     def test_no_drop_it_or_ambient_fallback(self):
         self.assertNotRegex(TEXT, r"(?i)drop it when", "SKILL.md still drops `<sw> as` when github.login is empty")
-        self.assertNotRegex(TEXT, r"(?i)\bambient\b", "SKILL.md still falls back to the ambient account")
-        self.assertNotRegex(TEXT, r"(?i)plain `gh", "SKILL.md still posts with plain `gh`")
+        self.assertRegex(TEXT, r"With `github_fence: false`, omit every `as` prefix and login flag")
+        self.assertRegex(self.ident(), r"Never switch accounts or fall back on refusal")
 
     def test_handed_off_step_without_login_stops_and_asks(self):
         p = self.ident()
-        self.assertRegex(p, r"(?is)(cannot|can't) find[^.]*\bstops?\b", "the receiving step does not stop")
-        self.assertRegex(p, r"(?is)\bstops?\b[^.]*\bask", "the receiving step does not ask the user")
-        self.assertRegex(p, r"(?is)before any (GitHub|`gh`) call", "it may call GitHub before asking")
+        self.assertRegex(p, r"(?is)cannot find[^.]*stops before any GitHub call and asks",
+                         "the receiving step must ask before any network access")
 
     def test_every_gh_and_git_network_call_carries_as(self):
         # a call has arguments; a bare name in prose (`gh pr edit`, `gh api`) is a mention
@@ -476,12 +475,15 @@ class RunLogin(unittest.TestCase):
                 continue
             if "gh auth token" in span and re.search(r"(?i)never `gh auth switch`", line):
                 continue
+            if (span == "gh api --hostname <github_host> user --jq .login" and
+                    "In ambient mode" in line and "without `as`" in line):
+                continue
             bad.append(span[:80])
         self.assertFalse(bad, f"calls without `<sw> as`: {bad}")
 
     def test_pr_pair_github_reads_carry_as(self):
-        # pass, rounds, pair-state and cleanup-plan read GitHub (and the remote they start in) as the fenced
-        # login, and cleanup-plan names that login in the pulls it emits; only the local calls run bare
+        # Pair-wide calls carry a native binding, not an outer fence, so each
+        # role can apply its own identity after the expected set is known.
         local = {"identity", "context", "branch-check"}
         bad = []
         # a call has options; a name in prose (`<sw> pr policy`, `<sw> pr reply`) is a mention
@@ -489,7 +491,9 @@ class RunLogin(unittest.TestCase):
         for line in TEXT.splitlines():
             for m in pattern.finditer(line):
                 fenced = re.search(r'<sw> (?:--project (?:"[^"]+"|\S+) )?as (?:<[^>]+>|\S+) $', line[:m.start()])
-                if not fenced and m.group(1) not in local:
+                native = (m.group(1) == "expected" and "run-binding flags above" in line or
+                          m.group(1) == "pair-state" and "--handoff --run-login <login>" in line)
+                if not fenced and not native and m.group(1) not in local:
                     bad.append(m.group(0))
         self.assertFalse(bad, f"<sw> pr calls without `<sw> as`: {bad}")
 
@@ -803,8 +807,9 @@ class AgentMerge(unittest.TestCase):
 
     def test_store_pair_reads_policy_once_with_both_snapshots(self):
         p = self.policy_read()
-        self.assertRegex(p, r"(?is)one call[^.]*`--store --snapshot code=<file> --snapshot store=<file> --reviewed-head store=<store ready head>`",
-                         "the store pair is not read in one `policy --store` call with both snapshots")
+        self.assertIn("--snapshot code=<file>", p)
+        self.assertRegex(p, r"(?is)one call[^.]*`--store --store-repo <store owner>/<store name> --store-pr <store PR number> --snapshot store=<file> --reviewed-head store=<store ready head>`",
+                         "the store pair is not read in one call with both snapshots and discovered PR coordinates")
         self.assertRegex(p, r"(?is)`merge_ready\.store` and `reported\.<side>\.store` replace `context`'s", "the store PR's readiness does not come from `policy`")
         self.assertRegex(p, r"(?is)drift question covers the pair", "a drift question does not cover the pair")
 
@@ -877,7 +882,8 @@ class AgentMerge(unittest.TestCase):
         # Pre-ship round 3 F1: no store PR (shared by hand) or no code PR (store-only) must not end in a usage error.
         p = self.policy_read()
         self.assertRegex(p, r"(?is)`--store`[^.]*only when a store PR is expected", "`--store` is not limited to an expected store PR")
-        self.assertRegex(p, r"(?is)shared by hand[^.]*without `--store`", "a store shared by hand is not read without `--store`")
+        self.assertRegex(SECTIONS["watch"][1], r"`manual_store_handoff`[^.]*stop without waits, readiness, archive or merge",
+                         "a store shared by hand must not reach the merge policy")
         self.assertRegex(p, r"(?is)no code PR[^.]*report ready[^.]*merge nothing", "a store-only change has no defined policy outcome")
 
 

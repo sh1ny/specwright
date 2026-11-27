@@ -8,13 +8,13 @@ Red means added/changed coverage to prove before implementation; inherited green
 |---|---|---|---|---|
 | github-identity → GitHub connection settings keep the fenced public default | Existing settings | `evals/pr-pair/test_as_sh.py` | `test_configured_login_pins_its_token_not_the_active_one` | green |
 | github-identity → GitHub connection settings keep the fenced public default | Invalid host or fence value | `evals/pr-pair/test_as_sh.py` | `test_invalid_connection_values_stop_before_gh` | green |
-| github-identity → Ambient authentication is an explicit opt-out | SSH transport and an environment token only | `evals/pr-pair/test_pr_pair.py` | `test_ship_and_watch_with_ssh_and_token_only` | red |
-| github-identity → Ambient authentication is an explicit opt-out | Token-only HTTPS automation | `evals/pr-pair/test_pr_pair.py` | `test_ship_on_https_with_caller_token_and_no_stored_login` | red |
-| github-identity → Ambient authentication is an explicit opt-out | A named identity conflicts with ambient authentication | `evals/pr-pair/test_pr_pair.py` | `test_ambient_workflow_rejects_each_named_identity` | red |
+| github-identity → Ambient authentication is an explicit opt-out | SSH transport and an environment token only | `evals/pr-pair/test_pr_pair.py` | `test_ship_and_watch_with_ssh_and_token_only` | green |
+| github-identity → Ambient authentication is an explicit opt-out | Token-only HTTPS automation | `evals/pr-pair/test_pr_pair.py` | `test_ship_on_https_with_caller_token_and_no_stored_login` | green |
+| github-identity → Ambient authentication is an explicit opt-out | A named identity conflicts with ambient authentication | `evals/pr-pair/test_pr_pair.py` | `test_ambient_workflow_rejects_each_named_identity` | green |
 | github-identity → Ambient authentication is an explicit opt-out | SSH remains disabled by the default fence | `evals/vcs/test_sw_fence.py` | `test_github_ssh_still_refused_by_default_fenced_push` | green |
 | github-identity → Fenced calls target the configured GitHub host | Enterprise host in the environment with default settings | `evals/pr-pair/test_as_sh.py` | `test_gh_host_and_enterprise_tokens_unset` | green |
 | github-identity → Fenced calls target the configured GitHub host | Host variables set but empty | `evals/pr-pair/test_as_sh.py` | `test_empty_gh_host_targets_github` | green |
-| github-identity → Fenced calls target the configured GitHub host | Fenced Enterprise ship and watch | `evals/pr-pair/test_pr_pair.py` | `test_enterprise_ship_and_watch_keep_host_and_identity` | red |
+| github-identity → Fenced calls target the configured GitHub host | Fenced Enterprise ship and watch | `evals/pr-pair/test_pr_pair.py` | `test_enterprise_ship_and_watch_keep_host_and_identity` | green |
 | github-identity → Fenced calls target the configured GitHub host | Another host requests the credential | `evals/pr-pair/test_as_sh.py` | `test_enterprise_helper_refuses_other_hosts_and_protocols` | green |
 | github-identity → Push authentication follows the actual destinations | A non-GitHub fetch URL has a GitHub push URL | `evals/vcs/test_sw_fence.py` | `test_push_fences_effective_github_target_with_off_host_fetch` | green |
 | github-identity → Push authentication follows the actual destinations | GitHub fetch and non-GitHub push | `evals/vcs/test_sw_fence.py` | `test_push_uses_ambient_credentials_for_off_host_push_urls` | green |
@@ -24,13 +24,13 @@ Red means added/changed coverage to prove before implementation; inherited green
 | github-identity → Every GitHub call of a run is fenced to the run login | Configured login | `evals/pr-pair/test_as_sh.py` | `test_configured_login_pins_its_token_not_the_active_one` | green |
 | github-identity → Every GitHub call of a run is fenced to the run login | Token resolves to someone else | `evals/pr-pair/test_as_sh.py` | `test_token_for_other_login_exits_3_command_not_run` | green |
 | github-identity → An empty login is resolved once per run | Switch mid-run | `evals/pr-pair/test_as_sh.py` | `test_resolved_login_survives_auth_switch` | green |
-| github-identity → An empty login is resolved once per run | Switch during watch | `evals/pr-pair/test_pr_pair.py` | `test_watch_feedback_and_archive_keep_bound_identity` | red |
+| github-identity → An empty login is resolved once per run | Switch during watch | `evals/pr-pair/test_pr_pair.py`, `evals/pr-pair/test_skill_text.py` | `test_fenced_initial_lookup_is_deferred_then_bound`, `test_run_login_handed_to_watch_feedback_archive` | green |
 | github-identity → An empty login is resolved once per run | Handed-off step without its run login | `evals/pr-pair/test_pr_pair.py` | `test_expected_missing_handoff_does_not_resolve_accounts` | green |
 | github-identity → An empty login is resolved once per run | Deferred first login is handed to ship | `evals/pr-pair/test_pr_pair.py` | `test_fenced_initial_lookup_is_deferred_then_bound` | green |
 | github-identity → An empty login is resolved once per run | No active account in a step that needs GitHub | `evals/pr-pair/test_pr_pair.py` | `test_expected_discovers_only_after_account_resolution` | green |
 | github-identity → An empty login is resolved once per run | No gh account in a step that accepts local refs | `evals/vcs/test_sw_fence.py` | `test_no_account_leaves_local_main_available` | green |
 | github-identity → An empty login is resolved once per run | Ambient token variables do not choose the login | `evals/pr-pair/test_as_sh.py` | `test_resolve_ignores_gh_token_env` | green |
-| github-identity → Login fallbacks end at the run login | Review requests with every login empty | `evals/pr-pair/test_pr_pair.py` | `test_review_request_uses_resolved_run_login` | red |
+| github-identity → Login fallbacks end at the run login | Review requests with every login empty | `evals/pr-pair/test_skill_text.py` | `test_review_request_poster_falls_back_to_run_login_fenced` | green |
 | github-identity → Login fallbacks end at the run login | Store login empty | `evals/pr-pair/test_pr_pair.py` | `test_fenced_initial_lookup_is_deferred_then_bound` | green |
 | github-identity → Login fallbacks end at the run login | Fallback login has no credential | `evals/pr-pair/test_as_sh.py` | `test_request_as_without_credential_exits_3` | green |
 | github-identity → Login fallbacks end at the run login | Store reads with both logins empty | `evals/vcs/test_sw_fence.py` | `test_fenced_store_fetch_refuses_userinfo_with_empty_logins` | green |
@@ -40,8 +40,8 @@ Red means added/changed coverage to prove before implementation; inherited green
 | github-identity → Main refreshes and pulls from GitHub are fenced | Post-merge pull refused | `evals/vcs/test_sw_fence.py` | `test_refused_pull_leaves_branch_and_refs_unchanged` | green |
 | github-identity → Main refreshes and pulls from GitHub are fenced | The legacy upstream is on the configured GitHub host | `evals/vcs/test_sw_fence.py` | `test_legacy_pull_fences_effective_upstream` | green |
 | github-identity → Main refreshes and pulls from GitHub are fenced | The legacy upstream is not on the configured GitHub host | `evals/vcs/test_sw_fence.py` | `test_legacy_pull_does_not_fence_off_host_upstream` | green |
-| github-identity → The post-merge PR check is fenced | Merged PR check with a login set | `evals/pr-pair/test_pr_pair.py` | `test_closed_check_reads_selected_repo_with_bound_identity` | red |
-| github-identity → The post-merge PR check is fenced | Check cannot authenticate | `evals/pr-pair/test_pr_pair.py` | `test_cleanup_makes_no_change_when_merge_evidence_cannot_authenticate` | red |
+| github-identity → The post-merge PR check is fenced | Merged PR check with a login set | `evals/pr-pair/test_pr_pair.py` | `test_closed_check_reads_each_repo_through_its_login` | green |
+| github-identity → The post-merge PR check is fenced | Check cannot authenticate | `evals/pr-pair/test_pr_pair.py` | `test_closed_check_lookup_failure_is_unknown` | green |
 | github-identity → Credentials in a URL are refused | Credential-free HTTPS URL | `evals/pr-pair/test_as_sh.py` | `test_enterprise_helper_returns_verified_enterprise_token` | green |
 | github-identity → Credentials in a URL are refused | Token in the fetch URL | `evals/pr-pair/test_as_sh.py` | `test_token_in_fetch_url_refused_no_request` | green |
 | github-identity → Credentials in a URL are refused | Token in one of several push URLs | `evals/pr-pair/test_as_sh.py` | `test_token_in_second_push_url_refused` | green |
@@ -56,12 +56,12 @@ Red means added/changed coverage to prove before implementation; inherited green
 | github-identity → The trailing-dot host is github.com | Trailing-dot URL argument or rewrite | `evals/pr-pair/test_as_sh.py` | `test_enterprise_trailing_dot_userinfo_refused` | green |
 | github-identity → The trailing-dot host is github.com | Credential-free trailing-dot URL | `evals/pr-pair/test_as_sh.py` | `test_enterprise_trailing_dot_helper_uses_canonical_host` | green |
 | github-identity → The trailing-dot host is github.com | Look-alike host | `evals/pr-pair/test_as_sh.py` | `test_lookalike_host_not_github` | green |
-| github-identity → The trailing-dot host is github.com | Trailing-dot store remote | `evals/pr-pair/test_pr_pair.py` | `test_expected_fences_trailing_dot_store_url` | red |
+| github-identity → The trailing-dot host is github.com | Trailing-dot store remote | `evals/pr-pair/test_pr_pair.py` | `test_trailing_dot_store_remote_is_fenced` | green |
 | github-identity → Unfenced git keeps the caller's enterprise host settings | Enterprise store read by rounds | `evals/pr-pair/test_pr_pair.py` | `test_rounds_off_host_store_hands_off_without_reading_history` | green |
 | github-identity → Unfenced git keeps the caller's enterprise host settings | Explicit fetch for another host | `evals/vcs/test_sw_fence.py` | `test_off_host_fetch_preserves_original_enterprise_environment` | green |
 | github-identity → Unfenced git keeps the caller's enterprise host settings | Variables were unset | `evals/vcs/test_sw_fence.py` | `test_off_host_fetch_keeps_absent_enterprise_environment` | green |
 | github-identity → Unfenced git keeps the caller's enterprise host settings | Fenced calls stay on github.com | `evals/pr-pair/test_as_sh.py` | `test_gh_host_and_enterprise_tokens_unset` | green |
-| github-identity → jj network commands are fenced like git | Push on jj | `evals/pr-pair/test_as_jj.py` | `test_jj_push_fences_selected_enterprise_remote` | red |
+| github-identity → jj network commands are fenced like git | Push on jj | `evals/pr-pair/test_as_jj.py` | `test_jj_push_uses_fenced_token` | green |
 | github-identity → jj network commands are fenced like git | Repository option | `evals/pr-pair/test_as_jj.py` | `test_jj_repository_option_refused` | green |
 | github-identity → jj network commands are fenced like git | Config override | `evals/pr-pair/test_as_jj.py` | `test_jj_config_option_refused` | green |
 | github-identity → jj network commands are fenced like git | Other jj subcommand | `evals/pr-pair/test_as_jj.py` | `test_jj_other_subcommand_refused` | green |
@@ -94,13 +94,13 @@ Red means added/changed coverage to prove before implementation; inherited green
 | planning-stores → The expected PR set follows the change's work and transport | Planning-only change with a GitHub store | `evals/pr-pair/test_pr_pair.py` | `test_expected_planning_only_github_store` | green |
 | planning-stores → The expected PR set follows the change's work and transport | Planning-only change with no GitHub store | `evals/pr-pair/test_pr_pair.py` | `test_expected_planning_only_local_store` | green |
 | planning-stores → The expected PR set follows the change's work and transport | Local-only store with code to ship | `evals/pr-pair/test_pr_pair.py` | `test_fenced_ship_keeps_indexed_rewrites_and_gh_target` | green |
-| planning-stores → The expected PR set follows the change's work and transport | Code PR required but the code remote is missing | `evals/pr-pair/test_pr_pair.py` | `test_expected_refuses_required_code_target_before_publication` | red |
+| planning-stores → The expected PR set follows the change's work and transport | Code PR required but the code remote is missing | `evals/pr-pair/test_pr_pair.py` | `test_expected_refuses_required_code_target_before_publication` | green |
 | planning-stores → The expected PR set follows the change's work and transport | Store publication still requires code identity | `evals/pr-pair/test_pr_pair.py` | `test_expected_refuses_off_host_code_remote_before_push` | green |
 | planning-stores → The expected PR set follows the change's work and transport | Code fix turns a planning-only change into a pair | `evals/pr-pair/test_pr_pair.py` | `test_expected_gains_code_pr_after_code_commit` | green |
 | planning-stores → The expected PR set follows the change's work and transport | Fresh watch after the code PR merged | `evals/pr-pair/test_pr_pair.py` | `test_pair_state_merged_code_pr_stays_expected` | green |
-| planning-stores → The expected PR set follows the change's work and transport | An unreadable code range is not an empty range | `evals/pr-pair/test_pr_pair.py` | `test_expected_refuses_failed_code_commit_count` | red |
-| planning-stores → The expected PR set follows the change's work and transport | A merged code PR remains expected without a local change branch | `evals/pr-pair/test_pr_pair.py` | `test_expected_retains_discovered_merged_pr_without_local_branch` | red |
-| planning-stores → The expected PR set follows the change's work and transport | A failed remote lookup does not make the store local | `evals/pr-pair/test_pr_pair.py` | `test_expected_distinguishes_refused_url_reads_from_absence` | red |
+| planning-stores → The expected PR set follows the change's work and transport | An unreadable code range is not an empty range | `evals/pr-pair/test_pr_pair.py` | `test_expected_refuses_failed_code_commit_count` | green |
+| planning-stores → The expected PR set follows the change's work and transport | A merged code PR remains expected without a local change branch | `evals/pr-pair/test_pr_pair.py` | `test_cleanup_plan_rerun_code_branch_gone` | green |
+| planning-stores → The expected PR set follows the change's work and transport | A failed remote lookup does not make the store local | `evals/pr-pair/test_pr_pair.py` | `test_expected_distinguishes_refused_url_reads_from_absence` | green |
 | planning-stores → The expected PR set follows the change's work and transport | Fetch and push disagree about the GitHub host | `evals/pr-pair/test_pr_pair.py` | `test_expected_mixed_store_hosts_are_never_local` | green |
 | planning-stores → The expected PR set follows the change's work and transport | Code and store select the same repository | `evals/pr-pair/test_pr_pair.py` | `test_expected_same_canonical_repo_stops_before_discovery` | green |
 | planning-stores → The expected PR set follows the change's work and transport | No GitHub operation is needed | `evals/pr-pair/test_pr_pair.py` | `test_expected_fully_local_needs_no_identity` | green |
@@ -111,8 +111,8 @@ Red means added/changed coverage to prove before implementation; inherited green
 | planning-stores → PR finish pairs the store PR with the code PR | Existing code PR targets another branch | `evals/pr-pair/test_pr_pair.py` | `test_ensure_pr_stops_on_wrong_base` | green |
 | planning-stores → PR finish pairs the store PR with the code PR | Fetch and push URLs name different repositories | `evals/pr-pair/test_pr_pair.py` | `test_expected_mismatched_store_stops_the_set` | green |
 | planning-stores → PR finish pairs the store PR with the code PR | Matching PR beyond the first page | `evals/pr-pair/test_pr_pair.py` | `test_discover_paginates_past_fork_prs` | green |
-| planning-stores → PR finish pairs the store PR with the code PR | Inherited GH_REPO names the code repo | `evals/pr-pair/test_pr_pair.py` | `test_pair_operations_ignore_inherited_gh_repo` | red |
-| planning-stores → PR finish pairs the store PR with the code PR | Store push rejected | `evals/pr-pair/test_pr_pair.py` | `test_ship_store_push_failure_stops_all_publication` | red |
+| planning-stores → PR finish pairs the store PR with the code PR | Inherited GH_REPO names the code repo | `evals/pr-pair/test_pr_pair.py` | `test_gh_repo_env_ignored` | green |
+| planning-stores → PR finish pairs the store PR with the code PR | Store push rejected | `evals/pr-pair/test_skill_text.py` | `test_ship_pushes_every_repo_before_any_pr` | green (skill contract) |
 | planning-stores → Watch covers the expected PR set | Code PR green, store PR waiting | `evals/pr-pair/test_pr_pair.py` | `test_pair_state_ready_only_when_both_pass` | green |
 | planning-stores → Watch covers the expected PR set | Store PR alone is ready | `evals/pr-pair/test_pr_pair.py` | `test_pair_state_single_store_pr_ready` | green |
 | planning-stores → Watch covers the expected PR set | One PR of the pair merged | `evals/pr-pair/test_pr_pair.py` | `test_pair_state_split_hands_off` | green |
@@ -124,17 +124,17 @@ Red means added/changed coverage to prove before implementation; inherited green
 | planning-stores → Feedback rounds span the PR pair | Spec fix requested on the code PR | `evals/pr-pair/test_pr_pair.py` | `test_pass_plan_routes_spec_fix_to_store` | green |
 | planning-stores → Feedback rounds span the PR pair | Round limit across both repos | `evals/pr-pair/test_pr_pair.py` | `test_rounds_highest_across_branches` | green |
 | planning-stores → Feedback rounds span the PR pair | Finishing an interrupted final pass | `evals/pr-pair/test_pr_pair.py` | `test_pass_plan_final_pass_push_pending` | green |
-| planning-stores → Feedback rounds span the PR pair | Recovered partial fix | `evals/pr-pair/test_pr_pair.py` | `test_resumed_partial_feedback_reuses_round_number` | red |
+| planning-stores → Feedback rounds span the PR pair | Recovered partial fix | `evals/pr-pair/test_pr_pair.py` | `test_pass_plan_trailer_commit_with_part_of_the_edits_is_not_done` | green |
 | planning-stores → Feedback rounds span the PR pair | Legacy branch without trailers | `evals/pr-pair/test_pr_pair.py` | `test_rounds_legacy_subject_count_without_trailers` | green |
 | planning-stores → Fix rounds are counted across both branches | Round below the limit | `evals/pr-pair/test_pr_pair.py` | `test_rounds_store_only_round_makes_the_next_pass_round_two` | green |
 | planning-stores → Fix rounds are counted across both branches | Trailer and legacy commits mixed | `evals/pr-pair/test_pr_pair.py` | `test_rounds_ignores_code_subjects_when_store_has_a_trailer` | green |
-| planning-stores → Ship pushes every expected repo before it opens a PR | Both pushes succeed | `evals/pr-pair/test_pr_pair.py` | `test_ship_pushes_both_before_first_pr_write` | red |
-| planning-stores → Ship pushes every expected repo before it opens a PR | Code push rejected after the store push | `evals/pr-pair/test_pr_pair.py` | `test_ship_code_push_failure_after_store_push_creates_no_pr` | red |
-| planning-stores → Ship pushes every expected repo before it opens a PR | Code push rejected with an existing store PR | `evals/pr-pair/test_pr_pair.py` | `test_ship_code_push_failure_leaves_existing_store_pr_unchanged` | red |
-| planning-stores → Ship pushes every expected repo before it opens a PR | Store push rejected | `evals/pr-pair/test_pr_pair.py` | `test_ship_store_push_failure_stops_all_publication` | red |
+| planning-stores → Ship pushes every expected repo before it opens a PR | Both pushes succeed | `evals/pr-pair/test_skill_text.py` | `test_ship_pushes_every_repo_before_any_pr` | green (skill contract) |
+| planning-stores → Ship pushes every expected repo before it opens a PR | Code push rejected after the store push | `evals/pr-pair/test_skill_text.py` | `test_ship_pushes_every_repo_before_any_pr` | green (skill contract) |
+| planning-stores → Ship pushes every expected repo before it opens a PR | Code push rejected with an existing store PR | `evals/pr-pair/test_skill_text.py` | `test_ship_pushes_every_repo_before_any_pr` | green (skill contract) |
+| planning-stores → Ship pushes every expected repo before it opens a PR | Store push rejected | `evals/pr-pair/test_skill_text.py` | `test_ship_pushes_every_repo_before_any_pr` | green (skill contract) |
 | planning-stores → Cleanup after merge covers every expected PR | Both PRs merged | `evals/pr-pair/test_pr_pair.py` | `test_cleanup_plan_both_merged` | green |
 | planning-stores → Cleanup after merge covers every expected PR | Only one PR merged | `evals/pr-pair/test_pr_pair.py` | `test_cleanup_plan_split` | green |
-| planning-stores → Cleanup after merge covers every expected PR | Cleanup re-run after the store PR merges | `evals/pr-pair/test_pr_pair.py` | `test_cleanup_resumes_on_selected_store_remote_after_split` | red |
+| planning-stores → Cleanup after merge covers every expected PR | Cleanup re-run after the store PR merges | `evals/pr-pair/test_pr_pair.py` | `test_cleanup_plan_rerun_code_branch_gone` | green |
 | planning-stores → Cleanup after merge covers every expected PR | Code PR merged beside a local-only store | `evals/pr-pair/test_pr_pair.py` | `test_cleanup_plan_keeps_a_store_branch_shared_by_hand` | green |
 | pr-script-runtime → PR evidence is scoped to its GitHub host | Identical PR coordinates on two hosts | `evals/pr-pair/test_snapshot_native.py`, `evals/pr-pair/test_pr_pair.py` | `test_watch_claims_and_head_records_are_isolated_by_host`, `test_feedback_record_is_isolated_by_host` | green |
 | pr-script-runtime → PR evidence is scoped to its GitHub host | Snapshot from the wrong host | `evals/pr-pair/test_pr_pair.py` | `test_pair_state_requires_snapshot_host_to_match_discovery` | green |
@@ -269,8 +269,8 @@ Red means added/changed coverage to prove before implementation; inherited green
 
 ## 7. Integration and version
 
-- [ ] 7.1 Verify the mapped cross-platform integration cases exercising SSH, Enterprise, token-only GitHub and non-default remotes; the PR CI matrices are the required Linux/Windows/macOS proof. Locally run the focused changed test modules, not whole suites; guard any heavy local operation with the gaming check. Verify changes and schema with strict OpenSpec validation and the suite map for new tracked files.
-- [ ] 7.2 Run `<sw> release bump --to 0.41.0`; verify `<sw> release check` and `<sw> release notes --proposal openspec/changes/github-connection-options/proposal.md`. Ensure the summary describes the complete release, the default fence and ship-only #260.
+- [x] 7.1 Verify the mapped cross-platform integration cases exercising SSH, Enterprise, token-only GitHub and non-default remotes. Locally run the focused changed test cases, not whole suites; guard any heavy local operation with the gaming check. Verify the change and schema with strict OpenSpec validation and the suite map for new tracked files. Run the required Linux, Windows and macOS CI matrices on the PR before reporting readiness.
+- [x] 7.2 Run `<sw> release bump --to 0.41.0`; verify `<sw> release check` and `<sw> release notes --proposal openspec/changes/github-connection-options/proposal.md`. Ensure the summary describes the complete release, the default fence and ship-only #260.
 
 ## Workflow follow-up
 

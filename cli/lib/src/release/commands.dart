@@ -179,7 +179,7 @@ Future<Map<String, Object?>> _run(List<String> argv, String cwd) async {
     'bump' => bumpDocument(git, settings, a),
     'status' => statusDocument(git, settings, statusArgs(a)),
     'prove-main' => (await git.proveMain(
-      _value(a, 'main') ?? await detectMain(git, settings.mainBranch),
+      await releaseMainBranch(git, settings, _value(a, 'main')),
     )).toJson(),
     'untagged' => untaggedDocument(git, settings, a),
     _ => publishDocument(git, settings, statusArgs(a)),
@@ -292,7 +292,10 @@ Future<Map<String, Object?>> untaggedDocument(
   final proof = a['proof'];
   final ref = proof == null
       ? _value(a, 'main')
-      : (await git.verifyProof(proof, null)).commit;
+      : (await git.verifyProof(
+          proof,
+          await releaseMainBranch(git, settings, _value(a, 'main')),
+        )).commit;
   final main = await loadMain(git, settings, ref);
   final local = a.containsKey('local') || !await git.hasRemote();
   final tags = local ? await git.localTags() : await git.publishedTags();

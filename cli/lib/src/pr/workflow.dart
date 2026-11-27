@@ -177,8 +177,9 @@ class Workflow {
       return result;
     }
 
-    if (!_connection.fence || slug == null)
+    if (!_connection.fence || slug == null) {
       return unfenced(unfencedEnvironment());
+    }
     final login =
         _repoLogin[slug.toLowerCase()] ?? _bound ?? await ambientLogin();
     return WorkflowTransport.native(
@@ -313,9 +314,7 @@ class Workflow {
       }
     }
     final slug = repo?.split('/');
-    final key = slug == null
-        ? null
-        : slug.skip(slug.length == 3 ? 1 : 0).join('/').toLowerCase();
+    final key = slug?.skip(slug.length == 3 ? 1 : 0).join('/').toLowerCase();
     final login = _connection.fence
         ? _repoLogin[key] ?? _bound ?? await codeLogin(_configuredLogin)
         : null;
@@ -1288,20 +1287,24 @@ class Workflow {
         a['body_file']!,
       ]);
       if (r.exitCode != 0) throw PairStop('create_failed', reason(r));
-      final m = RegExp(r'(https://\S+/pull/(\d+))')
-          .firstMatch(decodeReplacing(r.stdout));
-      if (m == null) {
+      final url = decodeReplacing(r.stdout).trim();
+      final created = pullCoordinates(url);
+      final selected = prRepoSlug(repo, githubHost);
+      if (created == null ||
+          selected == null ||
+          created.host != githubHost ||
+          created.repo.toLowerCase() != selected.toLowerCase()) {
         throw PairStop(
           'create_failed',
-          'gh pr create printed no PR URL: ${decodeReplacing(r.stdout).trim()}',
+          'gh pr create did not confirm a PR URL on $githubHost/$repo; discover before trying again',
         );
       }
       return {
         'ok': true,
         'action': 'created',
         'pr': {
-          'number': int.parse(m[2]!),
-          'url': m[1],
+          'number': created.number,
+          'url': url,
           'state': 'OPEN',
           'base': base,
         },
@@ -1341,12 +1344,11 @@ class Workflow {
     final c = await useRoles(code, store);
     final cid = await prTarget(c.code);
     final sid = await prTarget(c.store!);
-    if (sid != null && cid == null) {
-      throw PairStop(
-        'not-github',
-        'the planning store can open a PR but the code repository has no PR target',
-      );
-    }
+    Never missingCodeTarget() => throw PairStop(
+      'not-github',
+      "the code repository has no usable GitHub target on selected remote '${c.code.remote.name}'",
+    );
+    if (sid != null && cid == null) missingCodeTarget();
     if (sid != null && sid.toLowerCase() == cid!.toLowerCase()) {
       throw PairStop(
         'same_repository',
@@ -1381,6 +1383,7 @@ class Workflow {
       }
       commits = count;
     }
+    if (cid == null && commits > 0) missingCodeTarget();
     dynamic selected(List<dynamic> prs) {
       for (final p in prs) {
         if (p['state'] == 'OPEN') return p;
@@ -1414,7 +1417,7 @@ class Workflow {
           ? 'commits'
           : 'none',
       'pr': selected(cp),
-      'other_base': cd?['other_base'] ?? [],
+      'other_base': cd?['other_base'] ?? const <Object?>[],
       if (c.code.remote.explicit) 'remote': c.code.remote.name,
     };
     final ss = <String, Object?>{

@@ -651,8 +651,9 @@ class _Snapshot {
     final number = int.tryParse(pr);
     if (number != null &&
         doc['number'] == number &&
-        matchesPull(doc['url'], connection.host, repo, number))
+        matchesPull(doc['url'], connection.host, repo, number)) {
       return true;
+    }
     ctx.err(
       'pr-snapshot: GitHub did not return the requested PR $repo#$pr on ${connection.host}\n',
     );

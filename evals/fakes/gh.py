@@ -652,7 +652,7 @@ def add_thread_comment(st, slug, number, thread_id, author, body, at=None):
     t = next(t for t in _pull(st, slug, number)["threads"] if t["id"] == thread_id)
     dbid = _new_id(st)
     c = {"id": f"PRRC_{dbid}", "databaseId": dbid, "author": author, "body": body, "createdAt": at or now(st),
-         "lastEditedAt": None, "url": f"{pull_url(slug, number)}#discussion_r{dbid}"}
+         "lastEditedAt": None, "url": f"{pull_url(slug, number, st)}#discussion_r{dbid}"}
     t["comments"].append(c)
     return c
 
@@ -668,7 +668,7 @@ def add_pr_comment(st, slug, number, author, body, at=None):
 def add_review(st, slug, number, author, body, state="COMMENTED", at=None):
     dbid = _new_id(st)
     r = {"id": f"PRR_{dbid}", "databaseId": dbid, "author": author, "body": body, "state": state,
-         "submittedAt": at or now(st), "lastEditedAt": None, "url": f"{pull_url(slug, number)}#pullrequestreview-{dbid}"}
+         "submittedAt": at or now(st), "lastEditedAt": None, "url": f"{pull_url(slug, number, st)}#pullrequestreview-{dbid}"}
     _pull(st, slug, number).setdefault("reviews", []).append(r)
     return r
 
@@ -1138,7 +1138,7 @@ def cmd_pr(st, args):
                       "head": {"ref": ref, "label": f"{owner}:{ref}", "sha": f"{n:040x}",
                                "repo": {"full_name": f"{owner}/{slug.split('/')[1]}"}},
                       "base": {"ref": one(o, "base") or repo.get("default_branch", "main")}})
-        return print(pull_url(slug, n, st))
+        return print(st.get("pr_create_response", pull_url(slug, n, st)))
     if sub == "view":
         p = find_pull(slug, repo, pos[0] if pos else "")
         if "json" in o:

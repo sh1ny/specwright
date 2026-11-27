@@ -24,11 +24,12 @@ Future<Map<String, Object?>> publishDocument(
   final target = await git.bindTarget();
   final proof = args.proof;
   final verified = proof != null
-      ? await git.verifyProof(proof, args.base)
-      : target?.slug != null
-      ? await git.proveMain(
-          args.base ?? await detectMain(git, settings.mainBranch),
+      ? await git.verifyProof(
+          proof,
+          await releaseMainBranch(git, settings, args.base),
         )
+      : target?.slug != null
+      ? await git.proveMain(await releaseMainBranch(git, settings, args.base))
       : null;
   final loaded = await loadMain(git, settings, verified?.commit ?? args.main);
   await releaseCommitOf(git, loaded, v);

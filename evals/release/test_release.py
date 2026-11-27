@@ -1524,6 +1524,31 @@ class TestReleaseProof(PubFlow):
         fx.git(self.work, "config", "remote.origin.fetch", "+refs/heads/*:refs/custom/published/*")
         fx.git(self.work, "update-ref", "refs/remotes/origin/main", self.base)
 
+    def test_feature_branch_cannot_be_used_as_release_main(self):
+        fx.git(self.work, "update-ref", "refs/heads/feature", self.rc)
+        fx.git(self.work, "push", "-q", "origin", "refs/heads/feature:refs/heads/feature")
+        fx.git(self.work, "update-ref", "refs/heads/main", self.base, self.rc)
+        fx.git(self.work, "push", "-q", "--force", "origin", "refs/heads/main:refs/heads/main")
+        for command, flags in [("prove-main", ["--main", "feature"]),
+                               ("publish", ["--version", "0.5.0", "--base", "feature"])]:
+            code, doc, raw = self.release(command, *flags, env=self.env())
+            self.assertEqual((code, doc["error"]), (2, "release_main_mismatch"), raw)
+        self.assertEqual(fx.git(self.work, "tag", "-l"), "")
+        self.assertEqual(fx.git(self.bare, "tag", "-l"), "")
+        self.assertEqual(self.gh_calls(), [])
+
+    def test_release_proof_rejected_after_main_branch_changes(self):
+        code, proof, raw = self.prove()
+        self.assertEqual(code, 0, raw)
+        fx.git(self.work, "branch", "new-main", self.base)
+        settings = self.work / "openspec/specwright.yaml"
+        settings.write_text(settings.read_text(encoding="utf-8") + "\nmain_branch: new-main\n", encoding="utf-8")
+        code, doc, raw = self.publish("0.5.0", "--proof", proof["proof"])
+        self.assertEqual((code, doc["error"]), (1, "release_target_changed"), raw)
+        self.assertEqual(fx.git(self.work, "tag", "-l"), "")
+        self.assertEqual(fx.git(self.bare, "tag", "-l"), "")
+        self.assertEqual(self.gh_calls(), [])
+
     def test_release_proof_ignores_stale_standard_tracking_ref(self):
         self.redirect_tracking()
         fx.git(self.work, "update-ref", "refs/heads/main", self.base, self.rc)

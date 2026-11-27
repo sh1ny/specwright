@@ -346,8 +346,9 @@ class _Reply {
             }.contains(type),
       _ => false,
     };
-    if (!validType || (root != null && '${value['root']}' != root))
+    if (!validType || (root != null && '${value['root']}' != root)) {
       unreadable();
+    }
     if (rev.isEmpty) return;
     final now = value['rev'];
     if (now is! String || now.isEmpty) unreadable();

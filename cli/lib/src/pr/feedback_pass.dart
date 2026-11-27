@@ -702,7 +702,7 @@ class FeedbackPass {
     });
   }
 
-  Future<PassDocument> plan(List<String> argv) async {
+  Future<PassDocument> plan(List<String> argv, {Contexts? boundRoles}) async {
     final args = _args(argv, {'--owner': 'owner'});
     final located = records.locate(args['code_repo']!, args['change']!);
     final value = records.load(located.path);
@@ -740,7 +740,7 @@ class FeedbackPass {
     final store = args['store'] == null || args['store']!.isEmpty
         ? null
         : args['store']!;
-    final contexts = await workflow.useRoles(code, store);
+    final contexts = boundRoles ?? await workflow.useRoles(code, store);
     final directories = {'code': code, 'store': store},
         marker = record['marker'];
     final codeGitbutler =
@@ -785,17 +785,19 @@ class FeedbackPass {
     final roles = {'code': contexts.code, 'store': contexts.store};
     for (final entry in roles.entries) {
       final side = entry.key, role = entry.value, saved = _map(prs[entry.key]);
-      if (role == null || saved.isEmpty && !destinations.contains(side))
-        continue;
+      final isSource = sources.contains(side);
+      if (role == null || !isSource && !destinations.contains(side)) continue;
       final expected = await workflow.prTarget(role);
       if (expected == null ||
           expected.toLowerCase() != slugs[side]?.toLowerCase()) {
         mismatch(side);
       }
-      if (saved.isEmpty)
-        continue; // The code PR may be opened later in this pass.
+      if (saved.isEmpty) {
+        if (isSource) mismatch(side);
+        continue; // A destination code PR may be opened later in this pass.
+      }
       final number = saved['number'];
-      final supplied = snapshots[side];
+      final supplied = isSource ? snapshots[side] : null;
       if (supplied != null &&
           (supplied['number'] != number ||
               !matchesPull(supplied['url'], host, expected, number))) {
@@ -1300,7 +1302,7 @@ class FeedbackPass {
     }
   }
 
-  Future<PassDocument> done(List<String> argv) async {
+  Future<PassDocument> done(List<String> argv, {Contexts? boundRoles}) async {
     final args = _args(argv, {'--owner': 'owner'});
     needArgs(args, ['owner']);
     final path = records.locate(args['code_repo']!, args['change']!).path;
@@ -1318,7 +1320,7 @@ class FeedbackPass {
           extra: {'owner': record['owner']},
         );
       }
-      final result = await plan(argv);
+      final result = await plan(argv, boundRoles: boundRoles);
       if (result['delete_record'] != true) {
         throw PairStop(
           'not_complete',
@@ -1399,15 +1401,16 @@ class FeedbackPass {
                 '--short',
                 'HEAD',
               ])).stdout.trim();
-          if (branch.isEmpty)
+          if (branch.isEmpty) {
             pairUsage('pass for a local planning store needs --branch');
+          }
           return {'ok': true, ...workflow.manualHandoff(branch)};
         }
       }
       final result = await switch (argv.first) {
         'write' => write(argv.sublist(1)),
-        'plan' => plan(argv.sublist(1)),
-        'done' => done(argv.sublist(1)),
+        'plan' => plan(argv.sublist(1), boundRoles: roles),
+        'done' => done(argv.sublist(1), boundRoles: roles),
         'adopt' => adopt(argv.sublist(1)),
         _ => pairUsage('pass write|plan|done|adopt ...'),
       };

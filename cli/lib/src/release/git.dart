@@ -262,16 +262,19 @@ class ReleaseGit {
         final now = settings == null ? null : readReleaseSettings(root);
         if (now != null &&
             (now.connection.fence != _fence ||
-                now.githubLogin != settings!.githubLogin))
+                now.githubLogin != settings!.githubLogin ||
+                now.mainBranch != settings!.mainBranch)) {
           return (ok: false, binding: null);
+        }
         final name = now?.remote.name ?? remote,
             hostname = now?.connection.host ?? host;
         final source = await _readTarget(name, hostname, _input);
         final execution = _gitEnv;
         if (execution != null && !identical(execution, _input)) {
           final effective = await _readTarget(name, hostname, execution);
-          if (source?.binding != effective?.binding)
+          if (source?.binding != effective?.binding) {
             return (ok: false, binding: null);
+          }
         }
         return (ok: true, binding: source?.binding);
       } on ReleaseStop {
@@ -385,7 +388,7 @@ class ReleaseGit {
     }
   }
 
-  Future<ReleaseMain> verifyProof(String proof, String? base) async {
+  Future<ReleaseMain> verifyProof(String proof, String main) async {
     final target = await bindTarget();
     if (target?.slug == null) _changed();
     final Object? fields;
@@ -397,14 +400,16 @@ class ReleaseGit {
     if (fields is! List ||
         fields.length != 3 ||
         fields[0] is! String ||
-        fields[1] is! String)
+        fields[1] is! String) {
       _changed();
+    }
     final branch = fields[0] as String, commit = fields[1] as String;
     if (!_proofSha.hasMatch(commit) ||
-        (base != null && branch != base) ||
+        branch != main ||
         _encodeProof(target!, branch, commit) != proof ||
-        !await refExists(commit))
+        !await refExists(commit)) {
       _changed();
+    }
     await _validateBranch(branch);
     await verifyTarget();
     return ReleaseMain(branch, commit, proof);

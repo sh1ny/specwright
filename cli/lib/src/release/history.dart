@@ -324,6 +324,22 @@ Future<String> detectMain(ReleaseGit git, String? mainBranch) async {
   return names.first;
 }
 
+Future<String> releaseMainBranch(
+  ReleaseGit git,
+  ReleaseSettings settings,
+  String? requested,
+) async {
+  final main = await detectMain(git, settings.mainBranch);
+  if (requested != null && requested != main) {
+    throw ReleaseStop(
+      'release_main_mismatch',
+      'release must use main branch $main, not $requested',
+      code: 2,
+    );
+  }
+  return main;
+}
+
 /// The version the primary file reads at [commit] as a `String`; null when
 /// the file is absent there; an [Unreadable] carrying the versions it matched
 /// when a file matches other than once or the files disagree.
