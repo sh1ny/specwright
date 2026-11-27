@@ -403,12 +403,14 @@ class RepoContext {
     required this.mergeReady,
     required this.mergeReason,
     this.remote = const RemoteSelection(),
+    this.loginExplicit = false,
   });
 
   final String dir;
   final ReviewRequest reviewRequest;
   final String requestAs;
   final String login;
+  final bool loginExplicit;
   final String main;
   final String validate;
   final Map<String, Reviewer> reviewers;
@@ -498,6 +500,7 @@ RepoContext repoContext(
     ),
     requestAs: _strOr(pr['request_as']),
     login: login,
+    loginExplicit: which == 'store' && _strOr(ps['login']).isNotEmpty,
     main: main,
     validate: validate,
     remote: selectedRemote(s, store: which == 'store'),

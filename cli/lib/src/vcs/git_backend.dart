@@ -556,6 +556,7 @@ Future<Map<String, Object?>> runGitOperation(
         _loginFor(s),
         remote: remote.name,
         connection: connection,
+        expectedRepo: request.expectedRepo,
       );
       return {'ok': true, 'backend': 'git', 'branch': branch};
     case 'advance':

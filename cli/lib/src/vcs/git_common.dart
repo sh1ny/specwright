@@ -1,5 +1,8 @@
 import '../fence/fence.dart' show originalGitEnvironment;
 import '../fence/urls.dart';
+import '../pr/context.dart';
+import '../pr/identity.dart';
+import '../pr/pair.dart' show PairStop;
 import '../settings/rules.dart';
 
 import 'scripts.dart';
@@ -93,16 +96,69 @@ Future<bool> networkUsesFence(
   return onHost;
 }
 
-/// Plain network operations do not inherit an enclosing fence's Git policy.
-Future<TextResult> plainNetwork(
+/// The PR plan binds the destination before validation. Re-read the selected
+/// fetch and all push destinations using the environment of the actual child.
+Future<TextResult> launchNetwork(
   VcsScripts scripts,
   String repo,
   List<String> command,
-) => runText(
-  repo,
-  command,
-  environment: originalGitEnvironment(scripts.environmentFor?.call(command)),
-);
+  String who, {
+  required bool fenced,
+  required String host,
+  required String? remote,
+  String? expectedRepo,
+}) async {
+  Future<void> checkTarget(Map<String, String>? env) async {
+    final planned = expectedRepo!;
+    Never changed() => throw VcsStop(
+      'pr_destination_changed',
+      "the selected remote '$remote' no longer matches the planned PR destination",
+      code: 3,
+    );
+    final parts = planned.split('/');
+    if (remote == null ||
+        parts.length != 3 ||
+        canonicalHost(parts.first) != host ||
+        parseRepo('https://$planned', host: host) == null) {
+      changed();
+    }
+    final context = PrContext(
+      writeOut: (_) {},
+      writeErr: (_) {},
+      environment: env,
+    );
+    try {
+      final current = await identityOf(
+        context,
+        repo,
+        host: host,
+        selection: RemoteSelection(name: remote),
+      );
+      if ((current['repo'] as String).toLowerCase() !=
+          parts.skip(1).join('/').toLowerCase()) {
+        changed();
+      }
+    } on PairStop {
+      changed();
+    }
+  }
+
+  if (fenced) {
+    return runAs(
+      scripts,
+      repo,
+      who,
+      command,
+      host: host,
+      beforeLaunch: expectedRepo == null ? null : checkTarget,
+    );
+  }
+  final environment = originalGitEnvironment(
+    scripts.environmentFor?.call(command),
+  );
+  if (expectedRepo != null) await checkTarget(environment);
+  return runText(repo, command, environment: environment);
+}
 
 final _notFastForward = RegExp(
   r'not possible to fast-forward|divergent branches',
@@ -122,6 +178,7 @@ Future<TextResult> networkGit(
   String? login, {
   required String? remote,
   required GitHubConnection connection,
+  String? expectedRepo,
 }) async {
   final github = await networkUsesFence(
     scripts,
@@ -137,10 +194,16 @@ Future<TextResult> networkGit(
     login: login,
     host: connection.host,
   );
-  final command = ['git', ...args];
-  final result = github
-      ? await runAs(scripts, repo, who, command, host: connection.host)
-      : await plainNetwork(scripts, repo, command);
+  final result = await launchNetwork(
+    scripts,
+    repo,
+    ['git', ...args],
+    who,
+    fenced: github,
+    host: connection.host,
+    remote: remote,
+    expectedRepo: expectedRepo,
+  );
   if (result.code != 0) {
     final said = orElse(result.stderr, result.stdout).trim();
     final message = said.isNotEmpty ? said : 'Git network operation failed';

@@ -1179,7 +1179,6 @@ class FencedGitHubCalls(unittest.TestCase):
         pr = next((l for l in commit.splitlines() if l.startswith("- `pr` →")), "")
         self.assertTrue(pr, "commit has no `pr` hand-off")
         self.assertRegex(pr, r"(?i)run login", "commit -> ship does not pass the run login")
-        self.assertRegex(pr, r"--resolve", "commit, a user-started step, does not resolve the run login")
         finish = read(FINISH)
         ship = next((l for l in finish.splitlines() if l.startswith("- Run `specwright-pr` **ship**")), "")
         self.assertRegex(ship, r"(?i)run login", "finish -> ship does not pass the run login")

@@ -1,66 +1,112 @@
 import 'dart:io' show Directory;
 
 import '../commit/task_cover.dart' show pyStrip;
+import '../fence/urls.dart';
+import '../settings/rules.dart' show RemoteSelection;
 import '../settings/values.dart' show pySpaceClass;
 import 'context.dart';
 import 'pair.dart';
+import 'settings_commands.dart' show prGitHubSettings;
 
-// `sw pr identity <dir>`: `pr-pair.sh identity` (pr-pair.sh:180-182, 800-820, 1132-1136). The GitHub repository that
-// origin fetches from and pushes to, or why it is not exactly one.
-
-/// `GH_URL`: an http(s), ssh or git URL, or an scp-style `host:` form, of github.com (or ssh.github.com), with an owner
-/// and a name.
-final RegExp _ghUrl = RegExp(
-  r'^(?:(?:https?|ssh|git)://(?:[^@/SP]+@)?(?:ssh\.)?github\.com\.?(?::\d+)?/'
-          r'|(?:[^@/SP]+@)?(?:ssh\.)?github\.com\.?:)'
-          r'([^/SP]+)/([^/SP]+?)(?:\.git)?/?$'
+/// URL syntax supported by GitHub, independent of the configured hostname.
+final RegExp _repoUrl = RegExp(
+  r'^(?:(?:https?|ssh|git)://(?:[^@/SP]+@)?[^:@/SP]+(?::\d+)?/'
+          r'|(?:[^@/SP]+@)?[^:@/SP]+:)'
+          r'([^/?#SP]+)/([^/?#SP]+?)(?:\.git)?/?$'
       .replaceAll('SP', pySpaceClass),
   caseSensitive: false,
 );
 
-/// `parse_repo`: `owner/name` of a GitHub URL (stripped first), else null.
-String? parseRepo(String url) {
-  final m = _ghUrl.firstMatch(pyStrip(url));
+String? parseRepo(String url, {String host = defaultGitHubHost}) {
+  final text = pyStrip(url);
+  if (!ghUrl(text, host: host)) return null;
+  final m = _repoUrl.firstMatch(text);
   return m == null ? null : '${m.group(1)}/${m.group(2)}';
 }
 
-/// `identity(d)`: the answer, or a [PairStop] (`not-a-repo`, `no-origin`, `not-github`, `mismatch`).
-Future<Map<String, Object?>> identityOf(PrContext ctx, String dir) async {
+final _scheme = RegExp(r'^([a-z][a-z0-9+.-]*)://', caseSensitive: false);
+final _supported = {'http', 'https', 'ssh', 'git', 'ftp', 'ftps'};
+
+bool _knownDestination(String url) {
+  if (url.isEmpty || url.contains(RegExp(r'[\x00-\x1f\x7f]'))) return false;
+  final scheme = _scheme.firstMatch(url);
+  if (scheme != null) {
+    final type = scheme[1]!.toLowerCase();
+    if (type == 'file') return url.length > scheme.end;
+    return _supported.contains(type) && gitUrlHost(url) != null;
+  }
+  return !url.contains('://') && !url.contains('::');
+}
+
+/// A successful local read proves there is no PR target for this role.
+class NoPrRemote extends PairStop {
+  NoPrRemote(super.error, super.message, {super.extra});
+}
+
+/// Repository the role's selected remote fetches from and pushes to.
+/// [NoPrRemote] is positive evidence of an absent or exclusively off-host
+/// target; a failed read or a mixed target must never become a manual handoff.
+Future<Map<String, Object?>> identityOf(
+  PrContext ctx,
+  String dir, {
+  String host = defaultGitHubHost,
+  RemoteSelection selection = const RemoteSelection(),
+}) async {
   if (dir.isEmpty ||
       !Directory(dir).existsSync() ||
       (await ctx.git(dir, ['rev-parse', '--git-dir'])).code != 0) {
     throw PairStop('not-a-repo', '$dir is not a git work tree');
   }
-  final r = await ctx.git(dir, ['remote', 'get-url', 'origin']);
-  if (r.code != 0) {
-    throw PairStop('no-origin', '$dir has no origin remote');
-  }
-  final fetchUrl = pyStrip(r.stdout);
-  var pushUrls = [
-    for (final u in (await ctx.git(dir, [
-      'remote',
-      'get-url',
-      '--push',
-      '--all',
-      'origin',
-    ])).stdout.split('\n'))
-      if (pyStrip(u).isNotEmpty) u,
-  ];
-  if (pushUrls.isEmpty) pushUrls = [fetchUrl];
-  final fetch = parseRepo(fetchUrl);
-  final push = [for (final u in pushUrls) parseRepo(u)];
-  if (fetch == null || push.any((p) => p == null)) {
-    throw PairStop(
-      'not-github',
-      'origin of $dir is not a GitHub repository: fetch $fetchUrl, push ${pushUrls.join(', ')}',
-      extra: {'fetch_url': fetchUrl, 'push_urls': pushUrls},
+  final remote = selection.name;
+  PairStop unreadable(String kind) => PairStop(
+    'remote_unreadable',
+    "cannot read $kind for remote '$remote' in $dir",
+  );
+  final names = await ctx.git(dir, ['remote']);
+  if (names.code != 0) throw unreadable('configured remotes');
+  if (!names.names('remote names').split(RegExp(r'\r?\n')).contains(remote)) {
+    throw NoPrRemote(
+      remote == 'origin' ? 'no-origin' : 'no-remote',
+      '$dir has no $remote remote',
     );
+  }
+  final r = await ctx.git(dir, ['remote', 'get-url', remote]);
+  final pr = await ctx.git(dir, [
+    'remote',
+    'get-url',
+    '--push',
+    '--all',
+    remote,
+  ]);
+  if (r.code != 0) throw unreadable('fetch URL');
+  if (pr.code != 0) throw unreadable('push URLs');
+  final fetchUrl = pyStrip(r.names('fetch URL'));
+  final pushUrls = pyStrip(pr.names('push URLs')).split(RegExp(r'\r?\n'));
+  if (!_knownDestination(fetchUrl) ||
+      pushUrls.any((u) => !_knownDestination(u))) {
+    throw unreadable('effective URLs');
+  }
+  final fetch = parseRepo(fetchUrl, host: host);
+  final push = [for (final u in pushUrls) parseRepo(u, host: host)];
+  if (fetch == null || push.any((p) => p == null)) {
+    final urls = pushUrls.map(mask).toList();
+    final safeFetch = mask(fetchUrl);
+    final message =
+        '$remote of $dir is not a GitHub repository on $host: fetch $safeFetch, push ${urls.join(', ')}';
+    final details = <String, Object?>{
+      'fetch_url': safeFetch,
+      'push_urls': urls,
+    };
+    if (![fetchUrl, ...pushUrls].any((url) => ghUrl(url, host: host))) {
+      throw NoPrRemote('not-github', message, extra: details);
+    }
+    throw PairStop('not-github', message, extra: details);
   }
   final pushed = push.cast<String>();
   if (pushed.any((p) => p.toLowerCase() != fetch.toLowerCase())) {
     throw PairStop(
       'mismatch',
-      'origin of $dir fetches from $fetch but pushes to ${pushed.join(', ')}; '
+      '$remote of $dir fetches from $fetch but pushes to ${pushed.join(', ')}; '
           'forks and mirrors as push targets are not supported',
       extra: {'fetch': fetch, 'push': pushed},
     );
@@ -81,5 +127,12 @@ Future<int> runIdentity(PrContext ctx, List<String> argv) =>
     runPairCommand(ctx, () async {
       final a = parsePairArgs(argv, const {});
       if (a.positional.length != 1) pairUsage('identity <dir>');
-      return identityOf(ctx, a.positional[0]);
+      final dir = a.positional[0];
+      final settings = await prGitHubSettings(ctx, directory: dir);
+      return identityOf(
+        ctx,
+        dir,
+        host: settings.connection.host,
+        selection: settings.remote,
+      );
     });

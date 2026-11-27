@@ -410,12 +410,17 @@ def repo_of(opts, st):
         r = m.group(1) if m else None
     if not r:
         raise Fail("no repository: pass --repo or set GH_REPO")
-    r = r.split("github.com/")[-1].strip("/")
+    r = r.strip("/")
+    if r.count("/") == 2:
+        host, r = r.split("/", 1)
+        if host != st.get("host", "github.com"):
+            raise Fail(f"fake gh: unsupported repository host {host}")
     return r, st.setdefault("repos", {}).setdefault(r, {})
 
 
-def pull_url(slug, n):
-    return f"{HOST}/{slug}/pull/{n}"
+def pull_url(slug, n, st=None):
+    host = (st or {}).get("host", "github.com")
+    return f"https://{host}/{slug}/pull/{n}"
 
 
 def find_pull(slug, repo, ref):
@@ -458,7 +463,7 @@ def http_date(iso):
 def new_comment(st, slug, num, text, user):
     st["next_id"] = st.get("next_id", 1000) + 1
     c = {"id": st["next_id"], "node_id": f"IC_{st['next_id']}", "body": text, "user": {"login": user}, "created_at": now(st),
-         "html_url": f"{pull_url(slug, num)}#issuecomment-{st['next_id']}"}
+         "html_url": f"{pull_url(slug, num, st)}#issuecomment-{st['next_id']}"}
     st["repos"][slug].setdefault("comments", {}).setdefault(str(num), []).append(c)
     return c
 
@@ -1114,12 +1119,12 @@ def cmd_pr(st, args):
                for p in pulls):
             raise Fail(f'a pull request for branch "{ref}" into branch "{one(o, "base", "main")}" already exists')
         n = max([p["number"] for p in pulls] + [0]) + 1
-        pulls.append({"number": n, "html_url": pull_url(slug, n), "state": "open", "merged_at": None,
+        pulls.append({"number": n, "html_url": pull_url(slug, n, st), "state": "open", "merged_at": None,
                       "title": one(o, "title", ""), "body": body_of(o) or "",
                       "head": {"ref": ref, "label": f"{owner}:{ref}", "sha": f"{n:040x}",
                                "repo": {"full_name": f"{owner}/{slug.split('/')[1]}"}},
                       "base": {"ref": one(o, "base") or repo.get("default_branch", "main")}})
-        return print(pull_url(slug, n))
+        return print(pull_url(slug, n, st))
     if sub == "view":
         p = find_pull(slug, repo, pos[0] if pos else "")
         if "json" in o:
@@ -1236,6 +1241,9 @@ def host_of(argv):
             return argv[i + 1]
         if a.startswith("--hostname="):
             return a.partition("=")[2]
+    for i, a in enumerate(argv[:-1]):
+        if a in ("--repo", "-R") and argv[i + 1].count("/") == 2:
+            return argv[i + 1].split("/", 1)[0]
     return os.environ.get("GH_HOST") or "github.com"
 
 

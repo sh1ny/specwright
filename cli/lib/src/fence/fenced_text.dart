@@ -33,6 +33,7 @@ Future<TextResult> fencedText(
   GhCall? gh,
   GitCall? git,
   Launch? launch,
+  Future<void> Function(Map<String, String>? environment)? beforeLaunch,
   List<String>? helperCommand,
 }) async {
   final out = StringBuffer();
@@ -46,14 +47,14 @@ Future<TextResult> fencedText(
         (ghArgs, e) =>
             runGh(repo, ghArgs, environment: e, helperCommand: helperCommand),
     git: git ?? (command, e) => runTool(repo, command, environment: e),
-    launch:
-        launch ??
-        (command, e) async {
-          final r = await runTool(repo, command, environment: e);
-          out.write(decodeText(r.stdout));
-          err.write(decodeText(r.stderr));
-          return r.exitCode;
-        },
+    launch: (command, e) async {
+      if (beforeLaunch != null) await beforeLaunch(e);
+      if (launch != null) return launch(command, e);
+      final r = await runTool(repo, command, environment: e);
+      out.write(decodeText(r.stdout));
+      err.write(decodeText(r.stderr));
+      return r.exitCode;
+    },
     out: out.write,
     err: err.write,
   );

@@ -147,6 +147,7 @@ class FeedbackPass {
       '--code-repo': 'code_repo',
       '--change': 'change',
       '--snapshot': '+snapshot',
+      '--branch': 'branch',
       ...extra,
     });
     needArgs(a, ['code', 'code_repo', 'change']);
@@ -1337,6 +1338,30 @@ class FeedbackPass {
   Future<Map<String, Object?>> run(List<String> argv) async {
     if (argv.isEmpty) pairUsage('pass write|plan|done|adopt ...');
     try {
+      final options = _args(argv.sublist(1), switch (argv.first) {
+        'write' => const {'--intent': 'intent', '--store-prefix': 'prefix'},
+        'plan' || 'done' => const {'--owner': 'owner'},
+        'adopt' => const {'--owner': 'owner', '--from': 'from'},
+        _ => pairUsage('pass write|plan|done|adopt ...'),
+      });
+      final store = options['store'];
+      final code = options['code']!;
+      final roles = await workflow.useRoles(code, store == '' ? null : store);
+      if (roles.store case final planning?) {
+        if (await workflow.prTarget(planning) == null) {
+          final branch =
+              options['branch'] ??
+              (await ctx.git(code, [
+                'symbolic-ref',
+                '--quiet',
+                '--short',
+                'HEAD',
+              ])).stdout.trim();
+          if (branch.isEmpty)
+            pairUsage('pass for a local planning store needs --branch');
+          return {'ok': true, ...workflow.manualHandoff(branch)};
+        }
+      }
       final result = await switch (argv.first) {
         'write' => write(argv.sublist(1)),
         'plan' => plan(argv.sublist(1)),

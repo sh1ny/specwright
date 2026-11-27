@@ -830,6 +830,7 @@ class GitButler {
         login,
         remote: s.info.remote.name,
         connection: s.info.connection,
+        expectedRepo: s.request.expectedRepo,
       );
     } on VcsStop catch (stop) {
       if (stop.error == 'git_network_error' &&

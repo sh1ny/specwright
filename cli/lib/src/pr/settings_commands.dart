@@ -53,6 +53,47 @@ Future<Contexts> workflowContexts(
   }
 }
 
+/// A direct command uses the requested checkout unless `--project` names the
+/// code project. An implicit target in a different work tree is then the store.
+Future<({GitHubConnection connection, RemoteSelection remote, String login})>
+prGitHubSettings(
+  PrContext ctx, {
+  String? directory,
+  String? code,
+  bool? store,
+}) async {
+  final dir = directory ?? ctx.cwd;
+  final project = code ?? ctx.project ?? dir;
+  final settings = Directory(project).existsSync()
+      ? await _loadSettings(ctx, project)
+      : <String, Object?>{};
+  try {
+    String pathKey(String path) {
+      final normalized = _trimSlash(path);
+      return Platform.isWindows ? normalized.toLowerCase() : normalized;
+    }
+
+    final isStore =
+        store ??
+        (project != dir &&
+            pathKey(await _toplevel(ctx, project)) !=
+                pathKey(await _toplevel(ctx, dir)));
+    final github = settingSection(settings, 'github', 'github');
+    final codeLogin = pyStrip('${github['login'] ?? ''}');
+    final storeSettings = isStore
+        ? settingSection(settings, 'planning_store', 'planning_store')
+        : const <String, Object?>{};
+    final storeLogin = pyStrip('${storeSettings['login'] ?? ''}');
+    return (
+      connection: githubConnection(settings),
+      remote: selectedRemote(settings, store: isStore),
+      login: storeLogin.isNotEmpty ? storeLogin : codeLogin,
+    );
+  } on SettingsStop catch (e) {
+    throw _stopOf(e);
+  }
+}
+
 /// `toplevel(d)`: the git top level of [d], else [d].
 Future<String> _toplevel(PrContext ctx, String d) async {
   final r = await ctx.git(d, ['rev-parse', '--show-toplevel']);
@@ -411,7 +452,14 @@ Future<int> runContext(PrContext ctx, List<String> argv) =>
       Future<Map<String, Object?>> withRepo(RepoContext rc, String dir) async {
         String? repo;
         try {
-          repo = (await identityOf(ctx, dir))['repo'] as String?;
+          repo =
+              (await identityOf(
+                    ctx,
+                    dir,
+                    host: c.connection.host,
+                    selection: rc.remote,
+                  ))['repo']
+                  as String?;
         } on PairStop {
           repo = null;
         }

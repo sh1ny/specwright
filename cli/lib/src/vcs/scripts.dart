@@ -46,9 +46,14 @@ class VcsScripts {
     String repo,
     List<String> argv, {
     String host = defaultGitHubHost,
-  }) {
+    Future<void> Function(Map<String, String>? environment)? beforeLaunch,
+  }) async {
     final run = fence;
-    return run != null ? run(repo, argv) : fencedText(repo, argv, host: host);
+    if (run != null) {
+      if (beforeLaunch != null) await beforeLaunch(null);
+      return run(repo, argv);
+    }
+    return fencedText(repo, argv, host: host, beforeLaunch: beforeLaunch);
   }
 }
 
@@ -168,6 +173,12 @@ Future<TextResult> runAs(
   String who,
   List<String> command, {
   String host = defaultGitHubHost,
-}) => scripts.fenced(repo, [who, ...command], host: host);
+  Future<void> Function(Map<String, String>? environment)? beforeLaunch,
+}) => scripts.fenced(
+  repo,
+  [who, ...command],
+  host: host,
+  beforeLaunch: beforeLaunch,
+);
 
 int _cap(int code) => code < 3 ? code : 3;

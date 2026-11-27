@@ -942,9 +942,11 @@ Files are always staged by name — never `git add -A`, never all of `openspec/`
 
 | Mode | Does | Never |
 |---|---|---|
-| `ship` | Before the change's first PR, check for a pre-ship review pass on the head; push every repo of the change (store first), then create/update the PRs with `--body-file`, post the review request | Push the default branch; open or update a PR when a push failed |
-| `feedback` | One snapshot → judge all items → fix → validate once → one commit → one reply (and 👍/👎) per finding, resolve; acknowledgement follow-ups get a reaction only (and resolve the thread if it was still open) | Resolve needs-human threads; go past `max_fix_rounds` |
-| `watch` | Background wait → wait for every reviewer on the head → feedback first → ignore CI for stale heads → fix all failing checks in one pass → at ready, offer the archive on the branch (an archive-only head gets no new review requests unless `pr.review_after_archive: true`); report stale `CHANGES_REQUESTED` verdicts; with `pr.merge: agent` on the default branch, archive without asking, merge at the ready head and clean up; a PR that changes the merge policy needs your yes (ADR 0020) | Merge (except the opt-in agent merge), rebase, force-push, approve workflow runs, dismiss reviews |
+| `ship` | Determine the PR set, check for a pre-ship review on the first publication, validate and push only expected repos (store first), then open the PRs and request review | Push a default branch; open/update a PR if any planned push failed |
+| `feedback` | Snapshot, judge and handle findings across the expected PRs. A missing planning-store PR target hands the planning branch back for manual sharing | Fix, count rounds or archive an off-host or local-only store in PR mode; resolve needs-human threads |
+| `watch` | Wait for reviews and CI, then apply the archive and merge policy. When the store has no PR target, report the code PR status and “Share the planning branch by hand” instead of pair readiness | Archive or merge on a manual store handoff; rebase, force-push, approve runs, dismiss reviews |
+
+If a separate planning store has no remote on `github.host`, `ship` can still open the code PR. Share and archive the planning branch yourself; automated finish leaves any existing archive edits untouched. After an independent code PR merge, code cleanup is still available. `finish: local` is unchanged. For a later release to include the archived change, bring the store archive onto the store's main branch.
 </details>
 
 <details>

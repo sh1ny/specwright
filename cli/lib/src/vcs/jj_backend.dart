@@ -652,10 +652,16 @@ Future<TextResult> networkJj(
     login: login,
     host: connection.host,
   );
-  final command = ['jj', ...args];
-  final result = github
-      ? await runAs(s.scripts, s.repo, who, command, host: connection.host)
-      : await plainNetwork(s.scripts, s.repo, command);
+  final result = await launchNetwork(
+    s.scripts,
+    s.repo,
+    ['jj', ...args],
+    who,
+    fenced: github,
+    host: connection.host,
+    remote: s.info.remote.name,
+    expectedRepo: args[1] == 'push' ? s.request.expectedRepo : null,
+  );
   if (result.code != 0) {
     final said = orElse(result.stderr, result.stdout).trim();
     throw VcsStop(

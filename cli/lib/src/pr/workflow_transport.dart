@@ -8,6 +8,37 @@ import '../vcs/tool_runner.dart';
 import 'gh.dart';
 import 'pair.dart';
 
+/// The host and repository are selected by the caller, not by GH_HOST, GH_REPO
+/// or gh's inference from whatever checkout happens to be current.
+List<String> hostGhArgs(List<String> args, String host) {
+  if (args.first == 'api') return ['api', '--hostname', host, ...args.skip(1)];
+  if (host == defaultGitHubHost) return args;
+  return [
+    for (var i = 0; i < args.length; i++)
+      if (i > 0 &&
+          (args[i - 1] == '--repo' || args[i - 1] == '-R') &&
+          args[i].split('/').length == 2)
+        '$host/${args[i]}'
+      else
+        args[i],
+  ];
+}
+
+Map<String, String> hostGhEnvironment(
+  Map<String, String> environment,
+  String host, {
+  bool fenced = true,
+}) {
+  final scoped = fenced
+      ? {...environment}
+      : {...originalGitEnvironment(environment)!};
+  scoped.removeWhere(
+    (key, _) => const {'GH_HOST', 'GH_REPO'}.contains(key.toUpperCase()),
+  );
+  if (!fenced || host != defaultGitHubHost) scoped['GH_HOST'] = host;
+  return scoped;
+}
+
 typedef WorkflowRunner = Future<GhResult> Function(
   String directory,
   List<String> command,

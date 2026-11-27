@@ -51,6 +51,7 @@ class PrContext {
     required this.writeErr,
     this.environment,
     this.helperCommand,
+    this.project,
     this._gh,
     this._git,
     this._bounded,
@@ -67,6 +68,7 @@ class PrContext {
   final Map<String, String>? environment;
   final List<String>? helperCommand;
   final String cwd;
+  final String? project;
   final PrGh? _gh;
   final PrGit? _git;
   final PrBounded? _bounded;
@@ -136,7 +138,7 @@ class PrContext {
       (_git ?? _runGit)(dir, args);
 
   Future<TextResult> _runGit(String dir, List<String> args) =>
-      runText(dir, ['git', ...args]);
+      runText(dir, ['git', ...args], environment: environment);
 
   /// `mktemp [template]` (D8): a new empty file made with an exclusive create, so no other writer holds it. The
   /// [template] ends in at least three `X`, replaced by random letters and digits; without one the file is

@@ -157,6 +157,7 @@ Future<int> runCli(
   if (args.isNotEmpty && args.first == 'pr') {
     return runPrCommand(
       args.sublist(1),
+      project: choice.project,
       writeOut: outBytes ?? io.stdout.add,
       writeErr: errBytes ?? io.stderr.add,
     );

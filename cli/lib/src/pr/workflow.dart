@@ -1,6 +1,9 @@
 import 'dart:convert';
 import 'dart:io';
 
+import '../fence/fence.dart' show discoveryEnvironment, originalGitEnvironment;
+import '../fence/urls.dart';
+import '../settings/rules.dart' show Contexts, GitHubConnection, RepoContext;
 import '../vcs/codec.dart';
 import '../vcs/document.dart';
 import 'context.dart';
@@ -30,7 +33,88 @@ class Workflow {
   final PrContext ctx;
   final _repoLogin = <String, String>{};
   final _tokens = <String, String>{};
+  var _connection = const GitHubConnection();
+  String? _bound;
+  String _configuredLogin = '';
+  String? _providedLogin;
+  bool _handoff = false;
+  bool _deferred = false;
+  final _roles = <String, RepoContext>{};
   String? _ambient;
+
+  Future<Contexts> useRoles(String code, String? store) async {
+    final settings = await workflowContexts(ctx, code, store);
+    _connection = settings.connection;
+    _configuredLogin = settings.code.login;
+    _roles[code] = settings.code;
+    if (store != null) _roles[store] = settings.store!;
+    return settings;
+  }
+
+  Future<String?> codeLogin(String configured) async {
+    if (!_connection.fence) return null;
+    if (_bound != null) return _bound!;
+    if (_providedLogin == null && _handoff && !_deferred) {
+      throw PairStop(
+        'missing_run_login',
+        'fenced handoff for ${_connection.host} needs a bound run login or deferred first lookup',
+        code: 3,
+      );
+    }
+    var login = _providedLogin ?? configured;
+    final verifiedOuter =
+        _providedLogin == null &&
+        !_deferred &&
+        ctx.env.containsKey('AS_SH_ORIG_SET');
+    if (login.isEmpty || verifiedOuter) {
+      final host = _connection.host;
+      final r = await ctx.gh(
+        ['api', '--hostname', host, 'user', '--jq', '.login'],
+        environment: verifiedOuter
+            ? hostGhEnvironment(ctx.env, host)
+            : discoveryEnvironment(ctx.env),
+      );
+      if (r.limit case final limit?) {
+        throw PairStop(
+          limit.label,
+          'GitHub state unknown: ${limit.label}: gh api user',
+          code: 3,
+          extra: {'unknown': true},
+        );
+      }
+      login = r.exitCode == 0 ? decodeReplacing(r.stdout).trim() : '';
+      if (login.isEmpty) {
+        throw PairStop(
+          'no_credential',
+          "no active gh account for $host; run gh auth login --hostname $host or set github.login "
+              '(environment tokens are not used to pick the fenced login)',
+          code: 3,
+        );
+      }
+    }
+    await tokenFor(login);
+    return _bound = login;
+  }
+
+  Future<String?> prTarget(RepoContext role) async {
+    try {
+      return (await identityOf(
+            ctx,
+            role.dir,
+            host: _connection.host,
+            selection: role.remote,
+          ))['repo']
+          as String;
+    } on NoPrRemote {
+      return null;
+    }
+  }
+
+  Map<String, Object?> manualHandoff(String branch) => {
+    'action': 'manual_store_handoff',
+    'branch': branch,
+    'message': "Share the planning branch '$branch' by hand.",
+  };
 
   /// The native VCS boundary keeps the old wrapper's exit reduction.
   /// State and plan remain unbounded; only fetch paths carry network budgets.
@@ -54,27 +138,16 @@ class Workflow {
   }
 
   Future<String?> fetchRepo(String dir) async {
-    try {
-      return (await identityOf(ctx, dir))['repo'] as String;
-    } on PairStop {
-      final r = await ctx.git(dir, ['remote', 'get-url', 'origin']);
-      return r.code == 0 ? parseRepo(r.stdout.trim()) : null;
-    }
+    final role = _roles[dir];
+    final remote = role?.remote.name ?? 'origin';
+    final r = await ctx.git(dir, ['remote', 'get-url', remote]);
+    return r.code == 0
+        ? parseRepo(r.stdout.trim(), host: _connection.host)
+        : null;
   }
 
   Map<String, String> unfencedEnvironment() {
-    if (!ctx.env.containsKey('AS_SH_ORIG_SET')) {
-      return Map<String, String>.of(ctx.env);
-    }
-    final filter = RegExp(
-      r'^(?:GH_TOKEN|GIT_SSH_COMMAND|GIT_TERMINAL_PROMPT|GCM_INTERACTIVE|GIT_ASKPASS|SSH_ASKPASS|GIT_CONFIG_COUNT|GIT_CONFIG_(?:KEY|VALUE)_\d+|AS_SH_ORIG_\w+)$',
-    );
-    return {
-      for (final e in ctx.env.entries)
-        if (!filter.hasMatch(e.key)) e.key: e.value,
-      for (final key in ctx.env['AS_SH_ORIG_SET']!.split(RegExp(r'\s+')))
-        if (key.isNotEmpty) key: ctx.env['AS_SH_ORIG_$key'] ?? '',
-    };
+    return originalGitEnvironment(ctx.env)!;
   }
 
   Future<GhResult> gitNetwork(String dir, List<String> args) async {
@@ -102,42 +175,24 @@ class Workflow {
       return result;
     }
 
-    if (slug == null) return unfenced(unfencedEnvironment());
-    var login = _repoLogin[slug.toLowerCase()];
-    // D4: both are compared as paths, so they are read strictly
-    final top = (await ctx.git(dir, [
-      'rev-parse',
-      '--show-toplevel',
-    ])).names('repository path').trim();
-    final started = (await ctx.git(ctx.cwd, [
-      'rev-parse',
-      '--show-toplevel',
-    ])).names('repository path').trim();
-    if (login == null && top.isNotEmpty && top == started) {
-      return unfenced(ctx.env);
-    }
-    login ??= await ambientLogin();
-    // The frozen git_net calls token_for before its bounded net segment.
-    // Keep that preflight here; the fence's own target-cwd credential lookup,
-    // remote checks and launched command share the net budget below.
-    await tokenFor(login);
+    if (!_connection.fence || slug == null)
+      return unfenced(unfencedEnvironment());
+    final login =
+        _repoLogin[slug.toLowerCase()] ?? _bound ?? await ambientLogin();
     return WorkflowTransport.native(
       directory: dir,
       environment: ctx.env,
       helperCommand: ctx.helperCommand,
-    ).fenced(login, ['git', ...args], outer: limits);
+    ).fenced(login, ['git', ...args], outer: limits, host: _connection.host);
   }
 
   Future<bool> remoteContains(String dir, String branch, String sha) async {
-    final r = await gitNetwork(dir, [
-      'ls-remote',
-      'origin',
-      'refs/heads/$branch',
-    ]);
+    final name = _roles[dir]?.remote.name ?? 'origin';
+    final r = await gitNetwork(dir, ['ls-remote', name, 'refs/heads/$branch']);
     if (r.exitCode != 0 || r.limit != null) {
       throw PairStop(
         'remote_unreadable',
-        'git ls-remote origin failed in $dir: ${decodeReplacing(r.stderr).trim()}',
+        'git ls-remote $name failed in $dir: ${decodeReplacing(r.stderr).trim()}',
         code: 3,
         extra: {'unknown': true},
       );
@@ -167,7 +222,7 @@ class Workflow {
         'fetch',
         '-q',
         if (isolated) '--refmap=',
-        'origin',
+        name,
         'refs/heads/$branch',
       ]);
     }
@@ -180,7 +235,7 @@ class Workflow {
     if (merged.code == 0 || merged.code == 1) return merged.code == 0;
     throw PairStop(
       'remote_unreadable',
-      'cannot tell whether origin/$branch contains $sha in $dir: ${merged.stderr.trim()}',
+      'cannot tell whether $name/$branch contains $sha in $dir: ${merged.stderr.trim()}',
       code: 3,
       extra: {'unknown': true},
     );
@@ -188,21 +243,13 @@ class Workflow {
 
   Future<String> tokenFor(String login) async {
     if (_tokens[login] case final token?) return token;
-    final bare = Map<String, String>.of(ctx.env)
-      ..removeWhere(
-        (k, v) => [
-          'GH_TOKEN',
-          'GITHUB_TOKEN',
-          'GH_HOST',
-          'GH_ENTERPRISE_TOKEN',
-          'GITHUB_ENTERPRISE_TOKEN',
-        ].contains(k),
-      );
+    final bare = discoveryEnvironment(ctx.env);
+    final host = _connection.host;
     final r = await ctx.gh([
       'auth',
       'token',
       '--hostname',
-      'github.com',
+      host,
       '--user',
       login,
     ], environment: bare);
@@ -218,14 +265,14 @@ class Workflow {
     if (token.isEmpty) {
       throw PairStop(
         'no_credential',
-        "no gh credential for '$login' (planning_store.login); run gh auth login",
+        "no gh credential for '$login' on $host; run gh auth login --hostname $host",
         code: 3,
         extra: {'login': login},
       );
     }
     final who = await ctx.gh(
-      ['api', '--hostname', 'github.com', 'user', '--jq', '.login'],
-      environment: {...bare, 'GH_TOKEN': token},
+      ['api', '--hostname', host, 'user', '--jq', '.login'],
+      environment: {...bare, githubTokenVariable(host): token},
     );
     if (who.limit != null) {
       throw PairStop(
@@ -263,20 +310,23 @@ class Workflow {
         break;
       }
     }
-    final login = _repoLogin[repo?.toLowerCase()];
-    Map<String, String>? env;
-    if (login != null) {
-      env = {...ctx.env, 'GH_TOKEN': await tokenFor(login)}
-        ..removeWhere(
-          (k, v) => [
-            'GH_HOST',
-            'GH_ENTERPRISE_TOKEN',
-            'GITHUB_ENTERPRISE_TOKEN',
-          ].contains(k),
-        );
-    }
+    final slug = repo?.split('/');
+    final key = slug == null
+        ? null
+        : slug.skip(slug.length == 3 ? 1 : 0).join('/').toLowerCase();
+    final login = _connection.fence
+        ? _repoLogin[key] ?? _bound ?? await codeLogin(_configuredLogin)
+        : null;
+    final host = _connection.host;
+    final source = login == null || !_connection.fence
+        ? ctx.env
+        : {
+            ...discoveryEnvironment(ctx.env),
+            githubTokenVariable(host): await tokenFor(login),
+          };
+    final env = hostGhEnvironment(source, host, fenced: _connection.fence);
     final r = await ctx.gh(
-      args,
+      hostGhArgs(args, host),
       paged: args.contains('--paginate'),
       environment: env,
     );
@@ -925,8 +975,7 @@ class Workflow {
         store = printedPath(a['store']!),
         branch = a['branch']!;
     final sw = printedPath(Platform.resolvedExecutable);
-    final e = await expected(code, store, branch),
-        contexts = await workflowContexts(ctx, code, store);
+    final e = await expected(code, store, branch);
     final choices = await workflowVcsChoices(ctx, code);
     final members = e['set'] as List,
         keep = <Map<String, Object?>>[],
@@ -1018,23 +1067,19 @@ class Workflow {
               pr!['head_sha'] as String,
             ],
           ];
-          final configured = k == 'code'
-              ? contexts.code.login
-              : contexts.store!.login;
-          final login = configured.isNotEmpty
-              ? configured
-              : await ambientLogin();
+          final login =
+              _repoLogin[(side['repo'] as String).toLowerCase()] ?? _bound;
+          final loginArgs = [
+            if (login != null) ...['--login', login],
+          ];
           if (nonGit) {
             if (gb) {
-              check.addAll(['--code', code, '--role', k, '--login', login]);
+              check.addAll(['--code', code, '--role', k, ...loginArgs]);
             }
             commands.add(command(await plan(cwd, k, 'switch', main, [])));
             commands.add(
               command(
-                await plan(cwd, k, 'pull', gb ? branch : main, [
-                  '--login',
-                  login,
-                ]),
+                await plan(cwd, k, 'pull', gb ? branch : main, loginArgs),
               ),
             );
             commands.add(command(check));
@@ -1049,16 +1094,7 @@ class Workflow {
           } else {
             commands.addAll([
               command(['git', 'checkout', main]),
-              command([
-                sw,
-                '--project',
-                code,
-                'as',
-                login,
-                'git',
-                'pull',
-                '--ff-only',
-              ]),
+              command(await plan(cwd, k, 'pull', main, loginArgs)),
               command(check),
             ]);
             ent['delete'] = ['git', 'branch', '-D', branch];
@@ -1072,9 +1108,7 @@ class Workflow {
           'branch': branch,
           'url': pr?['url'],
         });
-      } else if (k == 'store' &&
-          exists &&
-          side['reason'] == 'no_github_origin') {
+      } else if (k == 'store' && side['reason'] == 'no_github_origin') {
         keep.add({
           'repo': k,
           'slug': null,
@@ -1119,6 +1153,41 @@ class Workflow {
   }
 
   Future<Map<String, Object?>> run(String command, List<String> argv) async {
+    final args = <String>[];
+    for (var i = 0; i < argv.length; i++) {
+      final arg = argv[i];
+      if (arg == '--handoff') {
+        _handoff = true;
+      } else if (arg == '--resolve-login') {
+        _deferred = true;
+      } else if (arg == '--run-login') {
+        if (_providedLogin != null ||
+            ++i == argv.length ||
+            argv[i].isEmpty ||
+            argv[i].startsWith('-')) {
+          pairUsage('--run-login takes one nonempty login');
+        }
+        _providedLogin = argv[i];
+      } else {
+        args.add(arg);
+      }
+    }
+    if (_deferred && _providedLogin != null) {
+      pairUsage('--resolve-login and --run-login are mutually exclusive');
+    }
+    argv = args;
+    if (!const {
+      'cleanup-plan',
+      'pass',
+      'expected',
+      'pair-state',
+      'rounds',
+      'branch-check',
+    }.contains(command)) {
+      final settings = await prGitHubSettings(ctx);
+      _connection = settings.connection;
+      _configuredLogin = settings.login;
+    }
     if (command == 'cleanup-plan') return cleanupPlan(argv);
     if (command == 'branch-check') return branchCheck(argv);
     if (command == 'pass') {
@@ -1229,9 +1298,21 @@ class Workflow {
 
   Future<bool> hasRef(String d, String ref) async =>
       (await ctx.git(d, ['show-ref', '--verify', '--quiet', ref])).code == 0;
+
+  Future<bool> exactRef(String dir, String ref) async {
+    final read = await ctx.git(dir, [
+      'for-each-ref',
+      '--format=%(refname)',
+      ref,
+    ]);
+    if (read.code != 0) throw PairStop('git_error', 'cannot read $ref in $dir');
+    return read.names('Git refs').split(RegExp(r'\r?\n')).contains(ref);
+  }
+
   Future<String?> mainRef(String d, String main) async {
-    for (final ref in ['refs/heads/$main', 'refs/remotes/origin/$main']) {
-      if (await hasRef(d, ref)) return ref;
+    final remote = _roles[d]?.remote.name ?? 'origin';
+    for (final ref in ['refs/heads/$main', 'refs/remotes/$remote/$main']) {
+      if (await exactRef(d, ref)) return ref;
     }
     return null;
   }
@@ -1239,22 +1320,51 @@ class Workflow {
   Future<Map<String, Object?>> expected(
     String code,
     String store,
-    String branch,
-  ) async {
-    final c = await workflowContexts(ctx, code, store);
-    final cid = await identityOf(ctx, code);
-    final cd = await discover(cid['repo'] as String, branch, base: c.code.main);
-    final mref = await mainRef(code, c.code.main);
+    String branch, {
+    bool transportOnly = false,
+  }) async {
+    final c = await useRoles(code, store);
+    final cid = await prTarget(c.code);
+    final sid = await prTarget(c.store!);
+    if (sid != null && cid == null) {
+      throw PairStop(
+        'not-github',
+        'the planning store can open a PR but the code repository has no PR target',
+      );
+    }
+    if (sid != null && sid.toLowerCase() == cid!.toLowerCase()) {
+      throw PairStop(
+        'same_repository',
+        'code and store both select ${_connection.host}/$cid',
+      );
+    }
+    if (transportOnly) {
+      return {
+        'ok': true,
+        if (sid == null) ...manualHandoff(branch) else 'action': 'publishable',
+        'code_repo': cid,
+        'store_repo': sid,
+      };
+    }
     var commits = 0;
-    if (mref != null && await hasRef(code, 'refs/heads/$branch')) {
+    if (await exactRef(code, 'refs/heads/$branch')) {
+      final mref = await mainRef(code, c.code.main);
+      if (mref == null) {
+        throw PairStop(
+          'git_error',
+          'cannot count $branch changes without ${c.code.main} in $code',
+        );
+      }
       final r = await ctx.git(code, [
         'rev-list',
         '--count',
         '$mref..refs/heads/$branch',
       ]);
-      if (r.code == 0) {
-        commits = int.parse(r.stdout.trim().isEmpty ? '0' : r.stdout.trim());
+      final count = int.tryParse(r.stdout.trim());
+      if (r.code != 0 || count == null || count < 0) {
+        throw PairStop('git_error', 'cannot count $branch changes in $code');
       }
+      commits = count;
     }
     dynamic selected(List<dynamic> prs) {
       for (final p in prs) {
@@ -1263,10 +1373,24 @@ class Workflow {
       return prs.isEmpty ? null : prs.first;
     }
 
-    final cp = cd['prs'] as List;
+    if (cid != null) {
+      final bound = await codeLogin(c.code.login);
+      if (bound != null && sid != null) {
+        final s = c.store!.loginExplicit ? c.store!.login : bound;
+        if (s.toLowerCase() != bound.toLowerCase()) {
+          await tokenFor(s);
+          _repoLogin[sid.toLowerCase()] = s;
+        }
+      }
+    }
+    final cd = cid == null
+        ? null
+        : await discover(cid, branch, base: c.code.main);
+
+    final cp = (cd?['prs'] as List?) ?? [];
     final cs = {
-      'expected': cp.isNotEmpty || commits > 0,
-      'repo': cid['repo'],
+      'expected': cid != null && (cp.isNotEmpty || commits > 0),
+      'repo': cid,
       'main': c.code.main,
       'commits': commits,
       'reason': cp.isNotEmpty
@@ -1275,29 +1399,20 @@ class Workflow {
           ? 'commits'
           : 'none',
       'pr': selected(cp),
-      'other_base': cd['other_base'],
+      'other_base': cd?['other_base'] ?? [],
+      if (c.code.remote.explicit) 'remote': c.code.remote.name,
     };
-    Map<String, Object?>? sid;
-    try {
-      sid = await identityOf(ctx, store);
-    } on PairStop catch (e) {
-      if (!['not-github', 'no-origin'].contains(e.error)) rethrow;
-    }
     final ss = <String, Object?>{
       'expected': sid != null,
-      'repo': sid?['repo'],
+      'repo': sid,
       'main': c.store!.main,
       'reason': sid != null ? 'github_origin' : 'no_github_origin',
       'pr': null,
       'other_base': [],
+      if (c.store!.remote.explicit) 'remote': c.store!.remote.name,
     };
     if (sid != null) {
-      final slug = sid['repo'] as String;
-      final s = c.store!.login, login = c.code.login;
-      if (s.isNotEmpty && s.toLowerCase() != login.toLowerCase()) {
-        _repoLogin[slug.toLowerCase()] = s;
-      }
-      final sd = await discover(slug, branch, base: c.store!.main);
+      final sd = await discover(sid, branch, base: c.store!.main);
       ss['pr'] = selected(sd['prs'] as List);
       ss['other_base'] = sd['other_base'];
     }
@@ -1322,6 +1437,15 @@ class Workflow {
       'code': cs,
       'store': ss,
       'ship': {'report': report[0], 'note': report[1]},
+      if (_bound != null && (_handoff || _deferred || _providedLogin != null))
+        'run_login': _bound,
+      if (sid != null &&
+          _bound != null &&
+          (_handoff || _deferred || _providedLogin != null))
+        'store_login': _repoLogin[sid.toLowerCase()] ?? _bound,
+      if (_connection.host != defaultGitHubHost)
+        'github_host': _connection.host,
+      if (!_connection.fence) 'github_fence': false,
     };
   }
 
@@ -1329,40 +1453,36 @@ class Workflow {
     String command,
     List<String> argv,
   ) async {
-    final a = parsePairArgs(argv, {
-      '--code': 'code',
-      '--store': 'store',
-      '--branch': 'branch',
-      if (command == 'pair-state') ...{
-        '--snapshot': '+snapshot',
-        '--dropped': '+dropped',
-        '--carry-over': '+carry',
+    final transportOnly =
+        command == 'expected' && argv.contains('--transport-only');
+    final a = parsePairArgs(
+      transportOnly
+          ? argv.where((arg) => arg != '--transport-only').toList()
+          : argv,
+      {
+        '--code': 'code',
+        '--store': 'store',
+        '--branch': 'branch',
+        if (command == 'pair-state') ...{
+          '--snapshot': '+snapshot',
+          '--dropped': '+dropped',
+          '--carry-over': '+carry',
+        },
       },
-    });
+    );
     needArgs(a, ['code', 'store', 'branch']);
-    final e = await expected(a['code']!, a['store']!, a['branch']!);
+    final e = await expected(
+      a['code']!,
+      a['store']!,
+      a['branch']!,
+      transportOnly: transportOnly,
+    );
     if (command == 'expected') return e;
     final carry = a.lists['carry'] ?? <String>[];
     if (carry.any((k) => !['code', 'store'].contains(k))) {
       pairUsage(
         '--carry-over is code or store: the side whose archive head carries its reviewers\' reports over',
       );
-    }
-    final snaps = <String, Map<dynamic, dynamic>>{};
-    for (final spec in a.lists['snapshot'] ?? <String>[]) {
-      final at = spec.indexOf('=');
-      if (at < 0 ||
-          !['code', 'store'].contains(spec.substring(0, at)) ||
-          at == spec.length - 1) {
-        pairUsage('--snapshot is code=<file> or store=<file>');
-      }
-      final path = spec.substring(at + 1);
-      try {
-        snaps[spec.substring(0, at)] =
-            await readWorkflowJson(path) as Map<dynamic, dynamic>;
-      } on Object catch (err) {
-        throw PairStop('snapshot_unreadable', '$path: $err', code: 2);
-      }
     }
     final dropped = a.lists['dropped'] ?? <String>[];
     final members = e['set'] as List<String>;
@@ -1392,12 +1512,13 @@ class Workflow {
       'stop_waits': false,
       'archive': false,
       'rerequest': false,
-      'share_store_by_hand':
-          members.contains('code') && !members.contains('store'),
+      'share_store_by_hand': !members.contains('store'),
       'prs': prs,
       'ship': e['ship'],
     };
-    if (members.isEmpty) return {...r, 'action': 'no_watch'};
+    if (!members.contains('store') && missing.isEmpty && merged.isEmpty) {
+      return {...r, ...manualHandoff(a['branch']!), 'stop_waits': true};
+    }
     if (missing.isNotEmpty) return {...r, 'action': 'ship'};
     if (merged.isNotEmpty || closed.isNotEmpty) {
       return {
@@ -1405,6 +1526,22 @@ class Workflow {
         'action': open.isNotEmpty ? 'split_hand_off' : 'cleanup',
         'stop_waits': true,
       };
+    }
+    final snaps = <String, Map<dynamic, dynamic>>{};
+    for (final spec in a.lists['snapshot'] ?? <String>[]) {
+      final at = spec.indexOf('=');
+      if (at < 0 ||
+          !['code', 'store'].contains(spec.substring(0, at)) ||
+          at == spec.length - 1) {
+        pairUsage('--snapshot is code=<file> or store=<file>');
+      }
+      final path = spec.substring(at + 1);
+      try {
+        snaps[spec.substring(0, at)] =
+            await readWorkflowJson(path) as Map<dynamic, dynamic>;
+      } on Object catch (err) {
+        throw PairStop('snapshot_unreadable', '$path: $err', code: 2);
+      }
     }
     for (final k in members) {
       final s = snaps[k], p = prs[k] as Map<dynamic, dynamic>;
@@ -1505,7 +1642,11 @@ class Workflow {
     needArgs(a, ['code', 'branch']);
     final code = a['code']!;
     final store = a['store'];
-    final c = await workflowContexts(ctx, code, store);
+    final c = await useRoles(code, store);
+    final sid = c.store == null ? null : await prTarget(c.store!);
+    if (store != null && sid == null) {
+      return {'ok': true, ...manualHandoff(a['branch']!)};
+    }
     final per = <String, Object?>{};
     final trailers = <String, Map<String, int>>{};
     var top = 0;
@@ -1561,16 +1702,14 @@ class Workflow {
     final rounds = top > 0 ? top : legacy;
     final unpushed = <String, List<String>>{}, unreadable = <String>[];
     if (top > 0) {
-      if (store != null && trailers['store']!.values.contains(top)) {
-        final slug = await fetchRepo(store);
-        final s = c.store!.login;
-        if (slug != null &&
-            s.isNotEmpty &&
-            s.toLowerCase() != c.code.login.toLowerCase()) {
-          _repoLogin[slug.toLowerCase()] = s;
-        }
-        if (slug != null && _repoLogin[slug.toLowerCase()] != null) {
-          await tokenFor(_repoLogin[slug.toLowerCase()]!);
+      final bound = await codeLogin(c.code.login);
+      if (sid != null &&
+          bound != null &&
+          trailers['store']!.values.contains(top)) {
+        final s = c.store!.loginExplicit ? c.store!.login : bound;
+        if (s.toLowerCase() != bound.toLowerCase()) {
+          await tokenFor(s);
+          _repoLogin[sid.toLowerCase()] = s;
         }
       }
       for (final e in {'code': code, 'store': ?store}.entries) {
