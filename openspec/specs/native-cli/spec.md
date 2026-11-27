@@ -778,7 +778,7 @@ The check SHALL accept the project's `VERSION` only when it is `x.y.z` with an o
 - **THEN** it prints its version document and exits 0
 
 ### Requirement: The project is chosen by --project, then the command's own argument
-A project command SHALL take an optional leading `--project <code checkout>`, used only to choose the `VERSION` to check; it SHALL change neither the working directory, the target repositories nor the login. Without it the project SHALL be the command's code-checkout argument (`--code`, else `--repo` for `vcs`, `--dir` for `release` and `finish`), else the current directory, each walked up to the first directory holding `.git`. An undo plan's relative `--code` starts at the `--dir` root.
+A project command SHALL accept leading `--project <code checkout>` to select the `VERSION` and, for `sw as` and GitHub-aware `sw pr` commands, the connection settings. It SHALL NOT change cwd, targets or login. Otherwise, resolve the project by walking to the first `.git` from `--code`, `--repo` for `vcs`, `--dir` for `release` and `finish`, or cwd, in that order. An undo plan resolves relative `--code` from `--dir`.
 
 #### Scenario: A store-started call
 - **WHEN** the current directory is a planning store with no `VERSION` and `sw --project <code checkout> pr pair-state ...` runs
@@ -914,11 +914,15 @@ The Git steps of `sw finish undo-archive-plan` SHALL carry `--literal-pathspecs`
 - **THEN** it is as the old scripts printed it
 
 ### Requirement: The project root is found from the physical path
-For every project command, `sw` SHALL resolve an existing version-check start (`--project`, `--code` or `--dir`, else the current directory) to its physical path, symbolic links resolved, before it looks upward for the checkout whose `VERSION` it checks. A start that does not exist SHALL keep its given form. `--project` still selects only the `VERSION` checked, not the repository a command acts on.
+For every project command, `sw` SHALL resolve an existing version-check start (`--project`, `--code` or `--dir`, else the current directory) to its physical path, symbolic links resolved, before looking upward for the checkout whose `VERSION` it checks. A nonexistent start SHALL keep its given form. When the selected project supplies `sw as` or `sw pr` with connection settings, those settings SHALL come from the same checkout as the version check, never from a different target repository.
 
 #### Scenario: A project path through a link and `..`
 - **WHEN** on POSIX `sw --project /A/link/.. vcs state --repo /C --role code` runs, `link` points to `/B/subdir`, and only `/B`'s `VERSION` matches the running `sw`
 - **THEN** the version check reads `/B`, the command proceeds, and the state document's `head` is `/C`'s
+
+#### Scenario: Stale settings in a shared store do not choose its GitHub host
+- **WHEN** `sw --project <code> as store-bot ...` runs inside a planning store with competing settings on disk in the store and the code project specifies `github.example.com`
+- **THEN** the command runs inside the store but credential lookup and verification use `github.example.com`, not the store's settings
 
 ### Requirement: A command shown without its required options means the workflow's call
 Where a requirement or scenario shows an `sw` command without options it requires (`--download` for `sw update` reads of the download, `--code` for `sw pr context`, `--repo` and `--role` for `sw vcs`, the task and change options of `sw commit task-cover`, the change options of `sw review run`), it SHALL mean the call the workflow makes with them, and its asserted outcome SHALL be that call's. A usage stop for a missing option is meant only where the text says the option is missing.
@@ -930,4 +934,3 @@ Where a requirement or scenario shows an `sw` command without options it require
 #### Scenario: A missing option named on purpose
 - **WHEN** a scenario says `sw update plan` runs without `--download`
 - **THEN** it means that call, which prints a `usage` document and exits 2
-
