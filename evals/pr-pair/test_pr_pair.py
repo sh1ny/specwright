@@ -227,6 +227,12 @@ sys.exit(subprocess.call([real, *args]))
     def pulls(self, slug):
         return self.gh().get("repos", {}).get(slug, {}).get("pulls", [])
 
+    def with_pr_target(self, snapshot, slug, number):
+        pr = next((p for p in reversed(self.pulls(slug)) if p["number"] == number), None)
+        if pr is None:
+            return {**snapshot, "number": number, "url": f"https://github.com/{slug}/pull/{number}"}
+        return {**snapshot, "number": number, "url": pr["html_url"], "head_oid": pr["head"]["sha"]}
+
     def pushed_at(self, slug, branch, sha, ts):
         st = self.gh()
         st.setdefault("repos", {}).setdefault(slug, {}).setdefault("activity", []).append(
@@ -1947,9 +1953,8 @@ class Rounds(Base):
         self.assertNotIn("SECRETtok", json.dumps(r))
         self.assertEqual(seen, [], "no request may reach the server")
 
-    def test_rounds_store_token_url_with_non_github_push_url_exits_3(self):
-        # PR #82: the store fetches from github.com but pushes elsewhere; the fetch URL alone decides the fence, so the
-        # token in it is still refused, never sent by a plain-git read
+    def test_rounds_refuses_mixed_store_urls_before_sending_a_token(self):
+        # A GitHub fetch URL does not make an off-host push destination safe.
         seen = []
 
         class Rec(BaseHTTPRequestHandler):
@@ -1973,8 +1978,9 @@ class Rounds(Base):
         self.git(self.store, "remote", "set-url", "--push", "origin", "https://git.example.com/o/s.git")
         self.git(self.store, "config", "http.proxy", f"http://127.0.0.1:{server.server_port}")
         self.commit(self.store, {"a.md": "1\n"}, self.FIX)
-        r = self.pp("rounds", "--code", self.code, "--store", self.store, "--branch", BRANCH, cwd=self.code, expect=3)
-        self.assertFalse(r["ok"])
+        r = self.pp("rounds", "--code", self.code, "--store", self.store, "--branch", BRANCH, cwd=self.code, expect=1)
+        self.assertEqual((r["ok"], r["error"]), (False, "not-github"))
+        self.assertEqual(self.gh_calls(), [])
         self.assertNotIn("remote_unreadable", r)
         self.assertNotIn("SECRETtok", json.dumps(r))
         self.assertEqual(seen, [], "no request may reach the server")
@@ -2060,12 +2066,7 @@ class PassBase(Base):
         for name, s, slug, n in (("code", code, CODE, 5), ("store", store, STORE, 3)):
             doc = dict(s if s is not None else snap())
             if not preserve_target or s is None:
-                pr = next((p for p in reversed(self.gh().get("repos", {}).get(slug, {}).get("pulls", []))
-                           if p["number"] == n), None)
-                if pr:
-                    doc.update(number=n, url=pr["html_url"], head_oid=pr["head"]["sha"])
-                else:
-                    doc.update(number=n, url=f"https://github.com/{slug}/pull/{n}")
+                doc = self.with_pr_target(doc, slug, n)
             args += ["--snapshot", f"{name}={self.write_json(f'{name}-snap.json', doc)}"]
         return self.pp(*args, expect=expect)
 
@@ -2219,6 +2220,25 @@ class PassPlan(PassBase):
         p = self.plan(code=snap(threads=[thread()]), store=snap(threads=[thread("T2")]))
         self.assertEqual(self.row(p, "rerequest", "store")["state"], "done")
         self.assertEqual(self.row(p, "rerequest", "code")["state"], "todo")
+
+    def test_feedback_request_defaults_to_bound_role_login(self):
+        self.settings("github:\n  login: KintsugiBot\nplanning_store:\n  login: KintsugiBot\n"
+                      "pr:\n  reviewers:\n    chatgpt-codex-connector: {role: required, request: '@codex review'}\n")
+        self.write_record([self.finding("F1", dest="store"), self.finding("F2", dest="code", item="T2", source="store")])
+        self.fix_code()
+        self.fix_store()
+        self.push_all()
+        for slug, repo in ((CODE, self.code), (STORE, self.store)):
+            self.pushed_at(slug, BRANCH, self.tip(repo), "2026-10-08T12:00:00Z")
+        self.add_comment(CODE, 5, "@codex review", "sh1ny", 2001, created_at="2026-10-08T12:00:01Z")
+        self.add_comment(STORE, 3, "@codex review", "KintsugiBot", 2002, created_at="2026-10-08T12:00:01Z")
+
+        plan = self.plan(code=snap(threads=[thread()]), store=snap(threads=[thread("T2")]),
+                         flags=("--run-login", "sh1ny", "--handoff"))
+
+        for side, poster in (("code", "sh1ny"), ("store", "KintsugiBot")):
+            row = self.row(plan, "rerequest", side)
+            self.assertEqual((row["requests"][0]["poster"], row["state"]), (poster, "done"))
 
     def test_pass_plan_commit_found_by_trailer(self):
         self.write_record([self.finding("F1", dest="code", source="code", edits=[{"file": "greet.py", "contains": ["strip()"]}])])
@@ -2755,7 +2775,8 @@ class PassPlan(PassBase):
         self.assertFalse(self.record_path().exists())
 
     def test_pass_write_accepts_a_well_formed_intent(self):
-        r = self.write_record([self.finding()], intent={**self.intent([self.finding()]), "prs": {"code": {"repo": CODE, "number": 5}}})
+        finding = self.finding(dest="code")
+        r = self.write_record([finding], intent={**self.intent([finding]), "prs": {"code": {"repo": CODE, "number": 5}}})
         self.assertTrue(r["ok"])
         self.assertTrue(self.record_path().exists())
         self.assertTrue(self.plan()["ok"])
@@ -2908,14 +2929,13 @@ class PassOwnership(PassBase):
         return self.pp(*args, expect=expect)
 
     def test_record_keys_do_not_alias_hyphenated_identities(self):
-        s = self.write_json("s.json", snap())
         for repo, rnd in (("acme-tools/widget", 2), ("acme/tools-widget", 3)):
-            f = self.write_json("intent.json", self.intent([self.finding()], rnd))
+            f = self.write_json("intent.json", self.intent([], rnd))
             self.cmd_for("write", repo, "--intent", f)
         names = sorted(p.name for p in (self.state_dir / "feedback").iterdir())
         self.assertEqual(names, sorted([record_key("acme-tools/widget", "fix-login"), record_key("acme/tools-widget", "fix-login")]))
         for repo, rnd in (("acme-tools/widget", 2), ("acme/tools-widget", 3)):
-            p = self.cmd_for("plan", repo, "--snapshot", f"code={s}", "--snapshot", f"store={s}")
+            p = self.cmd_for("plan", repo)
             self.assertEqual((p["record"], p["round"]), (True, rnd), repo)
 
     def test_legacy_record_is_moved_to_the_new_key(self):
@@ -2939,10 +2959,16 @@ class PassOwnership(PassBase):
         self.settings("github:\n  login: KintsugiBot\npr:\n  max_fix_rounds: 2\n")
         repo = "o" * 39 + "/" + "r" * 100
         base = ["--code", self.code, "--store", self.store, "--code-repo", repo]
-        s = self.write_json("s.json", snap(threads=[]))
-        snaps = ["--snapshot", f"code={s}", "--snapshot", f"store={s}"]
+        self.git(self.code, "remote", "set-url", "origin", f"https://github.com/{repo}.git")
+        self.git(self.code, "config", "testfixture.originUrl", f"https://github.com/{repo}.git")
+        bare_url = fixtures.posix(self.tmp / "code.bare.git")
+        self.git(self.code, "config", f"url.{bare_url}.insteadOf", f"https://github.com/{repo}.git")
+        self.add_pull(repo, 5, sha=self.tip(self.code))
+        s = self.write_json("s.json", self.with_pr_target(snap(threads=[]), repo, 5))
+        snaps = ["--snapshot", f"code={s}"]
         for change in ("c" * 80, "d" * 120):  # the second: its 0.1.9 file name is itself too long for the file system
             intent = self.intent([self.finding("F1", dest="code", edits=[{"file": "greet.py", "contains": ["strip()"]}], react=None)])
+            intent["prs"]["code"]["repo"] = repo
             intent.update(change=change, code_repo=repo)
             w = self.pp("pass", "write", *base, "--change", change, "--intent", self.write_json("intent.json", intent))
             path = self.state_dir / "feedback" / record_key(repo, change)
@@ -3101,20 +3127,31 @@ class StoreTransport(PassBase):
     bare repository. The store's own config has no insteadOf, and an unreachable http.proxy, so a git that does not
     go through the shim (which is how `sw pr` reaches the store today) cannot read it."""
 
-    SHIM = """#!/bin/sh
-real="$SHIM_REAL_GIT"
-case "$1" in ls-remote|fetch) ;; *) exec "$real" "$@" ;; esac
-url=$("$real" remote get-url origin 2>/dev/null) || exec "$real" "$@"
-case $url in *github.com/acme/plans*) ;; *) exec "$real" "$@" ;; esac
-cred=$(printf 'protocol=https\\nhost=github.com\\n\\n' | "$real" credential fill 2>/dev/null) || cred=
-pw=$(printf '%s\\n' "$cred" | sed -n 's/^password=//p' | tr -d '\\r')
-echo "$1 ${pw:+with-credential}" >> "$SHIM_LOG"
-if [ "$pw" != "$SHIM_STORE_TOKEN" ]; then
-  echo "fatal: Authentication failed for '$url'" >&2
-  exit 128
-fi
-exec "$real" -c "url.$SHIM_BARE.insteadOf=$url" "$@"
-"""
+    SHIM = '''
+import os, subprocess, sys
+from pathlib import Path
+real = os.environ["SHIM_REAL_GIT"]
+args = sys.argv[1:]
+if args[:2] == ["remote", "get-url"] and args[-1] == "origin":
+    view = subprocess.run([real, "config", "--get", "testfixture.originUrl"], capture_output=True)
+    if view.returncode == 0:
+        sys.stdout.buffer.write(view.stdout)
+        sys.exit(0)
+if args[:1] in (["ls-remote"], ["fetch"]):
+    r = subprocess.run([real, "remote", "get-url", "origin"], capture_output=True, text=True)
+    url = r.stdout.strip()
+    if r.returncode == 0 and "github.com/acme/plans" in url:
+        cred = subprocess.run([real, "credential", "fill"], input="protocol=https\\nhost=github.com\\n\\n",
+                              capture_output=True, text=True)
+        pw = next((line.partition("=")[2] for line in cred.stdout.splitlines() if line.startswith("password=")), "")
+        message = "store " + pw if os.environ.get("SHIM_LOG_IDENTITIES") else args[0] + (" with-credential" if pw else "")
+        with Path(os.environ["SHIM_LOG"]).open("a", encoding="utf-8") as stream:
+            stream.write(message + "\\n")
+        if cred.returncode != 0 or pw != os.environ["SHIM_STORE_TOKEN"]:
+            sys.exit("fatal: Authentication failed")
+        args = ["-c", "url." + os.environ["SHIM_BARE"] + ".insteadOf=" + url, *args]
+sys.exit(subprocess.call([real, *args]))
+'''
 
     def private_store(self, login, fix="store"):
         """The store reads only as `login`'s token; `login` is planning_store.login, the code login is KintsugiBot."""
@@ -3128,9 +3165,7 @@ exec "$real" -c "url.$SHIM_BARE.insteadOf=$url" "$@"
         self.git(self.store, "config", "--unset", f"url.{fixtures.posix(bare)}.insteadOf")
         self.git(self.store, "config", "http.proxy", "http://127.0.0.1:9")
         self.shim_log = self.tmp / "git-shim.log"
-        self.write("bin/git", self.SHIM)
-        os.chmod(self.tmp / "bin" / "git", 0o755)
-        fakeexe.add_launcher(self.tmp / "bin" / "git", exe=True)  # sw starts git by PATHEXT name on Windows (D9)
+        fakeexe.write_python_fake(self.tmp / "bin" / "git", self.SHIM)
         self.extra_env.update({"SHIM_REAL_GIT": fixtures.posix(shutil.which("git")), "SHIM_LOG": fixtures.posix(self.shim_log),
                                "SHIM_STORE_TOKEN": "tok-s", "SHIM_BARE": fixtures.posix(bare)})
 
@@ -3138,9 +3173,7 @@ exec "$real" -c "url.$SHIM_BARE.insteadOf=$url" "$@"
         return self.pp("rounds", "--code", self.code, "--store", self.store, "--branch", BRANCH, expect=expect)
 
     def plan_store(self, expect=0):
-        return self.pp("pass", "plan", *self.common(),
-                       "--snapshot", f"code={self.write_json('code-snap.json', snap(threads=[thread()]))}",
-                       "--snapshot", f"store={self.write_json('store-snap.json', snap())}", env={"GH_TOKEN": "tok-k"}, expect=expect)
+        return self.plan(code=snap(threads=[thread()]), expect=expect)
 
     def shim_calls(self):
         return self.shim_log.read_text(encoding="utf-8").splitlines() if self.shim_log.exists() else []
@@ -3169,7 +3202,6 @@ exec "$real" -c "url.$SHIM_BARE.insteadOf=$url" "$@"
     # plain `git` that a shim cannot intercept on Windows, so its origin is an ext:: remote (insteadOf in the repo's
     # config) whose command accepts only the code login's token from GH_TOKEN. The script runs with GH_TOKEN set to that
     # token, as the skill runs it under `sw as`.
-    SHIM_LOGGED = SHIM.replace('echo "$1 ${pw:+with-credential}" >> "$SHIM_LOG"', 'echo "store $pw" >> "$SHIM_LOG"')
     EXT = """#!/bin/sh
 echo "code ${GH_TOKEN:-none}" >> "$SHIM_LOG"
 if [ "$GH_TOKEN" != "$1" ]; then
@@ -3186,8 +3218,7 @@ exec git "${3#git-}" "$2"
         self.sha = self.fix_code()
         if push_code:
             self.push_all(self.code)
-        self.write("bin/git", self.SHIM_LOGGED)
-        os.chmod(self.tmp / "bin" / "git", 0o755)
+        self.extra_env["SHIM_LOG_IDENTITIES"] = "1"
         bare = self.tmp / "code.bare.git"
         self.git(self.code, "config", "--unset", f"url.{fixtures.posix(bare)}.insteadOf")
         self.git(self.code, "config", "protocol.ext.allow", "always")
@@ -3236,6 +3267,7 @@ class PassRepoLocal(Base):
         self.commit(self.code, {"greet.py": "def greet(n):\n    return n\n", "openspec/specwright.yaml":
                                 "github:\n  login: KintsugiBot\npr:\n  max_fix_rounds: 2\n"}, "feat(add-greeting): task 1.1")
         self.git(self.code, "push", "-q", "origin", BRANCH)
+        self.add_pull(CODE, 5, sha=self.tip(self.code))
         self.owner = None
 
     def common(self):
@@ -3262,7 +3294,8 @@ class PassRepoLocal(Base):
         args = ["pass", sub, *self.common()]
         if self.owner:
             args += ["--owner", self.owner]
-        args += ["--snapshot", f"code={self.write_json('code-snap.json', code if code is not None else snap())}"]
+        snapshot = self.with_pr_target(code if code is not None else snap(), CODE, 5)
+        args += ["--snapshot", f"code={self.write_json('code-snap.json', snapshot)}"]
         return self.pp(*args, expect=expect)
 
     def fix_code(self, rnd=2):
@@ -4328,8 +4361,8 @@ class ItemIssues(Base):
         st.setdefault("repos", {}).setdefault(slug, {})["issue_list"] = issues
         self.save_gh(st)
 
-    def item_issues(self, repo, *items, expect=0, env=None):
-        args = ["item-issues", "--repo", repo]
+    def item_issues(self, repo, *items, expect=0, env=None, login=None):
+        args = ["item-issues", "--repo", repo, *(["--run-login", login] if login else [])]
         for i in items:
             args += ["--item", i]
         return self.pp(*args, env={**self.TOKEN, **(env or {})}, expect=expect)
@@ -4356,7 +4389,7 @@ class ItemIssues(Base):
         r = self.item_issues(CODE, "A", "B")
         self.assertEqual((r["found"], r["missing"]), ({"A": 3}, ["B"]), "an item is matched only in its own repository")
         self.assertEqual(self.issue_reads(STORE), [])
-        r = self.item_issues(STORE, "B", env={"GH_TOKEN": "tok-s"})
+        r = self.item_issues(STORE, "B", login="sh1ny")
         self.assertEqual(r["found"], {"B": 5})
         reads = self.issue_reads(STORE)
         self.assertEqual(len(reads), 1)
@@ -5052,7 +5085,7 @@ class PolicyReviewers(PolicyBase):
         systmp.mkdir()
         self.seed_both(self.AGENT, self.AGENT)
         env = {"SPECWRIGHT_STATE_DIR": str(blocker / "state"), "TMP": str(systmp), "TEMP": str(systmp), "TMPDIR": str(systmp)}
-        r = self.pp("policy", "--repo", CODE, "--head", self.HEAD, "--snapshot", "code=" + str(self.psnap("s", self.HEAD, [self.CODEX])),
+        r = self.pp("policy", "--repo", CODE, "--pr", "1", "--head", self.HEAD, "--snapshot", "code=" + str(self.psnap("s", self.HEAD, [self.CODEX])),
                     env={**self.TOKEN, **env})
         path = Path(r["reviewer_config"]["main"]["code"])
         self.assertEqual(path.read_bytes(), config_bytes(rv(self.CODEX)))

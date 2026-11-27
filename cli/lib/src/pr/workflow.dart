@@ -334,12 +334,20 @@ class Workflow {
     return _tokens[login] = token;
   }
 
+  /// The verified account for a PR target, or null for ambient credentials.
+  Future<String?> githubLoginFor(String? slug) async {
+    if (!_connection.fence) return null;
+    _requireFencedHandoff();
+    return _repoLogin[slug?.toLowerCase()] ??
+        _bound ??
+        await codeLogin(_configuredLogin);
+  }
+
   Future<GhResult> gh(
     List<String> args, {
     String? repo,
     bool limitOk = false,
   }) async {
-    _requireFencedHandoff();
     for (var i = 0; i < args.length; i++) {
       final m = RegExp(r'^/?repos/([^/]+/[^/?]+)').firstMatch(args[i]);
       if (m != null) {
@@ -352,10 +360,8 @@ class Workflow {
       }
     }
     final slug = repo?.split('/');
-    final key = slug?.skip(slug.length == 3 ? 1 : 0).join('/').toLowerCase();
-    final login = _connection.fence
-        ? _repoLogin[key] ?? _bound ?? await codeLogin(_configuredLogin)
-        : null;
+    final key = slug?.skip(slug.length == 3 ? 1 : 0).join('/');
+    final login = await githubLoginFor(key);
     final host = _connection.host;
     final source = login == null || !_connection.fence
         ? ctx.env

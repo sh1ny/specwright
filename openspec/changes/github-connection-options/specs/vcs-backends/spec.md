@@ -51,7 +51,7 @@ With the `git` backend, branch creation, switch, commit by named paths, `--no-ff
 - **THEN** the commit fails as `git commit` fails today, and no other path is committed
 
 ### Requirement: Fetches for reading move no jj bookmark
-On jj, ordinary fetches made only to read the selected remote's main (gate refresh, roadmap status, ship's base check and PR-pair ancestry) SHALL write only `FETCH_HEAD` and objects, never a remote-tracking ref. The step SHALL read the fetched commit instead of `<remote>/<main>`, because jj turns a remote-tracking move into a move of its tracked local bookmark. For release proof only, a GitHub fetch MAY write an invocation-private ref and objects instead of `FETCH_HEAD`. It SHALL remove its private ref immediately after reading the result, not write `FETCH_HEAD`, and move neither a bookmark nor a remote-tracking ref.
+On jj, read-only main fetches (gate, roadmap, ship and PR ancestry) SHALL write only objects and `FETCH_HEAD`, not a remote-tracking ref. Use the fetched commit, not `<remote>/<main>`: moving that ref can move a tracked bookmark. GitHub release proof MAY use an invocation-private ref instead, SHALL remove it immediately after reading the commit, and SHALL leave all bookmarks, tracking refs and `FETCH_HEAD` unchanged.
 
 #### Scenario: Remote main ahead, main tracked
 - **WHEN** local main tracks `main@origin`, origin's main has a new commit, and the gate refreshes main on jj
@@ -66,7 +66,7 @@ On jj, ordinary fetches made only to read the selected remote's main (gate refre
 - **THEN** the release fetch reads its own private ref and removes it immediately; no bookmark, remote-tracking ref or `FETCH_HEAD` changes, the history reads use that fetched commit, and the notes list the merged PRs of the base branch by its name
 
 ### Requirement: The GitButler backend is probed before any `but` command
-Every branch read and write on `gitbutler` SHALL first check with Git reads that GitButler manages the repo (`.git/gitbutler/` and `gitbutler.project.targetRef`) with `<main>` as target. An explicit remote SHALL require the corresponding remote-tracking target; otherwise retain the local-main or default remote-tracking target check. Then run `but --version` outside the repo to require 0.23+. A failure SHALL stop before any write with `not_managed`, `target_mismatch`, `tool_missing`, `tool_version_unknown` or `tool_too_old`. Specwright SHALL never run `but` setup, teardown or target commands.
+Before a `but` command, Specwright SHALL verify `.git/gitbutler/` and `gitbutler.project.targetRef` with Git reads. An explicit remote requires its `<main>` tracking ref; otherwise accept local main or the default tracking ref. Check `but --version` outside the repo for 0.23+. Fail before writes with `not_managed`, `target_mismatch`, `tool_missing`, `tool_version_unknown` or `tool_too_old`. Never run `but` setup, teardown or target commands.
 
 #### Scenario: `but` missing
 - **WHEN** `vcs` is `gitbutler` and `but` is not on PATH

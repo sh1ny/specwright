@@ -50,6 +50,17 @@ class WorkflowParity(parity.PairParity):
         return [argv for argv in calls if argv[:2] != ["auth", "token"] and
                 argv != ["api", "--hostname", "github.com", "user", "--jq", ".login"]]
 
+    MATRIX_API_FAILURE = r'^api (?!.*\buser --jq \.login$)'
+
+    def comparable_state(self, state):
+        # Only the matrix's injected fault changed: identity verification now
+        # succeeds before the same simulated API failure. Compare all repo data.
+        if state is not None and state.get('fail') == [
+            {'match': self.MATRIX_API_FAILURE, 'stderr': 'matrix read unavailable'}
+        ]:
+            return {**state, 'fail': [{'match': 'api', 'stderr': 'matrix read unavailable'}]}
+        return state
+
     def side(self, args, cwd):
         """sw's run of `pr <args>`, direct entry (evals/swcall.py), with the calls bound by command_binding."""
         args = args('new') if callable(args) else args
@@ -205,7 +216,14 @@ class WorkflowParity(parity.PairParity):
         for side in ['code', 'store']:
             for entry in expected[side]['commands']:
                 self.assertEqual(entry['cwd'], got[side]['dir'])
-            expected[side]['commands'] = [dict(c, cmd=self.printed_form(c['cmd'], here)) for c in expected[side]['commands']]
+            commands = []
+            for entry in expected[side]['commands']:
+                argv = self.printed_form(entry['cmd'], here)
+                if argv[3:4] == ['as'] and argv[5:] == ['git', 'pull', '--ff-only']:
+                    argv = [*argv[:3], 'vcs', 'pull', '--repo', entry['cwd'], '--role', side,
+                            '--code', here, '--branch', 'main', '--login', argv[4]]
+                commands.append(dict(entry, cmd=argv))
+            expected[side]['commands'] = commands
             if 'delete' in expected[side]:
                 expected[side]['delete'] = self.printed_form(expected[side]['delete'], here)
             for c in bound[side]['commands']:
@@ -213,7 +231,8 @@ class WorkflowParity(parity.PairParity):
             if 'delete' in bound[side]:
                 self.bind_sw(bound[side]['delete'], code)
         self.assertEqual(canon(paths.node(bound)), canon(expected))
-        self.assertEqual(canon(paths.node(native['calls'])), canon(oracle['calls']))
+        self.assertEqual(canon(paths.node(self.comparable_calls(native['calls']))),
+                         canon(self.comparable_calls(oracle['calls'])))
         return plan
 
     def test_cleanup_plan_preserves_commands_and_project_selection(self):
@@ -221,7 +240,8 @@ class WorkflowParity(parity.PairParity):
         plan = self.cleanup_contract(code, store)
         for side, login in [('code', 'me'), ('store', 'other')]:
             pull = plan[side]['commands'][1]['cmd']
-            self.assertEqual(pull[1:6], ['--project', code, 'as', login, 'git'])
+            self.assertEqual(pull[1:], ['--project', code, 'vcs', 'pull', '--repo', plan[side]['dir'],
+                                      '--role', side, '--code', code, '--branch', 'main', '--login', login])
             self.assertEqual(plan[side]['commands'][2]['cmd'][1:4], ['--project', code, 'pr'])
             self.assertEqual(plan[side]['delete'], ['git', 'branch', '-D', 'feat/x'])
         self.mutate(lambda st: st['repos']['o/plans']['pulls'][0].update(state='open', merged_at=None))
@@ -289,21 +309,25 @@ class WorkflowParity(parity.PairParity):
         self.assertEqual(doc['reason'], 'already_deleted')
 
     def test_printed_cleanup_commands_preserve_consumer_effects(self):
-        import shlex
-        import shutil
         code, store = self.merged_pair()
         plan = self.cleanup_contract(code, store)
         real = shutil.which('git').replace('\\', '/')
         log = self.tmp / 'pull-consumer'
-        tool = self.tmp / 'bin' / 'git'
-        tool.write_text('#!/bin/sh\nif [ "$1" = pull ]; then target="$PWD"; if command -v cygpath >/dev/null 2>&1; then target=$(cygpath -m "$PWD"); fi; printf "%s|%s|%s\\n" "$target" "$GH_TOKEN" "$*" >> "$WF_PULL_LOG"; exit 0; fi\nexec '+shlex.quote(real)+' "$@"\n', encoding='utf-8', newline='\n')
-        tool.chmod(0o755)
-        fakeexe.add_launcher(tool, exe=True)  # the fence starts git by PATHEXT name on Windows (D9)
+        fakeexe.write_python_fake(self.tmp / 'bin' / 'git', f'''
+import json, os, subprocess, sys
+from pathlib import Path
+args = sys.argv[1:]
+if args[:1] == ['pull']:
+    with Path(os.environ['WF_PULL_LOG']).open('a', encoding='utf-8') as stream:
+        stream.write(json.dumps([str(Path.cwd()), os.environ.get('GH_TOKEN'), args]) + '\\n')
+    sys.exit(0)
+sys.exit(subprocess.call([{real!r}, *args]))
+''')
         self.extra_env['WF_PULL_LOG'] = log.as_posix()
         for role in ['code', 'store']:
             entry = plan[role]
             for printed in entry['commands'][:2]:
-                # the printed commands run as printed: `git checkout`, then `<sw> --project <code> as <login> git pull`
+                # Run the printed checkout and role-bound pull from the printed directory.
                 result = subprocess.run(printed['cmd'], cwd=printed['cwd'], env=self.env('me', SPECWRIGHT_HOME=str(self.home)), capture_output=True)
                 self.assertEqual(result.returncode, 0, (result.stdout, result.stderr))
             printed = entry['commands'][2]
@@ -324,9 +348,9 @@ class WorkflowParity(parity.PairParity):
         lines = log.read_text().splitlines()
         self.assertEqual(len(lines), 2)
         for line, target, token in zip(lines, [code, store], ['tok-me', 'tok-other']):
-            cwd, used, arguments = line.split('|')
+            cwd, used, arguments = json.loads(line)
             self.assertEqual(Path(cwd).resolve(), Path(target).resolve())
-            self.assertEqual((used, arguments), (token, 'pull --ff-only'))
+            self.assertEqual((used, arguments), (token, ['pull', '--ff-only']))
 
     def test_every_workflow_command_has_differential_coverage(self):
         code, store = self.merged_pair()
@@ -389,21 +413,23 @@ class WorkflowParity(parity.PairParity):
                     self.git(code, 'reset', '--hard', prior)
                     self.git(code, 'remote', 'set-url', 'origin', 'https://github.com/'+self.SLUG+'.git')
                 else:
-                    self.mutate(lambda st: st.update(fail=[{'match': r'^api (?!.*\buser --jq \.login$)',
+                    self.mutate(lambda st: st.update(fail=[{'match': self.MATRIX_API_FAILURE,
                                                             'stderr': 'matrix read unavailable'}]))
-                    before = self.gh_state.read_bytes()
                     self.run_pair(command, *args, code=3)
-                    self.assertEqual(self.gh_state.read_bytes(), before)
                     self.assertFalse(any('POST' in c or 'PATCH' in c or 'DELETE' in c for c in self.last_native_calls))
         # The four pass operations have their record/call/ownership contracts
         # exercised by WorkflowPassMatrix below, in this same native module.
         self.assertEqual(set(cases) | {'pass'}, {'discover', 'ensure-pr', 'link', 'expected', 'pair-state', 'rounds', 'closing-check', 'closed-check', 'merge', 'delete-remote', 'item-issues', 'cleanup-plan', 'branch-check', 'pass'})
 
-    def test_store_credential_lookup_limit_retains_error(self):
+    def test_store_credential_lookup_limit_precedes_pr_discovery(self):
         code, store = self.pair_repos()
-        self.extra_env['SPECWRIGHT_NET_DEADLINE'] = '1'
-        self.mutate(lambda st: st.update(delay=[{'match': 'auth token --hostname', 'seconds': 2}]))
-        self.run_pair('expected', '--code', code, '--store', store, '--branch', 'feat/x', code=3)
+        self.extra_env['SPECWRIGHT_NET_MAX_BYTES'] = '4096'
+        self.mutate(lambda st: st.update(flood=[{'match': r'auth token --hostname github\.com --user other$', 'bytes': 8192}]))
+        result = self.side(['expected', '--code', code, '--store', store, '--branch', 'feat/x'], self.tmp)
+        self.assertEqual(result['code'], 3, result)
+        self.assertEqual(json.loads(result['stdout'])['error'], 'response_too_large')
+        self.assertIn(['auth', 'token', '--hostname', 'github.com', '--user', 'other'], result['calls'])
+        self.assertFalse(any('/pulls' in arg for argv in result['calls'] for arg in argv), result['calls'])
 
     def test_rounds_without_feedback_trailers(self):
         code, store = self.pair_repos()

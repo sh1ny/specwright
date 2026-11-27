@@ -125,6 +125,10 @@ With fencing enabled, every empty account setting (`planning_store.login`, `gith
 - **WHEN** `github.login`, `review_request.login` and `pr.request_as` are all empty and the run login resolved to `first-user`
 - **THEN** ship posts the review request fenced with `first-user`'s token
 
+#### Scenario: Feedback uses the login already bound for each repo
+- **WHEN** a fenced feedback pass is handed a run login different from `github.login`, the store has its own login, and neither role has a review poster override
+- **THEN** the pass plans and deduplicates requests using the handed-off login for code and the bound store login for the store
+
 #### Scenario: Store login empty
 - **WHEN** `planning_store.login` and `github.login` are empty and a store-backed change ships fenced
 - **THEN** the store push and store PR calls use the code repo's run login, resolved once for the run

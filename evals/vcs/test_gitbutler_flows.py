@@ -314,8 +314,9 @@ class TestGitButlerCleanupLoneBranch(GitButlerFlowCase):
 
 
 class TestGitButlerFeedbackPass(GitButlerFlowCase):
-    def snapshot(self):
-        snap = {"viewer": "KintsugiBot", "number": 5, "url": "https://github.com/%s/pull/5" % CODE, "state": "OPEN", "draft": False,
+    def snapshot(self, head):
+        snap = {"viewer": LOGIN, "number": 5, "url": "https://github.com/%s/pull/5" % CODE, "state": "OPEN", "draft": False,
+                "head_oid": head,
                 "mergeable": "MERGEABLE", "merge_state": "CLEAN", "pending_review": False,
                 "checks": {"total": 3, "pending": 0, "advisory_pending": 0, "failing": []},
                 "threads": [{"id": "T1", "root_id": 11, "resolved": False, "rev": REV0, "waiting_owner": False,
@@ -341,12 +342,19 @@ class TestGitButlerFeedbackPass(GitButlerFlowCase):
         return ["--code", repo.path, "--code-repo", CODE, "--change", CHANGE]
 
     def pass_plan(self, scratch, wrap, repo, owner):
+        head = self.origin_refs(scratch)["refs/heads/" + BRANCH]
+        self.seed_gh(scratch, {CODE: {"pulls": [{
+            "number": 5, "state": "open", "html_url": "https://github.com/%s/pull/5" % CODE,
+            "created_at": T0, "head": {"ref": BRANCH, "label": "o:" + BRANCH, "sha": head, "repo": {"full_name": CODE}},
+            "base": {"ref": "main"},
+        }]}})
         return self.script(scratch, wrap, PR_PAIR, "pass", "plan", *self.pass_args(repo), "--owner", owner, "--snapshot",
-                           "code=%s" % self.snapshot(), cwd=self.root)
+                           "code=%s" % self.snapshot(head), cwd=self.root)
 
     def begin(self, scratch):
         """feat/b and the change branch applied; src/b.py assigned to feat/b; notes.txt unassigned and modified before the pass."""
         wrap, repo = self.start(scratch)
+        self.github_view()
         self.other_agent(repo, wrap)
         repo.but("branch", "new", BRANCH)
         self.commit_on(repo, BRANCH, "c.txt")

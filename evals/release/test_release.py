@@ -1426,6 +1426,7 @@ class TestStoreNotes(GhFlow):
         self.code()
         store = fx.make_store(self.tmp, [("add-x", "X reason.", False)])
         sha = fx.squash_merge(self.work, "add-x", "0.4.2", 90)
+        fx.push(self.work)
         self.pull(90, "add-x", sha)
         doc = self.store_status(store, "0.4.2")
         self.assertEqual(Path(doc["tag_repo"]).resolve(), self.work.resolve())

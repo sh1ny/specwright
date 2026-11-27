@@ -3,7 +3,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: The release commit is found on main
-Publish SHALL release version V at the first commit in main's first-parent history whose primary version file reads V. For GitHub, proof SHALL bind the exact commit from its own fetch to the selected tag/release destination and a successful fetch receipt from this checkout, not a checkout tip, conventional tracking ref, or another fetch's result. Proof acquisition may write Git objects, its private ref and its checkout-local receipt; it SHALL remove the ref before issuing a proof or publishing. If removal cannot be confirmed, it SHALL issue no proof, record no successful receipt and stop. Otherwise non-GitHub publish SHALL use local main. Missing version history, an inconsistent or missing proof receipt, or a destination change observed before publication SHALL stop before creating, fetching or pushing a release tag or creating a release.
+Publish SHALL release V at the first commit in main's first-parent history whose primary file reads V. GitHub publish SHALL bind the commit from its own fetch to the selected tag and release destination and a successful checkout-local fetch receipt. Non-GitHub publish SHALL use local main. Missing history, missing or inconsistent proof or a changed destination SHALL stop before creating, fetching or pushing a release tag or creating a release.
 
 #### Scenario: Squash-merged change
 - **WHEN** the PR that bumped to 0.4.2 was squash-merged as `4f9b823` and publish runs for 0.4.2
@@ -29,8 +29,12 @@ Publish SHALL release version V at the first commit in main's first-parent histo
 - **WHEN** the release fetch observes main at A and another fetch in that checkout finishes at B before the release proof is read
 - **THEN** the first proof still binds A; its release shows no evidence from B and the fetch does not move a user branch or tag
 
+#### Scenario: The private fetch ref cannot be cleaned up
+- **WHEN** a GitHub proof fetch writes objects and its invocation-private ref but cannot confirm removal of that ref
+- **THEN** it stops without issuing a proof, recording a successful receipt or publishing
+
 ### Requirement: Notes list the changes merged since the previous release
-Notes for V SHALL list every change merged after the previous release commit, up to V's release commit: one with a valid `## Release Notes` section by its items, any other by its change name, its archived proposal's first Why sentence and its PR number when main's commit subject names one. The previous release commit SHALL be the release commit of the highest lower version whose tag exists locally or on the selected code remote, else the first-parent commit where the primary version file took the value before V.
+Notes for V SHALL list changes merged after the previous release commit through V: use valid `## Release Notes` items, otherwise the change name, archived proposal's first Why sentence and any PR number in main's commit subject. Use the release commit of the highest lower version tagged locally or on the selected code remote, otherwise the first-parent commit where the primary file took the value before V.
 
 #### Scenario: One change in the range
 - **WHEN** publish runs for 0.4.2 and only `2026-10-15-pin-openspec-version` was archived between the 0.4.1 and 0.4.2 release commits, and its proposal has no `## Release Notes` section
@@ -103,7 +107,7 @@ Publish SHALL create an annotated tag named by `release.tag` (default `v{version
 - **THEN** the code repo has the tag and the store has no new tag
 
 ### Requirement: Older untagged versions are published first
-`sw release untagged` SHALL list the versions in main's first-parent history of the primary file, after the latest published version (with none published: only the current version), that are not published, oldest first. Published means the tag is on the selected code remote (with no selected remote: a local tag). A version with a local tag not on that remote SHALL always be listed. Publish of V SHALL stop before release-tag or GitHub-release writes while a version on that list is lower than V, naming it.
+`sw release untagged` SHALL list unpublished versions from main's first-parent primary-file history after the latest published version, oldest first (with none published, only the current version). Published means tagged on the selected code remote, or tagged locally when no remote is selected. Always include local tags missing on the remote. Publish of V SHALL stop before tag or release writes, naming any listed version lower than V.
 
 #### Scenario: Older version untagged
 - **WHEN** `v0.4.2` is the latest tag, 0.5.0 has no tag and publish runs for 0.5.1
@@ -122,7 +126,7 @@ Publish SHALL create an annotated tag named by `release.tag` (default `v{version
 - **THEN** publish is not blocked, and the notes range starts at the commit where `VERSION` first read 0.4.0
 
 ### Requirement: Re-runs never move a published tag
-Publish SHALL check the tag locally and on the selected code remote (`ls-remote`) before release-tag or GitHub-release writes. A tag that already exists on the release commit SHALL be kept and that step counted done; one on that remote but not local SHALL be fetched, never created again. A tag on any other commit SHALL stop publish without changing tags or releases, naming both commits. A lightweight tag, locally or on that remote, SHALL also stop without changing tags or releases, naming where it is. Publish SHALL NOT delete, move or force-push a tag.
+Before tag or release writes, publish SHALL check local tags and the selected remote (`ls-remote`). Keep a tag on the release commit and count it done; fetch a remote-only tag. Stop without changes on a tag at another commit (name both commits) or any lightweight tag (name its location). Publish SHALL NOT delete, move or force-push a tag.
 
 #### Scenario: Re-run after an interrupted publish
 - **WHEN** `v0.5.0` exists on the selected remote at the release commit but no GitHub release exists
@@ -145,7 +149,7 @@ Publish SHALL check the tag locally and on the selected code remote (`ls-remote`
 - **THEN** publish stops before creating any tag and names the failed read
 
 ### Requirement: The tag is pushed where it was checked
-Publish SHALL stop before fetching release proof, changing a release tag or creating a GitHub release if a selected remote's push URL names a repository different from its fetch URL (on the configured GitHub host compare owner and name across transports; elsewhere compare URLs), or if a rewrite makes the fetch URL a different GitHub repository than the configured URL, naming both. It SHALL check tags at the fetch URL and target the configured GitHub repository for the release, using the effective fetch URL if only that URL is GitHub.
+Publish SHALL stop before proof fetch, tag changes or release creation on fetch/push repository mismatch or a rewrite to a different GitHub repo, naming both destinations. Compare owner/name across transports on the configured host and URLs elsewhere. Check tags at the fetch URL and create the release in the configured GitHub repo, falling back to the effective fetch URL when only it is on that host.
 
 #### Scenario: Push URL elsewhere
 - **WHEN** `remote.publishing.pushurl` names a fork while the selected `publishing` remote fetches from upstream
@@ -216,7 +220,7 @@ With `release.enabled` true, when a code PR is expected, `specwright-pr` ship SH
 - **THEN** ship, the local merge and watch run no version check
 
 ### Requirement: A cut-off tag push or release creation is decided by a read-back
-When the tag push or `gh release create` is stopped by a bound, publish SHALL read back only from the original agreed destination. A pushed tag SHALL count as done only when that remote holds the local tag object at the release commit, else the conflict or mismatch stop applies. A release found SHALL count as done. A write not found SHALL be reported as not done with the limit named. An unreadable or changed destination SHALL report state unknown, with no GitHub release created from uncertain tag evidence.
+If a bound stops tag push or `gh release create`, publish SHALL read back only from the agreed destination. Count a tag done only if the remote holds the local tag object at the release commit; otherwise apply conflict or mismatch rules. Count an existing release done. A missing write is not done: name the limit. An unreadable or changed destination leaves state unknown; uncertain tag evidence SHALL NOT create a GitHub release.
 
 #### Scenario: Push cut off after it landed
 - **WHEN** the tag push passes its deadline after the selected remote received the local `v0.5.0` tag object

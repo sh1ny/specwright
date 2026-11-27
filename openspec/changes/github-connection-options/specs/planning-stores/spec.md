@@ -20,7 +20,7 @@ In PR mode, a proven local-only store SHALL hand off its named branch for manual
 ## MODIFIED Requirements
 
 ### Requirement: A change name is used once
-`specwright-branch` SHALL stop before creating any branch when the planning repo's main branch, or its selected remote's copy after a fetch, already holds an archive of a change with the same name (`<P>/changes/archive/<change-name>/` or `<P>/changes/archive/YYYY-MM-DD-<change-name>/`), and offer another name or abort. PR discovery, the planning-only marker and roadmap merge proofs match a change by its name, so an earlier change of the same name would otherwise count as this one's PR, marker or merge.
+`specwright-branch` SHALL stop before creating any branch when the planning repo's main or its selected remote's fetched main archives the same change name (`<P>/changes/archive/<change-name>/` or `<P>/changes/archive/YYYY-MM-DD-<change-name>/`). Offer another name or abort. PR discovery, the planning-only marker and roadmap merge proofs match by name, so a match could refer to the earlier change.
 
 #### Scenario: Name of an archived change
 - **WHEN** a store-backed change `add-csv-export` starts and the store's main holds `openspec/changes/archive/2026-09-01-add-csv-export/`
@@ -31,7 +31,7 @@ In PR mode, a proven local-only store SHALL hand off its named branch for manual
 - **THEN** Specwright fetches main from `plans`, finds the archive there and stops the same way, without moving the local main
 
 ### Requirement: The expected PR set follows the change's work and transport
-For a store-backed change in `pr` mode, Specwright SHALL expect a code PR when one exists in any state or the code branch has commits after main. It SHALL expect a store PR when its selected remote's fetch and all push destinations identify one repo on the configured host, distinct from the required code identity. Only a proven absent or entirely off-host store remote is local-only; mixed, unclassifiable or unreadable destinations SHALL stop. Ship SHALL inspect local work and transport first and validate, push and watch only the expected set. Later PR phases SHALL recompute the set subject to manual handoff; an existing PR remains expected after merge or branch deletion.
+In store-backed `pr` mode, expect a code PR if it exists in any state or code is ahead of main. Expect a store PR if all selected URLs name one repo on the configured host, distinct from code. Only a proven absent or off-host remote permits handoff; mixed, unknown or unreadable URLs SHALL stop. Ship SHALL determine the set before validating or pushing, and watch only that set. Later phases SHALL recompute it after handoff and retain existing PRs after merge or branch deletion.
 
 #### Scenario: Planning-only change with a GitHub store
 - **WHEN** ship runs, the code branch has no commits and has a usable GitHub identity, and the selected planning remote is on the configured GitHub host
@@ -86,7 +86,7 @@ For a store-backed change in `pr` mode, Specwright SHALL expect a code PR when o
 - **THEN** ship reports the manual-share outcome without resolving a stored GitHub account
 
 ### Requirement: PR finish pairs the store PR with the code PR
-When both PRs are expected, each SHALL link the other: in its description when the other PR's URL is known as it is created, otherwise by one marker comment that names the peer PR. When the peer PR changes, Specwright SHALL update its own marker comment rather than add another. Specwright SHALL NOT rewrite an existing description. An existing PR whose base is not that repo's main SHALL stop ship. It SHALL push and validate each repo with that repo's settings and SHALL never merge either PR in ship.
+When both PRs are expected, each SHALL link its peer in the new description if its URL is known, otherwise in one marker comment updated if the peer changes. Ship SHALL NOT rewrite existing descriptions or merge PRs, SHALL stop if an existing PR targets a base other than that repo's main, and SHALL push and validate each repo using its own settings.
 
 #### Scenario: Ship opens both PRs
 - **WHEN** ship runs for a store-backed change, both PRs are expected and neither exists

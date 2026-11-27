@@ -301,6 +301,18 @@ class AsShHost(AsShCase):
         self.assertEqual(calls[-1]["env"]["GH_ENTERPRISE_TOKEN"], "tok-k")
         self.assertIsNone(calls[-1]["env"]["GH_TOKEN"])
 
+    def test_ghe_com_uses_github_token(self):
+        host = "tenant.ghe.com"
+        (self.code / "openspec" / "specwright.yaml").write_text(f"github:\n  host: {host}\n", encoding="utf-8")
+        self.state(host=host, user="sh1ny", tokens={"sh1ny": "tok-s", "KintsugiBot": "tok-k"})
+        r = self.as_sh(self.code, "KintsugiBot", "gh", "api", "user", "--jq", ".login",
+                       env={"GH_TOKEN": "wrong", "GH_ENTERPRISE_TOKEN": "wrong"})
+        self.assertEqual((r.returncode, r.stdout.strip()), (0, "KintsugiBot"), r.stderr)
+        execution = self.gh_calls()[-1]["env"]
+        self.assertEqual(execution["GH_HOST"], host)
+        self.assertEqual(execution["GH_TOKEN"], "tok-k")
+        self.assertIsNone(execution["GH_ENTERPRISE_TOKEN"])
+
     def test_nested_fence_restores_original_off_host_git_environment(self):
         self.state(host="github.example.com", user="sh1ny",
                    tokens={"sh1ny": "tok-s", "KintsugiBot": "tok-k"})
@@ -337,6 +349,18 @@ class AsShHost(AsShCase):
         self.assertEqual(cred.returncode, 0, cred.stderr)
         self.assertIn("username=x-access-token\npassword=tok-s", cred.stdout)
         self.assertNotIn("unexpected", cred.stdout)
+
+    def test_malformed_indexed_git_config_refuses_to_run(self):
+        marker = self.tmp / "ran"
+        for env, diagnostic in (
+                ({"GIT_CONFIG_COUNT": "invalid"}, "invalid indexed Git config"),
+                ({"GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": "credential.helper"}, "incomplete indexed Git config")):
+            with self.subTest(diagnostic=diagnostic):
+                r = self.as_sh(self.code, "sh1ny", sys.executable, "-c",
+                               "from pathlib import Path; import sys; Path(sys.argv[1]).touch()", str(marker), env=env)
+                self.assertEqual(r.returncode, 3, r.stderr)
+                self.assertIn(diagnostic, r.stderr)
+                self.assertFalse(marker.exists(), "the fenced command must not run")
 
 
 class AsShUrls(AsShCase):
@@ -560,7 +584,7 @@ class Bounded(AsShCase):
             *args, sys.executable, "-c", "import pathlib,sys; pathlib.Path(sys.argv[1]).touch()", marker)
         r = self.as_sh(self.code, *command)
         self.assertEqual((r.returncode, r.stdout), (3, ""), r.stderr)
-        self.assertIn("as.sh: deadline_exceeded:", r.stderr)
+        self.assertIn("deadline_exceeded:", r.stderr)
         self.assertFalse(Path(marker).exists(), "the fenced command must not run")
 
     def test_token_lookup_hung_exits_3_named(self):

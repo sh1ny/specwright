@@ -734,7 +734,7 @@ pr:
   reviewers:                    # keyed by login, without [bot]; replaces github.review_request
     tagged-bot: { role: required, request: "@tagged-bot review" }   # example: a reviewer that runs only when tagged
     my-review-bot: { role: advisory, timeout: 15m }   # any other login; without request, it reviews on its own
-  # request_as: my-account      # posts the requests; default review_request.login, else github.login, else the run login
+  # request_as: my-account      # posts the requests; default review_request.login, else that repo's bound run login
   merge: user                   # user = you merge on GitHub; agent = watch merges a ready PR (finish: pr, a required reviewer)
   merge_method: merge           # agent merge: merge | squash | rebase
   delete_branch: true           # agent mode: delete the merged remote branch, only at the merged head
@@ -821,7 +821,7 @@ GitHub publication fetches the selected remote's main into a private ref. `sw re
 
 **GitHub connection.** `github.host` defaults to `github.com`; set it to a hostname such as `github.example.com` for GitHub Enterprise Server. The default `github.fence: true` verifies a stored account on that host and confines the Git credential to HTTPS. Run `gh auth login --hostname github.example.com` for an Enterprise Server account. With `github.login` empty, the first GitHub action fixes the active account for the run; a later account switch does not redirect that run. Remove userinfo from on-host URLs and rewrites: the fence supplies the credential.
 
-For SSH or token-only automation, set `github.fence: false` and leave `github.login`, `planning_store.login`, `github.review_request.login` and `pr.request_as` empty. Git uses its own credential helper or SSH key; `gh` uses `GH_TOKEN` for github.com or `GH_ENTERPRISE_TOKEN` for GitHub Enterprise Server. Supply secrets through the environment, not URLs or settings. This mode uses your own credentials without identity isolation; use a trusted checkout and a single intended identity. A fence refusal never switches to this mode.
+For SSH or token-only automation, set `github.fence: false` and leave `github.login`, `planning_store.login`, `github.review_request.login` and `pr.request_as` empty. Git uses its own credential helper or SSH key; `gh` uses `GH_TOKEN` for `github.com` and `*.ghe.com`, or `GH_ENTERPRISE_TOKEN` for GitHub Enterprise Server. Supply secrets through the environment, not URLs or settings. This mode uses your own credentials without identity isolation; use a trusted checkout and a single intended identity. A fence refusal never switches to this mode.
 
 `sw pr snapshot` accepts at most one PR number or URL. If you omit it, the current branch selects the PR in the chosen repository.
 

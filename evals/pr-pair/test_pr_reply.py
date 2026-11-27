@@ -282,7 +282,9 @@ class ReplyTempFiles(ReplyCase):
     def test_reply_leaves_no_temp_file_on_success(self):
         tid, c = self.add_thread("rev", "please fix")
         self.assertEqual(self.reply("thread", tid, c["databaseId"], "BODY", body="done").returncode, 0)
-        self.assertEqual(self.reply("comment", "IC_x", "BODY", body="ok").returncode, 0)
+        item = self.add_comment("rev", "please fix another thing")
+        result = self.reply("comment", item["node_id"], "BODY", body="ok")
+        self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(self.leftovers(), [])
 
     def test_reply_leaves_no_temp_file_when_post_fails(self):

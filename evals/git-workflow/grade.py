@@ -1140,6 +1140,22 @@ def other_changes(cmds):
     return [c for c in refresh_exceptions(cmds) if c[:1] not in (["tag"], ["push"])]
 
 
+def release_proof_writes(cmds):
+    """The exact ref-changing fetches and cleanups release is allowed to make."""
+    prefix = ["fetch", "--refmap=", "--no-write-fetch-head", "--no-tags", "--no-prune", "--no-prune-tags",
+              "--no-recurse-submodules", "origin"]
+    refs = {}
+    for i, cmd in enumerate(cmds):
+        if cmd[:-1] == prefix and re.fullmatch(r"refs/heads/main:refs/specwright/release/[0-9a-f]{32}", cmd[-1]):
+            refs[cmd[-1].split(":", 1)[1]] = i
+    allowed = set()
+    for i, cmd in enumerate(cmds):
+        if (len(cmd) == 4 and cmd[:2] == ["update-ref", "-d"] and refs.get(cmd[2], i) < i
+                and re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", cmd[3])):
+            allowed.update((tuple(cmds[refs.pop(cmd[2])]), tuple(cmd)))
+    return allowed
+
+
 def check_release_published(repo, commit, st, calls, cmds, rep, what, after_cleanup=False):
     """What a run with release.auto leaves: the annotated tag v0.5.0 on `commit` locally and on origin (the bare <repo>/ob.git), one gh
     release create with --verify-tag whose body is the tag's message, only the tag pushed and nothing forced, and a report that names the
@@ -1207,7 +1223,12 @@ def check_finish_release(name, repo, branch, branches, status, rep):
     ok, ev = refresh_ran(cmds)
     R.append(("The guarded refresh ran: git status --porcelain, then git checkout main, then git pull --ff-only (the git trace)", ok, ev))
     bad = other_changes(cmds)
-    R.append(("No git commit, other merge or branch-changing command ran (the git trace)", bool(cmds) and not bad, f"changing={bad}"))
+    if name == "eval-finish-release-auto":
+        allowed = release_proof_writes(cmds)
+        bad = [c for c in bad if tuple(c) not in allowed]
+    proof_refs = ref_lines(repo, "refs/specwright/release")
+    R.append(("No git commit, other merge or branch-changing command ran (the git trace)",
+              bool(cmds) and not bad and not proof_refs, f"changing={bad} leftover release refs={proof_refs}"))
     ch = gh_writes(calls)
     if name == "eval-finish-release-auto":  # the one gh release create v0.5.0 this run expects
         ch = without_one(ch, rf"release create {re.escape(RELEASE_TAG)}(\s|$)")

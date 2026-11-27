@@ -93,15 +93,15 @@ String _judgeText(PassDocument edit, bool exists, String content) {
       : 'pending';
 }
 
-List<PassDocument> _requests(RepoContext context) {
+List<PassDocument> _requests(RepoContext context, String? boundLogin) {
   if (context.requestsDisabled) return [];
   final rr = context.reviewRequest;
+  final poster = context.requestAs.isNotEmpty
+      ? context.requestAs
+      : rr.login.isNotEmpty
+      ? rr.login
+      : boundLogin ?? '';
   if (context.reviewers.isNotEmpty) {
-    final poster = context.requestAs.isNotEmpty
-        ? context.requestAs
-        : rr.login.isNotEmpty
-        ? rr.login
-        : context.login;
     return [
       for (final reviewer in context.reviewers.values)
         if (reviewer.request.isNotEmpty)
@@ -110,10 +110,7 @@ List<PassDocument> _requests(RepoContext context) {
   }
   return rr.body.isNotEmpty && rr.afterFixes
       ? [
-          {
-            'body': rr.body,
-            'poster': rr.login.isEmpty ? context.login : rr.login,
-          },
+          {'body': rr.body, 'poster': poster},
         ]
       : [];
 }
@@ -1016,7 +1013,9 @@ class FeedbackPass {
     for (final repo in destinations) {
       final pr = _map(prs[repo]),
           config = repo == 'code' ? contexts.code : contexts.store!;
-      final requests = pr.isEmpty ? <PassDocument>[] : _requests(config);
+      final requests = pr.isEmpty
+          ? <PassDocument>[]
+          : _requests(config, await workflow.githubLoginFor(_text(pr['repo'])));
       final row = <String, Object?>{
         'step': 'rerequest',
         'repo': repo,

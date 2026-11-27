@@ -16,6 +16,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "evals"))
 import fixturecache  # noqa: E402
+import fakeexe  # noqa: E402
 
 FIXTURE_NAME = "Specwright Eval"
 FIXTURE_EMAIL = "specwright-eval@example.invalid"
@@ -172,10 +173,8 @@ class Scratch:
 
     def _install_fake_gh(self):
         self.bin.mkdir()
-        shim = self.bin / "gh"
-        shim.write_text('#!/bin/sh\nexec "%s" "%s" "$@"\n' % (_posix(sys.executable), _posix(FAKE_GH)),
-                        encoding="utf-8", newline="\n")
-        shim.chmod(0o755)
+        fakeexe.write_fake(self.bin / "gh",
+                           '#!/bin/sh\nexec "%s" "%s" "$@"\n' % (_posix(sys.executable), _posix(FAKE_GH)), exe=True)
 
     def tracked_repo(self, name="repo"):
         """A copy of the cached fixture world: the repo is a clone of this Scratch's origin and `but` has opened it."""

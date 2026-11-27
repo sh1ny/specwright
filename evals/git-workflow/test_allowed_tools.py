@@ -24,7 +24,7 @@ ROOT = Path(__file__).resolve().parents[2]
 SKILLS = ROOT / "skills"
 CUTOVER = ("branch", "commit", "finish", "pr", "roadmap", "review", "release", "debug")
 # skills whose text runs `<sw> vcs` (debug reads the backend and the changed paths with `state`)
-RUNS_VCS = CUTOVER
+RUNS_VCS = tuple(name for name in CUTOVER if name != "release")
 GRANTED = ("branch", "commit", "finish")  # carry an explicit allowed-tools field today
 SEPARATORS = re.compile(r"&&|\|\||\|&|[;|&\n]")
 SW = "/home/eval/.specwright/bin/1.2.3/sw"

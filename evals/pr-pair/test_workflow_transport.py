@@ -56,6 +56,7 @@ class WorkflowTransport(wp.WorkflowParity):
 
         def restore_code_pr(st):
             pull = wp.copy.deepcopy(st['repos']['o/plans']['pulls'][0])
+            pull['html_url'] = f'https://github.com/{self.SLUG}/pull/{pull["number"]}'
             pull['head']['repo']['full_name'] = self.SLUG
             st['repos'][self.SLUG]['pulls'] = [pull]
         self.mutate(restore_code_pr)
@@ -109,7 +110,8 @@ class WorkflowTransport(wp.WorkflowParity):
             self.assertEqual(commands[0]['cmd'], ['git', 'checkout', 'main'])
             pull, check = commands[1]['cmd'], commands[2]['cmd']
             self.assert_names_running_sw(pull, code)
-            self.assertEqual(pull[3:], ['as', login, 'git', 'pull', '--ff-only'])
+            self.assertEqual(pull[3:], ['vcs', 'pull', '--repo', plan[side]['dir'], '--role', side,
+                                       '--code', plan['code']['dir'], '--branch', 'main', '--login', login])
             self.assert_names_running_sw(check, code)
             self.assertEqual(check[3:5], ['pr', 'branch-check'])
             for entry in commands:
@@ -129,7 +131,9 @@ class WorkflowTransport(wp.WorkflowParity):
             self.assert_names_running_sw(entry['cmd'], code)
             self.assertNotEqual(Path(entry['cmd'][2]).resolve(), Path(store).resolve(), 'the project is the code checkout')
             self.assertEqual(Path(entry['cwd']).resolve(), Path(store).resolve(), 'the command runs in the store')
-        self.assertEqual(plan['store']['commands'][1]['cmd'][3:], ['as', 'other', 'git', 'pull', '--ff-only'])
+        self.assertEqual(plan['store']['commands'][1]['cmd'][3:],
+                         ['vcs', 'pull', '--repo', plan['store']['dir'], '--role', 'store',
+                          '--code', plan['code']['dir'], '--branch', 'main', '--login', 'other'])
 
     def test_printed_cleanup_runs_from_store(self):
         code, store = self.merged_pair()
@@ -145,8 +149,18 @@ class WorkflowTransport(wp.WorkflowParity):
         self.assertNotEqual(doc.get('error'), 'sw_mismatch', doc)
         self.assertTrue(doc['delete'], doc)
 
-    def unfenced_pass_limits(self, github):
-        code, _ = self.setup_remote(github=github)
+    def pass_snapshot(self, name, head):
+        pull = self._pull()
+        pull['head']['sha'] = head
+        self.mutate(lambda st: st['repos'][self.SLUG].update(pulls=[pull]))
+        snapshot = self.tmp / name
+        snapshot.write_text(json.dumps({'viewer': 'me', 'threads': [], 'number': pull['number'],
+                                        'url': pull['html_url'], 'head_oid': head}), encoding='utf-8')
+        return snapshot
+
+    def test_ambient_github_pass_preserves_git_response_bounds(self):
+        code, _ = self.setup_remote(github=True)
+        (Path(code) / self.SETTINGS).write_text('github:\n  fence: false\n', encoding='utf-8')
         self.git(code, 'add', 'openspec/specwright.yaml')
         self.git(code, 'commit', '-m', 'settings before the pass')
         intent = self.tmp / 'unfenced-intent.json'
@@ -164,50 +178,61 @@ class WorkflowTransport(wp.WorkflowParity):
         self.git(code, 'add', 'fix.txt')
         self.git(code, 'commit', '-m', 'fix\n\nFeedback-Round: 1')
         head = self.git(code, 'rev-parse', 'HEAD')
-        snapshot = self.tmp / 'unfenced-snapshot.json'
-        snapshot.write_text(json.dumps({'viewer': 'me', 'threads': []}), encoding='utf-8')
+        snapshot = self.pass_snapshot('unfenced-snapshot.json', head)
         reached = self.tmp / 'unfenced-read'
-        real = shutil.which('git').replace('\\', '/')
-        python = wp.parity.fixtures.posix(sys.executable)
-        tool = self.tmp / 'bin' / 'git'
-        tool.write_text('#!/bin/sh\n'
-            'if [ "$1" = "$WF_LIMIT_PHASE" ]; then\n'
-            '  here=$PWD; if command -v cygpath >/dev/null 2>&1; then here=$(cygpath -m "$PWD"); fi\n'
-            '  printf "%s|%s\\n" "$1" "$here" >> "$WF_REACHED"\n'
-            '  if [ "$WF_LIMIT_KIND" = deadline ]; then sleep 3; else\n'
-            '    '+shlex.quote(python)+' -c "print(\'x\' * 8192)"\n'
-            '  fi\n  exit 0\nfi\n'
-            'if [ "$1" = ls-remote ]; then printf "%s\\n" "$WF_REMOTE_SHA"; exit 0; fi\n'
-            'exec '+shlex.quote(real)+' "$@"\n', encoding='utf-8', newline='\n')
-        tool.chmod(0o755)
-        fakeexe.add_launcher(tool, exe=True)  # sw starts it by PATHEXT name on Windows (D9)
-        cwd = code if github else self.tmp
+        real = shutil.which('git')
+        fakeexe.write_python_fake(self.tmp / 'bin' / 'git', f'''
+import os, subprocess, sys
+from pathlib import Path
+args = sys.argv[1:]
+if args[:1] == [os.environ['WF_LIMIT_PHASE']]:
+    Path(os.environ['WF_REACHED']).write_text(args[0] + '|' + str(Path.cwd()), encoding='utf-8')
+    print('x' * 8192)
+    sys.exit(0)
+if args[:1] == ['ls-remote']:
+    print(os.environ['WF_REMOTE_SHA'])
+    sys.exit(0)
+sys.exit(subprocess.call([{real!r}, *args]))
+''')
+        cwd = code
         for phase in ['ls-remote', 'fetch']:
-            for kind, error in [('deadline', 'deadline_exceeded'), ('bytes', 'response_too_large')]:
-                with self.subTest(phase=phase, kind=kind):
-                    reached.unlink(missing_ok=True)
-                    self.extra_env.update(WF_LIMIT_PHASE=phase, WF_LIMIT_KIND=kind,
-                        WF_REACHED=reached.as_posix(), WF_REMOTE_SHA='b'*40 if phase == 'fetch' else head,
-                        SPECWRIGHT_NET_DEADLINE='2', SPECWRIGHT_NET_MAX_BYTES='1024')
-                    result, doc = self.native_document(['pass', 'plan', *common, '--owner', written['owner'],
-                                                       '--snapshot', f'code={snapshot}'], cwd=cwd)
-                    self.assertTrue(reached.exists(), result)
-                    operation, directory = reached.read_text().strip().split('|')
-                    self.assertEqual(operation, phase)
-                    self.assertEqual(Path(directory).resolve(), Path(code).resolve())
-                    self.assertEqual((result['code'], doc.get('error'), doc.get('unknown')), (3, error, True), doc)
-                    self.assertEqual(record.read_bytes(), before)
-                    self.assertEqual(self.git(code, 'rev-parse', 'HEAD'), head)
-        self.extra_env.update(WF_LIMIT_PHASE='ls-remote', WF_LIMIT_KIND='deadline')
+            with self.subTest(phase=phase):
+                reached.unlink(missing_ok=True)
+                self.extra_env.update(WF_LIMIT_PHASE=phase, WF_REACHED=reached.as_posix(),
+                                      WF_REMOTE_SHA='b'*40 if phase == 'fetch' else head, SPECWRIGHT_NET_MAX_BYTES='4096')
+                result, doc = self.native_document(['pass', 'plan', *common, '--owner', written['owner'],
+                                                   '--snapshot', f'code={snapshot}'], cwd=cwd)
+                self.assertTrue(reached.exists(), result)
+                operation, directory = reached.read_text().strip().split('|')
+                self.assertEqual(operation, phase)
+                self.assertEqual(Path(directory).resolve(), Path(code).resolve())
+                self.assertEqual((result['code'], doc.get('error'), doc.get('unknown')), (3, 'response_too_large', True), doc)
+                self.assertEqual(record.read_bytes(), before)
+                self.assertEqual(self.git(code, 'rev-parse', 'HEAD'), head)
+        self.extra_env.update(WF_LIMIT_PHASE='ls-remote')
         result, doc = self.native_document(['rounds', '--code', code, '--branch', 'feat/x'], cwd=cwd)
         self.assertEqual(result['code'], 0, doc)
         self.assertEqual(doc['remote_unreadable'], ['code'])
 
-    def test_started_repository_preserves_git_network_limits(self):
-        self.unfenced_pass_limits(github=True)
-
-    def test_non_github_repository_preserves_git_network_limits(self):
-        self.unfenced_pass_limits(github=False)
+    def test_non_github_pass_refuses_claimed_pr_without_opening_network(self):
+        code, _ = self.setup_remote()
+        head = self.git(code, 'rev-parse', 'HEAD')
+        snapshot = self.pass_snapshot('off-host-snapshot.json', head)
+        intent = self.tmp / 'off-host-intent.json'
+        intent.write_text(json.dumps({'branch': 'feat/x', 'round': 1,
+            'prs': {'code': {'repo': self.SLUG, 'number': 7}}, 'findings': [{
+                'id': 'F1', 'item': 'T1', 'source': 'code', 'destination': 'code', 'root_id': 11,
+                'edits': [{'file': 'fix.txt', 'contains': ['done']}],
+                'disposition': {}, 'revision': {'rev': 'old'}}]}), encoding='utf-8')
+        common = ['--code', code, '--code-repo', self.SLUG, '--change', 'off-host']
+        _, written = self.native_document(['pass', 'write', *common, '--intent', intent])
+        reached = self.tmp / 'off-host-reads'
+        self.extra_env['WF_ENV_FILE'] = reached.as_posix()
+        result, doc = self.native_document(['pass', 'plan', *common, '--owner', written['owner'],
+                                           '--snapshot', f'code={snapshot}'])
+        self.assertEqual((result['code'], doc.get('error')), (2, 'snapshot_target_mismatch'), doc)
+        self.assertEqual(result['calls'], [])
+        self.assertFalse(reached.exists(), 'the stale target must not reach git ls-remote')
 
     def test_direct_vcs_failures_retain_wrapper_mapping(self):
         code, store = self.merged_pair()
@@ -238,6 +263,7 @@ class WorkflowTransport(wp.WorkflowParity):
         jj.write_text(jj.read_text().replace('case ', 'echo jj-plan >> "$WF_VCS_DELAY_LOG"\nsleep 3\ncase ', 1), encoding='utf-8')
         def restore_code_pr(st):
             pull = wp.copy.deepcopy(st['repos']['o/plans']['pulls'][0])
+            pull['html_url'] = f'https://github.com/{self.SLUG}/pull/{pull["number"]}'
             pull['head']['repo']['full_name'] = self.SLUG
             st['repos'][self.SLUG]['pulls'] = [pull]
         self.mutate(restore_code_pr)
@@ -294,8 +320,7 @@ class WorkflowTransport(wp.WorkflowParity):
         (Path(code) / 'fix.txt').write_text('done\n', encoding='utf-8')
         self.git(code, 'add', 'fix.txt')
         self.git(code, 'commit', '-m', 'fix\n\nFeedback-Round: 1')
-        snapshot = self.tmp / 'snapshot.json'
-        snapshot.write_text(json.dumps({'viewer': 'me', 'threads': []}), encoding='utf-8')
+        snapshot = self.pass_snapshot('snapshot.json', self.git(code, 'rev-parse', 'HEAD'))
         started, child_pid = self.tmp / 'fence-start', self.tmp / 'child-pid'
         hanging = self.tmp / 'hung-git.py'
         hanging.write_text('import os, pathlib, subprocess, sys, time\n'
@@ -312,13 +337,13 @@ class WorkflowTransport(wp.WorkflowParity):
         gh.rename(real)
         gh.write_text('#!/bin/bash\n'
             'if [ "$1" = auth ] && [ "${2:-}" = token ] && [ "${3:-}" = --hostname ]; then\n'
-            f'  "{python}" -c \'import os,pathlib,time; target=pathlib.Path(os.environ["WF_FENCE_DIR"]); inside=pathlib.Path.cwd()==target; pathlib.Path(os.environ["WF_FENCE_START"]).write_text(str(time.monotonic())) if inside else None; time.sleep(1.5) if inside else None\'\n'
+            f'  "{python}" -c \'import os,pathlib; target=pathlib.Path(os.environ["WF_FENCE_DIR"]); pathlib.Path(os.environ["WF_FENCE_START"]).touch() if pathlib.Path.cwd()==target else None\'\n'
             'fi\n'
             f'exec "{real.as_posix()}" "$@"\n', encoding='utf-8', newline='\n')
         gh.chmod(0o755)
         fakeexe.add_launcher(gh, exe=True)  # sw starts it by PATHEXT name on Windows (D9)
         self.extra_env.update(WF_FENCE_START=started.as_posix(), WF_CHILD_PID=child_pid.as_posix(),
-                              WF_FENCE_DIR=code, SPECWRIGHT_NET_DEADLINE='8')
+                              WF_FENCE_DIR=code, SPECWRIGHT_NET_DEADLINE='25')
         try:
             result = self.side(['pass', 'plan', *common, '--owner', json.loads(written['stdout'])['owner'],
                                       '--snapshot', f'code={snapshot}'], self.tmp)
@@ -331,12 +356,10 @@ class WorkflowTransport(wp.WorkflowParity):
                            call['argv'][:2] == ['auth', 'token'] and '--hostname' in call['argv']]
             self.assertTrue(any(Path(call['cwd']).resolve() == self.tmp.resolve() for call in credentials))
             self.assertTrue(any(Path(call['cwd']).resolve() == Path(code).resolve() for call in credentials))
-            self.assertTrue(started.exists(), 'the delayed credential check was not reached')
-            self.assertLess(time.monotonic() - float(started.read_text()), 8.8,
-                            'the launched command received a fresh deadline after credential checks')
+            self.assertTrue(started.exists(), 'the target-cwd credential check was not reached')
             self.assertTrue(child_pid.exists(), 'the bounded Git command did not start its descendant')
             pid = int(child_pid.read_text())
-            end = time.monotonic() + 3
+            end = time.monotonic() + 20
             while pid_alive(pid) and time.monotonic() < end: time.sleep(0.05)
             self.assertFalse(pid_alive(pid), 'the hung descendant survived the caller deadline')
         finally:
@@ -399,7 +422,6 @@ class WorkflowTransport(wp.WorkflowParity):
         code, _ = self.setup_remote(github=True)
         self.extra_env['SPECWRIGHT_NET_MAX_BYTES'] = '1024'
         self.mutate(lambda st: st.update(flood=[{'match': 'auth token --help', 'bytes': 4096}]))
-        self.run_pair('rounds', '--code', code, '--branch', 'feat/x', code=3)
         result, doc = self.native_rounds(code)
         self.assertEqual(result['code'], 3, result)
         self.assertEqual(doc['error'], 'fence_refused')

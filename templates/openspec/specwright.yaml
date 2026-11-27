@@ -160,7 +160,7 @@ pr:
   # Quiet window before a PR counts as ready (1m to 1h; default 5m).
   # settle: 5m
   # Account that posts the requests. Default: review_request.login, else
-  # github.login.
+  # the repository's bound run login.
   # request_as: ""
   # Who merges a ready PR. user = you merge on GitHub; watch reports ready
   # and stops. agent = with finish: pr, watch archives the change without

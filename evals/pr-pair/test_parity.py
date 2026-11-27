@@ -633,6 +633,9 @@ class PairParity(PrParity):
     def comparable_calls(self, calls):
         return calls
 
+    def comparable_state(self, state):
+        return state
+
     def run_pair(self, *args, cwd=None, code=None):
         """sw's run in `cwd` equals the next recorded run of the frozen side; returns sw's normalized document. `args` may be a
         function of the side when a snapshot file belongs to it. Free text is compared by its fixed prefix (spec:
@@ -650,11 +653,15 @@ class PairParity(PrParity):
         self.assertEqual(canon(paths.node(new_doc)), canon(old_doc), "JSON differs between sw and the record")
         self.assertEqual(new_msg is None, old_msg is None, f"`message` is on one side only\n{new_msg!r}\n{old_msg!r}")
         if old_msg is not None and fixed_prefix(old_msg):
-            self.assertTrue(canon(paths.text(new_msg)).startswith(canon(fixed_prefix(old_msg))), f"message prefix differs: {new_msg!r} vs {old_msg!r}")
+            prefix = fixed_prefix(old_msg)
+            if args[0] == "identity" and prefix.endswith(" is not a GitHub repository: "):
+                prefix = prefix[:-2] + " on github.com: "
+            self.assertTrue(canon(paths.text(new_msg)).startswith(canon(prefix)), f"message prefix differs: {new_msg!r} vs {prefix!r}")
         got = oracle_capture.document(self, new)
         self.assertEqual(canon(self.comparable_calls(got["calls"])),
                          canon(self.comparable_calls(old["calls"])), "the calls differ")
-        self.assertEqual(canon(got["state"]), canon(old["state"]), "the state differs")
+        self.assertEqual(canon(self.comparable_state(got["state"])),
+                         canon(self.comparable_state(old["state"])), "the state differs")
         self.assertEqual(got["stderr"]["lines"], old["stderr"]["lines"], f"stderr lines differ\n{new['stderr']}\n{old['stderr']}")
         for line, fixed in zip(said(new["stderr"]).decode("utf-8", "replace").splitlines(), old["stderr"]["prefixes"]):
             self.assertTrue(canon(paths.text(line)).startswith(canon(fixed)), f"stderr prefix differs: {line!r} vs {fixed!r}")

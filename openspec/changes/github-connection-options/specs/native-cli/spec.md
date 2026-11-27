@@ -3,7 +3,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: The project is chosen by --project, then the command's own argument
-A project command SHALL take an optional leading `--project <code checkout>` to choose the `VERSION` to check. For `sw as` and GitHub-aware `sw pr` commands it SHALL also select the code project's connection settings. It SHALL change neither the working directory, target repositories nor login. Without it the project SHALL be the code-checkout argument (`--code`, else `--repo` for `vcs`, `--dir` for `release` and `finish`), else the current directory, walked up to the first `.git`. An undo plan's relative `--code` starts at the `--dir` root.
+A project command SHALL accept leading `--project <code checkout>` to select the `VERSION` and, for `sw as` and GitHub-aware `sw pr` commands, the connection settings. It SHALL NOT change cwd, targets or login. Otherwise, resolve the project by walking to the first `.git` from `--code`, `--repo` for `vcs`, `--dir` for `release` and `finish`, or cwd, in that order. An undo plan resolves relative `--code` from `--dir`.
 
 #### Scenario: A store-started call
 - **WHEN** the current directory is a planning store with no `VERSION` and `sw --project <code checkout> pr pair-state ...` runs

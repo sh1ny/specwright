@@ -1234,16 +1234,14 @@ exec "$REAL" "$@"
 def release_shim(repo, gated):
     """bin/git for the release evals (RELEASE_SHIM): <repo>/ob.git is the reachable origin. `gated` holds
     git pull and fetch back until the fake gh logged the merge of PR #7; before it, fetch reads <repo>/ob-pre.git (origin before the
-    merge; only a gated fixture creates it). state/gitconfig-release is the rewrite config a test puts on a `sw release` command line:
-    the fixture's proxy config plus url.<bare>.insteadOf."""
+    merge; only a gated fixture creates it). The transport override applies only to network calls."""
     url, bare = f"https://github.com/{PR_SLUG}.git", posix(repo / "ob.git")
-    rewrite = repo / "state" / "gitconfig-release"
-    write(repo, "state/gitconfig-release", (repo / "gitconfig").read_text(encoding="utf-8") + f'[url "{bare}"]\n\tinsteadOf = {url}\n')
     shim = RELEASE_SHIM.replace("@REAL@", msys(shutil.which("git") or "git")).replace("@CODE@", posix(repo)) \
         .replace("@BARE@", bare).replace("@PRE@", posix(repo / "ob-pre.git")).replace("@LOG@", posix(repo / "gh-log.jsonl")) \
         .replace("@URL@", url).replace("@GATED@", "1" if gated else "0")
     write(repo, "bin/git", shim)
     (repo / "bin" / "git").chmod(0o755)
+    fakeexe.add_launcher(repo / "bin" / "git", exe=True)
 
 
 RELEASE_EXCLUDE = "/bin/\n/eval.env\n/gh-state.json\n/gh-log.jsonl\n/git-trace.log\n/gitconfig\n/state/\n/xdg-data/\n/xdg-config/\n/ob.git/\n"
