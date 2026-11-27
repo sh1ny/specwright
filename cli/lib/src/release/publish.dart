@@ -20,9 +20,17 @@ Future<Map<String, Object?>> publishDocument(
   if (v == null || v.isEmpty) {
     throw ReleaseStop('usage', 'publish needs --version', code: 2);
   }
-  // before any network read: every URL must name one repository
-  await _checkPushDestination(git);
-  final loaded = await loadMain(git, settings, args.main);
+  final remoteName = git.remote;
+  final target = await git.bindTarget();
+  final proof = args.proof;
+  final verified = proof != null
+      ? await git.verifyProof(proof, args.base)
+      : target?.slug != null
+      ? await git.proveMain(
+          args.base ?? await detectMain(git, settings.mainBranch),
+        )
+      : null;
+  final loaded = await loadMain(git, settings, verified?.commit ?? args.main);
   await releaseCommitOf(git, loaded, v);
   refuseOlderUntagged(
     settings.tag,
@@ -30,27 +38,29 @@ Future<Map<String, Object?>> publishDocument(
     await git.publishedTags(),
     await git.localTags(),
     v,
+    remote: remoteName,
   );
   final doc = await statusDocument(
     git,
     settings,
     args,
     loaded: loaded,
+    mainBranch: verified?.branch,
     release: false,
     command: 'publish',
   );
   final tag = doc['tag'] as String;
   final sha = doc['release_commit'] as String;
   final notes = doc['notes'] as String;
-  if (await git.originUrl() == null) {
+  if (!await git.hasRemote()) {
     throw ReleaseStop(
-      'no_origin',
-      'publish needs an origin remote to push the tag to',
+      remoteName == 'origin' ? 'no_origin' : 'no_remote',
+      "publish needs the '$remoteName' remote to push the tag to",
     );
   }
   final local = doc['tag_local'] as String?;
   final remote = doc['tag_remote'] as String?;
-  for (final (where, at) in [('locally', local), ('on origin', remote)]) {
+  for (final (where, at) in [('locally', local), ('on $remoteName', remote)]) {
     if (at != null && at != sha) {
       throw _conflict(tag, v, sha, at, where, 'nothing was written');
     }
@@ -70,7 +80,13 @@ Future<Map<String, Object?>> publishDocument(
   final localObject = objects['local'] as String?;
   final remoteObject = objects['remote'] as String?;
   if (local != null && remote != null && localObject != remoteObject) {
-    throw _mismatch(tag, localObject!, remoteObject!, 'nothing was written');
+    throw _mismatch(
+      tag,
+      localObject!,
+      remoteObject!,
+      remoteName,
+      'nothing was written',
+    );
   }
 
   final String tagLocal;
@@ -81,10 +97,10 @@ Future<Map<String, Object?>> publishDocument(
     if (r.exitCode != 0) {
       throw ReleaseStop(
         'tag_fetch_failed',
-        'git fetch origin refs/tags/$tag:refs/tags/$tag failed: '
+        'git fetch $remoteName refs/tags/$tag:refs/tags/$tag failed: '
             '${failureText(r)}; a re-run retries',
         code: 3,
-        extra: {'call': 'git fetch origin refs/tags/$tag'},
+        extra: {'call': 'git fetch $remoteName refs/tags/$tag'},
       );
     }
     tagLocal = 'fetched';
@@ -106,16 +122,16 @@ Future<Map<String, Object?>> publishDocument(
   if (remote != null) {
     tagRemote = 'existing';
   } else {
-    final call = 'git push origin refs/tags/$tag';
+    final call = 'git push $remoteName refs/tags/$tag';
     try {
       final r = await git.pushTag(tag);
       if (r.exitCode != 0) {
         throw ReleaseStop(
           'tag_push_failed',
-          'git push origin refs/tags/$tag:refs/tags/$tag failed: '
+          'git push $remoteName refs/tags/$tag:refs/tags/$tag failed: '
               '${failureText(r)}; the local tag $tag exists and a re-run pushes '
               "it (or stops with tag_mismatch if another clone's $tag reached "
-              'origin first); no GitHub release was created',
+              '$remoteName first); no GitHub release was created',
           code: 3,
           extra: {'call': call},
         );
@@ -174,14 +190,15 @@ ReleaseStop _mismatch(
   String tag,
   String localObject,
   String remoteObject,
+  String remote,
   String written,
 ) => ReleaseStop(
   'tag_mismatch',
-  'tag $tag is at the release commit both locally and on origin, but as '
-      'different tag objects (local ${_short(localObject)}, origin '
+  'tag $tag is at the release commit both locally and on $remote, but as '
+      'different tag objects (local ${_short(localObject)}, $remote '
       '${_short(remoteObject)}): a lost push race. The release body must be '
-      "origin's tag message, and $written. Delete the local tag by hand "
-      "(git tag -d $tag); a re-run then fetches origin's: publish never "
+      "the tag message on $remote, and $written. Delete the local tag by hand "
+      "(git tag -d $tag); a re-run fetches the tag from $remote: publish never "
       'moves, deletes or forces a tag',
   extra: {
     'tag': tag,
@@ -211,15 +228,15 @@ Future<void> _pushReadBack(
     if (e is! ReleaseStop && e is! ReleaseCut) rethrow;
     throw _unknown(
       cut,
-      "reading origin's $tag back failed too: the state of the tag on origin "
+      'reading $tag back from ${git.remote} failed too: the state of the tag '
       'is unknown; no GitHub release was created. The local tag $tag stays, '
-      'and a re-run reads origin again before it pushes',
+      'and a re-run reads ${git.remote} again before it pushes',
     );
   }
   if (remote.commit == null) {
     throw cutStop(
       cut,
-      'the tag $tag is not on origin (read back), so nothing landed. The '
+      'the tag $tag is not on ${git.remote} (read back), so nothing landed. The '
       'local tag stays and a re-run pushes it; no GitHub release was created',
     );
   }
@@ -229,7 +246,7 @@ Future<void> _pushReadBack(
       v,
       sha,
       remote.commit!,
-      'on origin',
+      'on ${git.remote}',
       'the push was stopped by ${cut.limit} and another clone\'s tag won; no '
           'GitHub release was created',
     );
@@ -240,6 +257,7 @@ Future<void> _pushReadBack(
       tag,
       localObject,
       remote.object!,
+      git.remote,
       'the push was stopped by ${cut.limit} and another clone\'s tag won; no '
       'GitHub release was created',
     );
@@ -282,7 +300,7 @@ Future<(String, String?)> _githubRelease(
         tag,
         '--notes-file',
         path,
-      ]),
+      ], writes: true),
     );
   } on ReleaseCut catch (cut) {
     await _releaseReadBack(
@@ -291,7 +309,7 @@ Future<(String, String?)> _githubRelease(
       tag,
       ReleaseCut(cut.limit, 'gh release create $tag'),
     );
-    return ('created', 'https://github.com/$slug/releases/tag/$tag');
+    return ('created', 'https://${git.host}/$slug/releases/tag/$tag');
   }
   if (r.exitCode == 0) {
     final out = lossy(r.stdout).trim();
@@ -308,7 +326,7 @@ Future<(String, String?)> _githubRelease(
   }
   throw ReleaseStop(
     'release_create_failed',
-    '$shown failed: ${failureText(r)}; the tag $tag is on origin, a re-run '
+    '$shown failed: ${failureText(r)}; the tag $tag is on ${git.remote}, a re-run '
         'creates only the release',
     code: 3,
     extra: {'call': shown},
@@ -335,84 +353,14 @@ Future<void> _releaseReadBack(
     throw _unknown(
       cut,
       'reading the release back failed too: the state of the GitHub release '
-      'is unknown. The tag $tag is on origin and a re-run reads the release '
+      'is unknown. The tag $tag is on ${git.remote} and a re-run reads the release '
       'again',
     );
   }
   if (state == 'existing') return;
   throw cutStop(
     cut,
-    'the release was not created (read back). The tag $tag is on origin and '
+    'the release was not created (read back). The tag $tag is on ${git.remote} and '
     'a re-run creates only the release',
   );
-}
-
-/// Stops unless the fetch URL, the push URLs and the configured origin URL
-/// name one repository, so the tag lands where it was checked and released. A
-/// rewrite (`insteadOf`) to a mirror that is not on github.com is fine. Local
-/// reads only.
-Future<void> _checkPushDestination(ReleaseGit git) async {
-  final raw = await git.originUrl();
-  if (raw == null) return;
-  final f = await git.run(['remote', 'get-url', 'origin']);
-  final p = await git.run(['remote', 'get-url', '--push', '--all', 'origin']);
-  if (f.exitCode != 0 || p.exitCode != 0) {
-    final why = trimmed(f.stderr).isNotEmpty
-        ? trimmed(f.stderr)
-        : trimmed(p.stderr);
-    throw ReleaseStop(
-      'git_failed',
-      'git remote get-url origin failed: $why',
-      code: 3,
-    );
-  }
-  final fetch = trimmed(f.stdout);
-  final pushes = [
-    for (final l in lossy(p.stdout).split('\n'))
-      if (l.trim().isNotEmpty) l.trim(),
-  ];
-  if (githubUrl(raw) != null &&
-      githubUrl(fetch) != null &&
-      !_sameRemote(raw, fetch)) {
-    throw ReleaseStop(
-      'push_url_mismatch',
-      'origin is configured as ${_mask(raw)} but a URL rewrite (insteadOf) '
-          'makes git reach ${_mask(fetch)}; the GitHub release would go to the '
-          'first, the tag to the second. Nothing was written',
-      extra: {'fetch_url': _mask(fetch), 'configured_url': _mask(raw)},
-    );
-  }
-  final bad = [
-    for (final u in pushes)
-      if (!_sameRemote(fetch, u)) u,
-  ];
-  if (bad.isNotEmpty) {
-    throw ReleaseStop(
-      'push_url_mismatch',
-      'origin fetches from ${_mask(fetch)} but pushes to '
-          '${bad.map(_mask).join(', ')}; publish checks the tag and creates '
-          'the release on the fetch URL, so the tag would land elsewhere. '
-          'Nothing was written. Publish from a remote whose push and fetch '
-          'URLs name the same repository',
-      extra: {
-        'fetch_url': _mask(fetch),
-        'push_urls': pushes.map(_mask).toList(),
-      },
-    );
-  }
-}
-
-String _mask(String url) => url.replaceAll(RegExp(r'//[^@/\s]+@'), '//***@');
-
-/// True when two remote URLs name the same repository: the same owner/name on
-/// github.com (any URL form, any case), else the same URL apart from a
-/// trailing `.git` or slash.
-bool _sameRemote(String a, String b) {
-  final ma = githubUrl(a), mb = githubUrl(b);
-  if (ma != null && mb != null) {
-    return ma[1]!.toLowerCase() == mb[1]!.toLowerCase() &&
-        ma[2]!.toLowerCase() == mb[2]!.toLowerCase();
-  }
-  String norm(String u) => u.trim().replaceFirst(RegExp(r'(?:\.git)?/*$'), '');
-  return norm(a) == norm(b);
 }

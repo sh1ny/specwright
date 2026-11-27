@@ -18,7 +18,8 @@ import 'versions.dart';
 const String _usageText =
     'usage: sw release [--dir <repo>] check [--main ref] [--branch name] | '
     'bump --to V | status --version V [--main ref] [--store dir] | '
-    'untagged [--main ref] [--local] | publish --version V | '
+    'untagged [--main ref] [--local] | prove-main [--main branch] | '
+    'publish --version V [--proof proof] | '
     'notes --proposal <file>';
 
 /// One release call's answer: the one JSON [document] and the exit [code]
@@ -108,13 +109,22 @@ const _commands = {
     '--version': 'version',
     '--main': 'main',
     '--base': 'base',
+    '--login': 'login',
     ..._storeOptions,
   },
-  'untagged': {'--main': 'main', '--local': 'local'},
+  'prove-main': {'--main': 'main', '--login': 'login'},
+  'untagged': {
+    '--main': 'main',
+    '--local': 'local',
+    '--proof': 'proof',
+    '--login': 'login',
+  },
   'publish': {
     '--version': 'version',
     '--main': 'main',
     '--base': 'base',
+    '--proof': 'proof',
+    '--login': 'login',
     ..._storeOptions,
   },
 };
@@ -159,11 +169,18 @@ Future<Map<String, Object?>> _run(List<String> argv, String cwd) async {
   }
   final root = p.normalize(trimmed(top.stdout));
   final settings = readReleaseSettings(root)..gate();
-  final git = ReleaseGit(root);
+  final login = _value(a, 'login');
+  if (login != null && !settings.connection.fence) {
+    throw _usage('--login requires github.fence: true');
+  }
+  final git = ReleaseGit(root, settings: settings, runLogin: login);
   return switch (command) {
     'check' => checkDocument(git, settings, a),
     'bump' => bumpDocument(git, settings, a),
     'status' => statusDocument(git, settings, statusArgs(a)),
+    'prove-main' => (await git.proveMain(
+      _value(a, 'main') ?? await detectMain(git, settings.mainBranch),
+    )).toJson(),
     'untagged' => untaggedDocument(git, settings, a),
     _ => publishDocument(git, settings, statusArgs(a)),
   };
@@ -189,6 +206,7 @@ StatusArgs statusArgs(Map<String, String> a) => StatusArgs(
   version: _value(a, 'version'),
   main: _value(a, 'main'),
   base: _value(a, 'base'),
+  proof: a['proof'],
   store: _value(a, 'store'),
   storeMain: _value(a, 'store-main'),
   storePrefix: _value(a, 'store-prefix'),
@@ -271,8 +289,12 @@ Future<Map<String, Object?>> untaggedDocument(
   ReleaseSettings settings,
   Map<String, String> a,
 ) async {
-  final main = await loadMain(git, settings, _value(a, 'main'));
-  final local = a.containsKey('local') || await git.originUrl() == null;
+  final proof = a['proof'];
+  final ref = proof == null
+      ? _value(a, 'main')
+      : (await git.verifyProof(proof, null)).commit;
+  final main = await loadMain(git, settings, ref);
+  final local = a.containsKey('local') || !await git.hasRemote();
   final tags = local ? await git.localTags() : await git.publishedTags();
   final r = untaggedSinceLatest(
     settings.tag,
@@ -283,7 +305,7 @@ Future<Map<String, Object?>> untaggedDocument(
   return {
     'ok': true,
     'main': main.ref,
-    'tags': local ? 'local' : 'origin',
+    'tags': local ? 'local' : git.remote,
     'latest_tagged': r.latest,
     'untagged': [
       for (final u in r.versions)

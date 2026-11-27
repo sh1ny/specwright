@@ -242,8 +242,9 @@ void refuseOlderUntagged(
   Releases rel,
   Set<String> published,
   Set<String> local,
-  String version,
-) {
+  String version, {
+  String remote = 'origin',
+}) {
   final me = parseSemver(version);
   final older = [
     for (final u in untaggedSinceLatest(
@@ -260,7 +261,7 @@ void refuseOlderUntagged(
   if (older.isEmpty) return;
   throw ReleaseStop(
     'older_untagged',
-    'older version(s) not published (no tag on origin): ${older.join(', ')}; '
+    'older version(s) not published (no tag on $remote): ${older.join(', ')}; '
         'publish ${older.first} (tag ${tagFor(template, older.first)}) before $version',
     extra: {'versions': older},
   );

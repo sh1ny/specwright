@@ -1,5 +1,13 @@
 import '../settings/rules.dart'
-    show SettingsStop, loadSettings, readSettingsText, settingSection;
+    show
+        GitHubConnection,
+        githubConnection,
+        loadSettings,
+        readSettingsText,
+        RemoteSelection,
+        selectedRemote,
+        SettingsStop,
+        settingSection;
 import '../settings/values.dart' show pyStr;
 import 'pattern.dart';
 import 'stop.dart';
@@ -28,6 +36,17 @@ class ReleaseSettings {
   ReleaseSettings._(Map<String, Object?> doc) {
     final release = settingSection(doc, 'release', 'release');
     final pr = settingSection(doc, 'pr', 'pr');
+    final github = settingSection(doc, 'github', 'github');
+    final store = settingSection(doc, 'planning_store', 'planning_store');
+    connection = githubConnection(doc);
+    remote = selectedRemote(doc);
+    storeRemote = selectedRemote(doc, store: true);
+    final login = github['login'];
+    githubLogin = login is String ? login.trim() : '';
+    final storeMain = store['main_branch'];
+    storeMainBranch = storeMain is String && storeMain.isNotEmpty
+        ? storeMain
+        : null;
     enabled = release['enabled'] == true;
     versionFiles = release['version_files'];
     final template = release['tag'];
@@ -67,6 +86,12 @@ class ReleaseSettings {
 
   /// The top-level `main_branch`, or null.
   late final String? mainBranch;
+
+  late final GitHubConnection connection;
+  late final RemoteSelection remote;
+  late final RemoteSelection storeRemote;
+  late final String githubLogin;
+  late final String? storeMainBranch;
 
   /// Stops before any write unless releases are enabled and the tag template
   /// names `{version}`; with [rebase] (bump and publish) also when pull
@@ -164,6 +189,12 @@ ReleaseSettings readReleaseSettings(String root) {
   try {
     return ReleaseSettings._(loadSettings(text));
   } on SettingsStop catch (e) {
+    if (e.error == 'bad_setting' &&
+        (e.message.startsWith('github.') ||
+            e.message.startsWith('remote:') ||
+            e.message.startsWith('planning_store.'))) {
+      throw ReleaseStop(e.error, e.message, code: e.code);
+    }
     throw ReleaseStop('bad_settings', e.message);
   }
 }

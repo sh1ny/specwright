@@ -1,5 +1,6 @@
 import 'package:path/path.dart' as p;
 
+import '../pr/identity.dart' show matchesPull;
 import '../vcs/document.dart' show decodeJson;
 import 'git.dart';
 import 'history.dart';
@@ -200,8 +201,7 @@ String branchPrefix(String change) {
 
 /// The closed pull requests into the code main: one `gh api --paginate
 /// --slurp` call. Exit 3 (`pr_discovery_failed`) when it fails. [base] names
-/// the GitHub base branch when given; else it is taken from an `origin/<name>`
-/// ref (a bare commit, as a jj run reads, names no branch).
+/// the GitHub branch independently of the commit used for release history.
 Future<({String slug, List<Map<String, Object?>> pulls})> mergedPulls(
   ReleaseGit git,
   String ref,
@@ -211,13 +211,11 @@ Future<({String slug, List<Map<String, Object?>> pulls})> mergedPulls(
   if (slug == null) {
     throw ReleaseStop(
       'no_github_origin',
-      'store-backed notes in pr mode need origin to be a github.com repository '
+      "store-backed notes in pr mode need '${git.remote}' to name a repository on ${git.host} "
           '(to find the merged code PRs)',
     );
   }
-  final branch =
-      base ??
-      (ref.startsWith('origin/') ? ref.substring('origin/'.length) : ref);
+  final branch = Uri.encodeQueryComponent(base ?? ref);
   final url = 'repos/$slug/pulls?state=closed&base=$branch&per_page=100';
   final shown = 'gh api --paginate $url';
   final r = await git.gh(['api', '--paginate', '--slurp', url], paged: true);
@@ -295,11 +293,12 @@ Future<ChangeSet> storeChanges(
   final prefix = storePrefix ?? 'openspec';
   var ref = storeMain;
   if (ref == null || ref.isEmpty) {
-    final configured = readReleaseSettings(top).mainBranch;
+    final configured = settings.storeMainBranch;
     final names = [configured ?? 'main', if (configured == null) 'master'];
     for (final n in names) {
-      if (await sg.refExists('refs/remotes/origin/$n')) {
-        ref = 'origin/$n';
+      final tracking = 'refs/remotes/${settings.storeRemote.name}/$n';
+      if (await sg.refExists(tracking)) {
+        ref = '${settings.storeRemote.name}/$n';
         break;
       }
       if (await sg.refExists('refs/heads/$n')) {
@@ -334,10 +333,19 @@ Future<ChangeSet> storeChanges(
       }
     }
   } else if (candidates.isNotEmpty) {
-    final mainName = main == null || main.isEmpty
-        ? await detectMain(git, settings.mainBranch)
-        : main;
-    final merged = await mergedPulls(git, mainName, base);
+    final selected = main ?? '';
+    final tracking = '${git.remote}/';
+    final fullTracking = 'refs/remotes/$tracking';
+    final branch =
+        base ??
+        (selected.startsWith(fullTracking)
+            ? selected.substring(fullTracking.length)
+            : selected.startsWith(tracking)
+            ? selected.substring(tracking.length)
+            : selected.startsWith('refs/heads/')
+            ? selected.substring('refs/heads/'.length)
+            : await detectMain(git, settings.mainBranch));
+    final merged = await mergedPulls(git, branch, null);
     final position = {for (var i = 0; i < range.length; i++) range[i].sha: i};
     final pulls = [...merged.pulls]
       ..sort(
@@ -350,6 +358,12 @@ Future<ChangeSet> storeChanges(
       final headRef = (head['ref'] as String?) ?? '';
       final repo = (_map(head['repo'])['full_name'] as String?) ?? '';
       if (pull['merged_at'] == null ||
+          !matchesPull(
+            pull['html_url'],
+            git.host,
+            merged.slug,
+            pull['number'],
+          ) ||
           sha is! String ||
           sha.isEmpty ||
           repo.toLowerCase() != merged.slug.toLowerCase() ||

@@ -48,6 +48,9 @@ class JjRelease(unittest.TestCase):
         self.gh_state, self.gh_log = self.tmp / "gh-state.json", self.tmp / "gh-log.jsonl"
         self.trace = self.tmp / "git-trace.jsonl"
         self.work = fx.make_repo(self.tmp, version="0.4.0")
+        settings = self.work / "openspec/specwright.yaml"
+        fx.commit(self.work, "Use ambient test transport",
+                  {"openspec/specwright.yaml": settings.read_text(encoding="utf-8") + "github:\n  fence: false\n"})
         url = f"https://github.com/{CODE_SLUG}.git"
         self.bare = self.tmp / "origin.git"
         fx.git(self.work, "config", "remote.origin.url", url)
@@ -55,6 +58,7 @@ class JjRelease(unittest.TestCase):
         fx.push(self.work)
         self.base = fx.git(self.work, "rev-parse", "HEAD")
         self.rc = fx.squash_merge(self.work, "add-x", "0.5.0", 7)
+        fx.push(self.work)
 
     def to_jj(self):
         r = subprocess.run([self.jj, "git", "init", "--colocate"], cwd=self.work, env=self.env(), capture_output=True, text=True)
@@ -102,16 +106,17 @@ class JjRelease(unittest.TestCase):
                 "bookmarks": subprocess.run([self.jj, "bookmark", "list", "--all-remotes", "--ignore-working-copy"], cwd=self.work,
                                             env=self.env(), capture_output=True, text=True).stdout}
 
-    def assert_writes_only_tag(self, calls, tag=TAG):
+    def assert_writes_only_tag_or_private_ref(self, calls, tag=TAG):
         for c in calls:
             if c["write"]:
                 names_tag = c["exception"] == "annotated release tag" or any(f"refs/tags/{tag}" in a for a in c["argv"])
-                self.assertTrue(names_tag, f"a Git write that is not the release tag: {c['argv']}")
+                private = any("refs/specwright/release/" in a for a in c["argv"])
+                self.assertTrue(names_tag or private, f"a Git write outside release refs: {c['argv']}")
 
 
 class TestPublishJj(JjRelease):
     def test_publish_jj_base_by_name_no_bookmark_moves(self):
-        """Local main is behind origin's: the skill reads the fetched commit (`--main <sha>`) and names the base branch."""
+        """Local main is behind the selected remote's main; the proof uses its own ref and separates the base name."""
         fx.push(self.work)  # origin's main holds the release commit
         fx.git(self.work, "reset", "-q", "--hard", self.base)  # local main is behind it
         self.to_jj()
@@ -122,8 +127,11 @@ class TestPublishJj(JjRelease):
             "html_url": f"https://github.com/{CODE_SLUG}/pull/7",
             "head": {"ref": "feat/add-x", "label": "acme:feat/add-x", "repo": {"full_name": CODE_SLUG}}, "base": {"ref": "main"}})
         before = self.repo_state()
-        code, doc, raw = self.release("publish", "--version", "0.5.0", "--main", self.rc, "--store", str(store),
-                                      "--store-main", store_main, "--base", "main")
+        rc, proof, raw = self.release("prove-main")
+        self.assertEqual(rc, 0, raw)
+        self.assertEqual((proof["main_branch"], proof["commit"]), ("main", self.rc))
+        code, doc, raw = self.release("publish", "--version", "0.5.0", "--proof", proof["proof"], "--store", str(store),
+                                      "--store-main", store_main)
         self.assertEqual(code, 0, raw)
         self.assertEqual(doc["store"]["main"], store_main, raw)
         api = [c for c in self.gh_calls() if c["argv"][0] == "api"]
@@ -135,7 +143,7 @@ class TestPublishJj(JjRelease):
         self.assertEqual(set(before["refs"].splitlines()) - set(after["refs"].splitlines()), set())
         added = set(after["refs"].splitlines()) - set(before["refs"].splitlines())
         self.assertTrue(all(line.endswith(f"refs/tags/{TAG}") for line in added), added)  # only the tag was written
-        self.assert_writes_only_tag(self.git_calls())
+        self.assert_writes_only_tag_or_private_ref(self.git_calls())
 
     def test_publish_jj_only_tag_writes(self):
         self.to_jj()
@@ -146,7 +154,7 @@ class TestPublishJj(JjRelease):
         self.assertEqual(fx.git(self.bare, "cat-file", "-t", TAG), "tag")
         self.assertEqual(fx.git(self.bare, "rev-parse", f"{TAG}^{{commit}}"), self.rc)
         self.assertTrue(any(c["write"] for c in self.git_calls()), "no git write seen: the trace did not run")
-        self.assert_writes_only_tag(self.git_calls())
+        self.assert_writes_only_tag_or_private_ref(self.git_calls())
         after = self.repo_state()
         self.assertEqual(after["head"], before["head"])
         self.assertEqual(after["files"], before["files"])
@@ -164,7 +172,7 @@ class TestPublishJj(JjRelease):
         self.assertEqual(code, 1, raw)
         self.assertEqual(doc["error"], "tag_conflict", raw)
         self.assertEqual(self.repo_state(), before)
-        self.assertEqual([c for c in self.git_calls() if c["write"]], [])
+        self.assert_writes_only_tag_or_private_ref(self.git_calls(), tag="no-release-tag")
         self.assertEqual([c for c in self.gh_calls() if c["argv"][:2] == ["release", "create"]], [])
 
     def test_publish_jj_tag_fetch_names_tag_only(self):
@@ -178,9 +186,10 @@ class TestPublishJj(JjRelease):
         self.assertEqual(code, 0, raw)
         self.assertEqual((doc["tag_local"], doc["tag_remote"]), ("fetched", "existing"), raw)
         fetches = [c["argv"] for c in self.git_calls() if c["action"] == "fetch"]
-        self.assertEqual(len(fetches), 1, fetches)
-        self.assertEqual(fetches[0][-2:], ["origin", f"refs/tags/{TAG}:refs/tags/{TAG}"])
-        self.assert_writes_only_tag(self.git_calls())
+        self.assertEqual(len(fetches), 2, fetches)
+        self.assertTrue(fetches[0][-1].startswith("refs/heads/main:refs/specwright/release/"), fetches)
+        self.assertEqual(fetches[1][-2:], ["origin", f"refs/tags/{TAG}:refs/tags/{TAG}"])
+        self.assert_writes_only_tag_or_private_ref(self.git_calls())
         after = self.repo_state()
         self.assertEqual(after["bookmarks"], before["bookmarks"])
         self.assertEqual(after["head"], before["head"])

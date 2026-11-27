@@ -154,9 +154,9 @@ Red means added/changed coverage to prove before implementation; inherited green
 | releases → The release commit is found on main | Squash-merged change | `evals/release/test_release.py` | `test_squash` | green |
 | releases → The release commit is found on main | Merge-commit change | `evals/release/test_release.py` | `test_merge_commit` | green |
 | releases → The release commit is found on main | Version not on main | `evals/release/test_release.py` | `test_not_on_main` | green |
-| releases → The release commit is found on main | Publication destination changes after main was fetched | `evals/release/test_release.py` | `test_publish_does_not_write_after_retarget_between_fetch_and_publish` | red |
-| releases → The release commit is found on main | Fetched main has a custom refspec | `evals/release/test_release.py` | `test_publish_uses_fetched_main_with_custom_refspec` | red |
-| releases → The release commit is found on main | Another fetch finishes before the release proof is read | `evals/release/test_release.py` | `test_release_proof_keeps_its_own_commit_across_other_fetch` | red |
+| releases → The release commit is found on main | Publication destination changes after main was fetched | `evals/release/test_release.py` | `test_release_proof_rejected_after_remote_changes` | green |
+| releases → The release commit is found on main | Fetched main has a custom refspec | `evals/release/test_release.py` | `test_release_proof_ignores_stale_standard_tracking_ref` | green |
+| releases → The release commit is found on main | Another fetch finishes before the release proof is read | `evals/release/test_release.py` | `test_release_proof_keeps_its_own_commit_across_other_fetch` | green |
 | releases → Notes list the changes merged since the previous release | One change in the range | `evals/release/test_release.py` | `test_one_change` | green |
 | releases → Notes list the changes merged since the previous release | Several changes in the range | `evals/release/test_release.py` | `test_several_changes_in_order` | green |
 | releases → Notes list the changes merged since the previous release | No change in the range | `evals/release/test_release.py` | `test_empty_range` | green |
@@ -167,9 +167,9 @@ Red means added/changed coverage to prove before implementation; inherited green
 | releases → Store-backed notes use the code-merge proof | PR from another prefix | `evals/release/test_release.py` | `test_other_prefix_is_not_proof` | green |
 | releases → Store-backed notes use the code-merge proof | Code still pending | `evals/release/test_release.py` | `test_pending_left_out` | green |
 | releases → Store-backed notes use the code-merge proof | PR discovery fails | `evals/release/test_release.py` | `test_discovery_failure_stops` | green |
-| releases → Store-backed notes use the code-merge proof | Store and code use separate named remotes | `evals/release/test_release.py` | `test_release_notes_resolve_independent_named_remotes` | red |
-| releases → Store-backed notes use the code-merge proof | Local-store archive has not reached store main | `evals/release/test_release.py` | `test_release_notes_exclude_archive_only_on_manual_share_branch` | red |
-| releases → Publish creates and pushes an annotated tag | New release | `evals/release/test_release.py` | `test_publish_new_release_to_selected_remote_only` | red |
+| releases → Store-backed notes use the code-merge proof | Store and code use separate named remotes | `evals/release/test_release.py` | `test_release_notes_resolve_independent_named_remotes` | green |
+| releases → Store-backed notes use the code-merge proof | Local-store archive has not reached store main | `evals/release/test_release.py` | `test_release_notes_exclude_archive_only_on_manual_share_branch` | green |
+| releases → Publish creates and pushes an annotated tag | New release | `evals/release/test_release.py` | `test_publish_release_targets_enterprise_host` | green |
 | releases → Publish creates and pushes an annotated tag | Tag template without the version | `evals/release/test_release.py` | `test_tag_template_without_version_refused` | green |
 | releases → Publish creates and pushes an annotated tag | Push refused by the fence | `evals/release/test_release.py` | `test_push_failure` | green |
 | releases → Publish creates and pushes an annotated tag | Store-backed project | `evals/release/test_release.py` | `test_store_not_tagged` | green |
@@ -178,16 +178,16 @@ Red means added/changed coverage to prove before implementation; inherited green
 | releases → Older untagged versions are published first | First release's tag push failed | `evals/release/test_release.py` | `test_first_release_push_failed` | green |
 | releases → Older untagged versions are published first | Backfill below the latest tag | `evals/release/test_release.py` | `test_backfill_below_latest` | green |
 | releases → Re-runs never move a published tag | Re-run after an interrupted publish | `evals/release/test_release.py` | `test_rerun_creates_only_release` | green |
-| releases → Re-runs never move a published tag | Tag only on origin | `evals/release/test_release.py` | `test_publish_reuses_existing_tag_on_selected_remote` | red |
+| releases → Re-runs never move a published tag | Tag exists only on the selected remote | `evals/release/test_release.py` | `test_publish_release_targets_enterprise_host` | green |
 | releases → Re-runs never move a published tag | Tag on another commit | `evals/release/test_release.py` | `test_conflicting_tag_stops` | green |
 | releases → Re-runs never move a published tag | Lightweight tag | `evals/release/test_release.py` | `test_lightweight_tag_stops` | green |
 | releases → Re-runs never move a published tag | Remote tags unreadable | `evals/release/test_release.py` | `test_ls_remote_failure` | green |
-| releases → The tag is pushed where it was checked | Push URL elsewhere | `evals/release/test_release.py` | `test_publish_refuses_named_remote_push_to_fork` | red |
-| releases → The tag is pushed where it was checked | Rewrite to another GitHub repository | `evals/release/test_release.py` | `test_publish_refuses_rewrite_to_other_enterprise_repo` | red |
+| releases → The tag is pushed where it was checked | Push URL elsewhere | `evals/release/test_release.py` | `test_publish_refuses_named_remote_push_to_fork` | green |
+| releases → The tag is pushed where it was checked | Rewrite to another GitHub repository | `evals/release/test_release.py` | `test_publish_refuses_rewrite_to_other_enterprise_repo` | green |
 | releases → A release uses the tag on origin | Lost push race | `evals/release/test_release.py` | `test_lost_push_race_stops` | green |
 | releases → The GitHub release is optional and created once | Shorthand rewritten to GitHub | `evals/release/test_release.py` | `test_shorthand_rewritten_to_github_creates_release` | green |
 | releases → The GitHub release is optional and created once | Release created | `evals/release/test_release.py` | `test_created_with_tag_message` | green |
-| releases → The GitHub release is optional and created once | Release created on GitHub Enterprise | `evals/release/test_release.py` | `test_publish_release_targets_enterprise_host` | red |
+| releases → The GitHub release is optional and created once | Release created on GitHub Enterprise | `evals/release/test_release.py` | `test_publish_release_targets_enterprise_host` | green |
 | releases → The GitHub release is optional and created once | Release already exists | `evals/release/test_release.py` | `test_rerun_after_tag_reports_no_warnings` | green |
 | releases → The GitHub release is optional and created once | Release creation fails | `evals/release/test_release.py` | `test_create_failure_resumable` | green |
 | releases → Untagged versions can be read from local tags only | Local tags only | `evals/release/test_release.py` | `test_local_flag_reads_no_remote` | green |
@@ -196,12 +196,12 @@ Red means added/changed coverage to prove before implementation; inherited green
 | releases → Ship, local merge and watch check the version against main | Main merged a duplicate while the PR waited | `evals/release/test_release.py` | `test_duplicate_after_main_merged_in_refused` | green |
 | releases → Ship, local merge and watch check the version against main | Local merge of a duplicate version | `evals/release/test_release.py` | `test_duplicate_after_main_merged_in_refused` | green |
 | releases → Ship, local merge and watch check the version against main | Releases disabled | `evals/release/test_release.py` | `test_disabled_refuses` | green |
-| releases → A cut-off tag push or release creation is decided by a read-back | Push cut off after it landed | `evals/release/test_release.py` | `test_push_cut_off_after_landing_counts_done` | red |
-| releases → A cut-off tag push or release creation is decided by a read-back | Push cut off while another clone's tag won | `evals/release/test_release.py` | `test_push_cut_off_other_tag_object_is_tag_mismatch` | red |
-| releases → A cut-off tag push or release creation is decided by a read-back | Push cut off with origin's tag on another commit | `evals/release/test_release.py` | `test_push_cut_off_other_commit_is_tag_conflict` | red |
-| releases → A cut-off tag push or release creation is decided by a read-back | Release creation cut off before it landed | `evals/release/test_release.py` | `test_release_create_cut_off_not_found` | red |
-| releases → A cut-off tag push or release creation is decided by a read-back | Read-back fails too | `evals/release/test_release.py` | `test_push_cut_off_read_back_fails_state_unknown` | red |
-| releases → A cut-off tag push or release creation is decided by a read-back | Remote retargeted after the tag push is cut off | `evals/release/test_release.py` | `test_publish_readback_does_not_follow_retargeted_remote` | red |
+| releases → A cut-off tag push or release creation is decided by a read-back | Push cut off after it landed | `evals/release/test_release.py` | `test_push_cut_off_after_landing_counts_done` | green |
+| releases → A cut-off tag push or release creation is decided by a read-back | Push cut off while another clone's tag won | `evals/release/test_release.py` | `test_push_cut_off_other_tag_object_is_tag_mismatch` | green |
+| releases → A cut-off tag push or release creation is decided by a read-back | Push cut off with remote's tag on another commit | `evals/release/test_release.py` | `test_push_cut_off_other_commit_is_tag_conflict` | green |
+| releases → A cut-off tag push or release creation is decided by a read-back | Release creation cut off before it landed | `evals/release/test_release.py` | `test_release_create_cut_off_not_found` | green |
+| releases → A cut-off tag push or release creation is decided by a read-back | Read-back fails too | `evals/release/test_release.py` | `test_push_cut_off_read_back_fails_state_unknown` | green |
+| releases → A cut-off tag push or release creation is decided by a read-back | Remote retargeted after the tag push is cut off | `evals/release/test_release.py` | `test_publish_readback_does_not_follow_retargeted_remote` | green |
 | vcs-backends → Each repository selects one network remote | Code and store use different remote names | `evals/vcs/test_fetch_pull.py` | `test_code_and_store_refresh_only_their_selected_remote` | green |
 | vcs-backends → Each repository selects one network remote | The store does not inherit the code's remote name | `evals/vcs/test_fetch_pull.py` | `test_store_defaults_to_origin_even_when_code_remote_is_set` | green |
 | vcs-backends → Each repository selects one network remote | A selected remote is missing | `evals/vcs/test_fetch_pull.py` | `test_fetch_and_push_refuse_missing_selected_remote` | green |
@@ -214,7 +214,7 @@ Red means added/changed coverage to prove before implementation; inherited green
 | vcs-backends → The Git backend keeps today's commands | Git commit with nothing to commit | `evals/vcs/test_git_backend.py` | `test_git_commit_nothing_fails_like_git` | green |
 | vcs-backends → Fetches for reading move no jj bookmark | Remote main ahead, main tracked | `evals/vcs/test_fetch_pull.py` | `test_fetch_main_tracked_moves_nothing` | green |
 | vcs-backends → Fetches for reading move no jj bookmark | Local main diverged before a read | `evals/vcs/test_fetch_pull.py` | `test_fetch_main_diverged_no_conflict` | green |
-| vcs-backends → Fetches for reading move no jj bookmark | Release publish on jj with main tracked | `evals/release/test_release_jj.py` | `test_publish_jj_base_by_name_no_bookmark_moves` | red |
+| vcs-backends → Fetches for reading move no jj bookmark | Release publish on jj with main tracked | `evals/release/test_release_jj.py` | `test_publish_jj_base_by_name_no_bookmark_moves` | green |
 | vcs-backends → The GitButler backend is probed before any `but` command | `but` missing | `evals/vcs/test_gitbutler_probe.py` | `test_but_missing_stops_before_write` | green |
 | vcs-backends → The GitButler backend is probed before any `but` command | Repo not managed by GitButler | `evals/vcs/test_gitbutler_probe.py` | `test_unmanaged_repo_not_set_up` | green |
 | vcs-backends → The GitButler backend is probed before any `but` command | Target is another branch | `evals/vcs/test_gitbutler_probe.py` | `test_target_mismatch_stops` | green |
@@ -264,8 +264,8 @@ Red means added/changed coverage to prove before implementation; inherited green
 
 ## 6. Release history and publication target
 
-- [ ] 6.1 Write the two release-proof cases first. Use a real custom refspec with a stale ordinary tracking ref, then deterministically schedule a second completed fetch before the first proof reads its commit. Verify exact release commit/tag target and unchanged user refs; no sleeps. Write the remaining red cases in `evals/release/test_release.py` and `test_release_jj.py`: selected remote/host, store main, between-command retarget, read-back after retarget, and deterministic bounded transport outcomes.
-- [ ] 6.2 Bind the exact fetched main to the selected release target and qualify `gh` calls (C12); retain notes from store main and merged-code evidence only (C7). Rerun the focused release modules, including the existing version guards, tag conflicts, release resumption and jj behavior. Update the release skill and README how-to with remote agreement, stable configuration and manual archive reaching store main.
+- [x] 6.1 Write the two release-proof cases first. Use a real custom refspec with a stale ordinary tracking ref, then deterministically schedule a second completed fetch before the first proof reads its commit. Verify exact release commit/tag target and unchanged user refs; no sleeps. Write the remaining red cases in `evals/release/test_release.py` and `test_release_jj.py`: selected remote/host, store main, between-command retarget, read-back after retarget, and deterministic bounded transport outcomes.
+- [x] 6.2 Bind the exact fetched main to the selected release target and qualify `gh` calls (C12); retain notes from store main and merged-code evidence only (C7). Rerun the focused release modules, including the existing version guards, tag conflicts, release resumption and jj behavior. Update the release skill and README how-to with remote agreement, stable configuration and manual archive reaching store main.
 
 ## 7. Integration and version
 

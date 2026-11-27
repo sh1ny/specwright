@@ -1235,7 +1235,7 @@ def cmd_release(st, args):
         if rel is None:
             raise Fail("release not found")
         full = {"tagName": rel["tag_name"], "name": rel.get("name", ""), "body": rel.get("body", ""),
-                "url": f"{HOST}/{slug}/releases/tag/{tag}"}
+                "url": f"https://{st.get('host', 'github.com')}/{slug}/releases/tag/{tag}"}
         if "json" in o:
             return emit({k: full[k] for k in one(o, "json").split(",") if k in full}, one(o, "jq"))
         return print(f"title:\t{full['name']}\ntag:\t{tag}\nurl:\t{full['url']}\n--\n{full['body']}")
@@ -1245,7 +1245,7 @@ def cmd_release(st, args):
         raise Fail(f"a release with the same tag name already exists: {tag}")
     notes = read_file(one(o, "notes-file")) if "notes-file" in o else one(o, "notes", "")
     releases[tag] = {"tag_name": tag, "name": one(o, "title", tag), "body": notes, "created_at": now(st)}
-    print(f"{HOST}/{slug}/releases/tag/{tag}")
+    print(f"https://{st.get('host', 'github.com')}/{slug}/releases/tag/{tag}")
 
 
 def host_of(argv):
@@ -1275,6 +1275,9 @@ def main(argv):
             before = json.dumps(st)
         inject_failure(st, argv)
         hostile(st, argv)
+        if argv == ["--version"]:
+            print("gh version 2.63.0")
+            return 0
         host = st.get("host", "github.com")
         if host_of(argv) != host and "--help" not in argv:
             raise Fail(f"fake gh: host {host_of(argv)} is not supported (only {host})", 1)

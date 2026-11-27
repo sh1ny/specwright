@@ -12,6 +12,7 @@ class StatusArgs {
     this.version,
     this.main,
     this.base,
+    this.proof,
     this.store,
     this.storeMain,
     this.storePrefix,
@@ -25,6 +26,9 @@ class StatusArgs {
 
   /// `--base`: the GitHub base branch the closed-PR read lists.
   final String? base;
+
+  /// `--proof`: the opaque exact-fetch result from `prove-main`.
+  final String? proof;
 
   /// `--store`, `--store-main` and `--store-prefix`.
   final String? store;
@@ -87,6 +91,7 @@ Future<Map<String, Object?>> statusDocument(
   LoadedMain? loaded,
   bool release = true,
   String command = 'status',
+  String? mainBranch,
 }) async {
   final v = args.version;
   if (v == null || v.isEmpty) {
@@ -115,7 +120,7 @@ Future<Map<String, Object?>> statusDocument(
       storeMain: args.storeMain,
       storePrefix: args.storePrefix,
       main: args.main,
-      base: args.base,
+      base: mainBranch ?? args.base,
       prev: prev?.sha,
       rel: sha,
       range: range,
@@ -162,7 +167,7 @@ Future<Map<String, Object?>> statusDocument(
     if (tagLocal.exitCode == 0 &&
         await git.text(['cat-file', '-t', 'refs/tags/$tag']) != 'tag')
       'locally',
-    if (remote.commit != null && remote.annotated != true) 'on origin',
+    if (remote.commit != null && remote.annotated != true) 'on ${git.remote}',
   ];
   final notes = buildNotes(
     tag,
