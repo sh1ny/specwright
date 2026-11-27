@@ -240,7 +240,7 @@ Red means added/changed coverage to prove before implementation; inherited green
 
 ## 1. Record the connection contract
 
-- [ ] 1.1 Write ADR 0045 for configured host and safe default fence, independent role remotes, and physical-project settings selection (C1–C3). Record the #260 ship-only boundary and unchanged committed-task requirement. Update the architecture index and affected sections; verify the index target and run the suite map test after adding the ADR.
+- [x] 1.1 Write ADR 0045 for configured host and safe default fence, independent role remotes, and physical-project settings selection (C1–C3). Record the #260 ship-only boundary and unchanged committed-task requirement. Update the architecture index and affected sections; verify the index target and run the suite map test after adding the ADR.
 
 ## 2. Project settings, identity and fence
 
