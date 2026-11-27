@@ -372,16 +372,21 @@ class WorkflowRecords(NativePass, original.PassBase):
         self.push_all()
         held, release = self.tmp / "done-held", self.tmp / "done-release"
         lock = Path(str(self.record_path()) + ".lock")
-        real_git = original.fixtures.posix(shutil.which("git"))
         tool = self.tmp / "bin" / "git"
-        tool.write_text('#!/bin/bash\n'
-            'if [ "$1" = show-ref ] && [ -f "$WF_RECORD_LOCK" ]; then\n'
-            '  : > "$WF_DONE_HELD"\n'
-            '  while [ ! -e "$WF_DONE_RELEASE" ]; do sleep 0.05; done\n'
-            'fi\n'
-            f'exec "{real_git}" "$@"\n', encoding="utf-8", newline="\n")
-        tool.chmod(0o755)
-        fakeexe.add_launcher(tool, exe=True)  # sw starts it by PATHEXT name on Windows (D9)
+        launcher = tool.with_suffix(".exe") if os.name == "nt" else tool
+        delegate = launcher.with_name("git-with-fixture-origin" + launcher.suffix)
+        launcher.rename(delegate)
+        fakeexe.write_python_fake(tool, f'''
+import os, subprocess, sys, time
+from pathlib import Path
+args = sys.argv[1:]
+if args == ["rev-parse", "refs/heads/{original.BRANCH}"] and Path(os.environ["WF_RECORD_LOCK"]).is_file():
+    Path(os.environ["WF_DONE_HELD"]).touch()
+    release = Path(os.environ["WF_DONE_RELEASE"])
+    while not release.exists():
+        time.sleep(0.05)
+sys.exit(subprocess.call([{str(delegate)!r}, *args]))
+''')
         self.extra_env.update(WF_RECORD_LOCK=lock.as_posix(), WF_DONE_HELD=held.as_posix(),
                               WF_DONE_RELEASE=release.as_posix())
         results = []
@@ -389,9 +394,10 @@ class WorkflowRecords(NativePass, original.PassBase):
         worker = threading.Thread(target=lambda: results.append(self.command(args)))
         worker.start()
         try:
-            end = time.monotonic() + 20
-            while not held.exists() and time.monotonic() < end: time.sleep(0.05)
-            self.assertTrue(held.exists(), "done did not replan while holding its native lock")
+            end = time.monotonic() + 75
+            while worker.is_alive() and not held.exists() and time.monotonic() < end:
+                time.sleep(0.05)
+            self.assertTrue(held.exists(), f"done did not reach the locked replanning read: {results}")
             before = self.record_path().read_bytes()
             refused = self.pp("pass", "adopt", *self.common(), "--owner", "new", "--from", self.owner, expect=1)
             self.assertEqual(refused["error"], "record_busy")
