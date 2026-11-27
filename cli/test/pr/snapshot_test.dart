@@ -425,14 +425,17 @@ void main() {
       expect(kinds(), ['prnum', 'cfg', 'rate', 'activity', 'snapshot']);
       expect(f.ghCalls.first, [
         'pr',
-        'view',
+        'list',
+        '--head',
         'feature',
+        '--state',
+        'all',
         '--repo',
         'o/n',
         '--json',
-        'number',
+        'number,state',
         '--jq',
-        prNumberJq,
+        branchPrNumberJq,
       ]);
       final cfg = cfgFor(
         logins: '',
@@ -531,6 +534,16 @@ void main() {
         expect(kinds(), ['prnum']);
       },
     );
+
+    test('a numeric branch name selects its PR, not that PR number', () async {
+      f.branch = '123';
+      answers({
+        'prnum': (args) =>
+            answer(args[2] == '--head' && args[3] == '123' ? '7\n' : '123\n'),
+      });
+      expect(await snapshot([]), 0);
+      expect(jsonDecode(f.stdout)['number'], 7);
+    });
 
     test('a failed branch PR lookup exits with gh\'s status', () async {
       answers({'prnum': (_) => answer('', exit: 7, stderr: 'nope\n')});

@@ -332,18 +332,28 @@ class _Snapshot {
       }
       final r = await gh([
         'pr',
-        'view',
+        'list',
+        '--head',
         branch,
+        '--state',
+        'all',
         '--repo',
         repo,
         '--json',
-        'number',
+        'number,state',
         '--jq',
-        prNumberJq,
+        branchPrNumberJq,
       ]);
       ctx.relayErr(r);
       if (r.exitCode != 0) throw PrExit(r.exitCode);
-      pr = ctx.captured(r);
+      final selected = int.tryParse(ctx.captured(r));
+      if (selected == null || selected <= 0) {
+        stop(
+          'pr-snapshot: cannot find a pull request for current branch $branch in $repo; pass a PR number',
+          1,
+        );
+      }
+      pr = '$selected';
     }
     final slash = repo.indexOf('/');
     owner = slash < 0 ? repo : repo.substring(0, slash);

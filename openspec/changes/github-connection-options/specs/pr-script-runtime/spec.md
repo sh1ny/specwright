@@ -65,6 +65,10 @@ Before reacting to, replying to or resolving an item addressed by ID, `sw pr rep
 - **WHEN** `remote: publishing` selects `team/app` and `origin` points at `team/old` on the same host, both have PR 7, and snapshot and reply omit `--repo`
 - **THEN** snapshot reads `team/app` PR 7 and a reply changes only that PR; `team/old` receives no request
 
+#### Scenario: A numeric branch name is not a PR number
+- **WHEN** the current branch is `123`, its open PR in the selected repository is number 7, and PR 123 has a different head branch
+- **THEN** `sw pr snapshot` without a PR number or URL reads PR 7, not PR 123
+
 #### Scenario: Store snapshot infers its planning remote
 - **WHEN** a store-started snapshot with `--project <code>` omits `--repo` and the project selects `planning_store.remote: plans`
 - **THEN** it reads the store PR from `plans`, not from either checkout's `origin` or the code project's selected code remote

@@ -823,7 +823,7 @@ GitHub publication fetches the selected remote's main into a private ref. `sw re
 
 For SSH or token-only automation, set `github.fence: false` and leave `github.login`, `planning_store.login`, `github.review_request.login` and `pr.request_as` empty. Git uses its own credential helper or SSH key; `gh` uses `GH_TOKEN` for `github.com` and `*.ghe.com`, or `GH_ENTERPRISE_TOKEN` for GitHub Enterprise Server. Supply secrets through the environment, not URLs or settings. This mode uses your own credentials without identity isolation; use a trusted checkout and a single intended identity. A fence refusal never switches to this mode.
 
-`sw pr snapshot` accepts at most one PR number or URL. If you omit it, the current branch selects the PR in the chosen repository.
+`sw pr snapshot` accepts at most one PR number or URL. If you omit it, it looks up the current branch by name in the chosen repository, even for a numeric branch such as `123`.
 
 `openspec/config.yaml` (template: [`templates/openspec/config.yaml`](templates/openspec/config.yaml)) carries the `context:` lines that make the git skills fire at the right phase.
 

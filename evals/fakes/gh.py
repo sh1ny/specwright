@@ -51,7 +51,7 @@ Optional per-repo "readers": [logins] - only they may call `api repos/<o>/<n>/..
 Optional per-repo "activity": [{"ref": "refs/heads/b", "after": "<sha>", "timestamp": "..."}]
 backs `api repos/<o>/<n>/activity?ref=...` (the push-time lookup).
 Covers: auth token (and its --help, which names --user), api (user, pulls list/get, activity,
-issue comments list/create/patch), pr create/view/comment/edit, repo view,
+issue comments list/create/patch), pr create/list/view/comment/edit, repo view,
 release view <tag> [--json tagName,name,body,url [--jq]] / release create <tag> [--verify-tag] [-t title] [-F notes-file | -n notes]
 (add-release-workflow). Anything else exits 2.
 Releases: per repo "releases": {"<tag>": {"tag_name", "name", "body", "created_at"}}; "remote_tags": ["v0.5.0", ...] declares
@@ -1119,7 +1119,7 @@ def cmd_pr(st, args):
     sub, args = (args[:1] or [""])[0], args[1:]
     V = {"--repo": "repo", "-R": "repo", "--body": "body", "-b": "body", "--body-file": "body-file", "-F": "body-file",
          "--title": "title", "-t": "title", "--base": "base", "-B": "base", "--head": "head", "-H": "head",
-         "--json": "json", "--jq": "jq", "-q": "jq"}
+         "--json": "json", "--jq": "jq", "-q": "jq", "--state": "state", "-s": "state"}
     o, pos = parse(args, V, ("--draft", "-d", "--web", "--edit-last"))
     slug, repo = repo_of(o, st)
     if sub == "create":
@@ -1139,6 +1139,16 @@ def cmd_pr(st, args):
                                "repo": {"full_name": f"{owner}/{slug.split('/')[1]}"}},
                       "base": {"ref": one(o, "base") or repo.get("default_branch", "main")}})
         return print(st.get("pr_create_response", pull_url(slug, n, st)))
+    if sub == "list":
+        head, state = one(o, "head"), one(o, "state", "open")
+        fields = one(o, "json", "").split(",")
+        pulls = sorted(repo.get("pulls", []), key=lambda p: p["number"], reverse=True)
+        rows = []
+        for p in pulls:
+            view = graphql_view(p, slug)
+            if (not head or view["headRefName"] == head) and (state == "all" or view["state"].lower() == state):
+                rows.append({k: view[k] for k in fields if k in view})
+        return emit(rows[:30], one(o, "jq"))
     if sub == "view":
         p = find_pull(slug, repo, pos[0] if pos else "")
         if "json" in o:

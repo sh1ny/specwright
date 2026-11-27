@@ -28,6 +28,27 @@ class Smoke(SnapCase):
         self.assertEqual((snap["threads"], snap["comments"], snap["reviews"], snap["complete"]), ([], [], [], True))
         self.assertEqual(snap["checks"]["total"], 0)
 
+    def test_implicit_numeric_branch_prefers_its_open_pr(self):
+        (self.tmp / "openspec" / "specwright.yaml").write_text("remote: publishing\ngithub:\n  fence: false\n", encoding="utf-8")
+        env = self.env(GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_NOSYSTEM="1")
+        for args in (("init", "-q", "-b", "123"), ("remote", "add", "publishing", f"https://github.com/{self.SLUG}.git")):
+            subprocess.run(["git", *args], cwd=self.tmp, env=env, check=True, capture_output=True)
+
+        def seed(st):
+            pulls = st["repos"][self.SLUG]["pulls"]
+            pulls[0]["head"].update(ref="123", label="o:123")
+            closed, unrelated = self._pull(), self._pull()
+            closed.update(number=8, state="closed", html_url=f"https://github.com/{self.SLUG}/pull/8")
+            closed["head"].update(ref="123", label="o:123")
+            unrelated.update(number=123, html_url=f"https://github.com/{self.SLUG}/pull/123")
+            pulls.extend((closed, unrelated))
+        self.mutate(seed)
+
+        result = self.run_script(snapfix.SNAPSHOT, env={"GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"})
+        self.assertEqual(result.returncode, 0, result.stderr)
+        snap = json.loads(result.stdout)
+        self.assertEqual((snap["number"], snap["head"]), (7, "123"))
+
     def test_evaluator_is_named(self):
         self.assertIn(snapfix.JQ_NAME, ("gojq", "jq"))
 

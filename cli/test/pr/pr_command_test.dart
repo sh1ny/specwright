@@ -40,14 +40,17 @@ void main() {
     f.onGh = (args) => answer('', exit: 3, stderr: 'no repo\n');
     expect(await run(['snapshot']), 3);
     expect(f.stderr, 'no repo\n');
-    expect(f.ghCalls.single.take(7), [
+    expect(f.ghCalls.single.take(10), [
       'pr',
-      'view',
+      'list',
+      '--head',
       'feature',
+      '--state',
+      'all',
       '--repo',
       'o/n',
       '--json',
-      'number',
+      'number,state',
     ]);
   });
 

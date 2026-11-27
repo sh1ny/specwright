@@ -44,7 +44,7 @@ class Fixture {
       git: (_, args) async => switch (args.join(' ')) {
         'rev-parse --show-toplevel' => TextResult(0, tempDir.path, ''),
         'rev-parse --git-dir' => TextResult(0, '.git', ''),
-        'symbolic-ref --quiet --short HEAD' => TextResult(0, 'feature', ''),
+        'symbolic-ref --quiet --short HEAD' => TextResult(0, branch, ''),
         'remote' => TextResult(0, 'origin\n', ''),
         'remote get-url origin' || 'remote get-url --push --all origin' =>
           TextResult(0, 'https://github.com/o/n.git\n', ''),
@@ -85,6 +85,7 @@ class Fixture {
   }
 
   final Directory tempDir;
+  String branch = 'feature';
   final List<int> out = [];
   final List<int> err = [];
   final List<List<String>> ghCalls = [];

@@ -1,11 +1,12 @@
-// The GraphQL and jq text of `sw pr snapshot` and `sw pr reply`. It was taken from the retired scripts byte for byte and is
-// kept by hand; the recorded runs of evals/pr-pair/oracle/records pin what it asks for.
+// The GraphQL and jq text of `sw pr snapshot` and `sw pr reply`. The snapshot
+// material is kept byte-for-byte compatible with the recorded runs.
 
 /// `sw pr reply`: the REST reply's `--jq`.
 const String htmlUrlJq = '.html_url';
 
-/// `pr-snapshot.sh`: the PR number of the current branch (`--jq`).
-const String prNumberJq = '.number';
+/// The current branch's newest open PR, or its newest PR in any state.
+const String branchPrNumberJq =
+    '(first(.[] | select(.state == "OPEN")) // .[0]).number // empty';
 
 /// The snapshot's GraphQL query (`pr-snapshot.sh`'s `QUERY`).
 ///
