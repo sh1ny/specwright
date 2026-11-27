@@ -180,9 +180,10 @@ class _Snapshot {
     claim?.release();
   }
 
-  Future<GhResult> gh(List<String> args) async => ctx.gh(
+  Future<GhResult> gh(List<String> args, {bool paged = false}) async => ctx.gh(
     hostGhArgs(args, connection.host),
     environment: pollEnv ?? await credentials,
+    paged: paged,
   );
 
   Future<int> run(List<String> argv) async {
@@ -316,6 +317,10 @@ class _Snapshot {
             code: 2,
           ));
     }
+    final slash = repo.indexOf('/');
+    owner = repo.substring(0, slash);
+    name = repo.substring(slash + 1);
+
     if (pr.isEmpty) {
       final ref = await ctx.git(ctx.cwd, [
         'symbolic-ref',
@@ -330,24 +335,10 @@ class _Snapshot {
           2,
         );
       }
-      final r = await gh([
-        'pr',
-        'list',
-        '--head',
-        branch,
-        '--state',
-        'all',
-        '--repo',
-        repo,
-        '--json',
-        'number,state,isCrossRepository',
-        '--jq',
-        branchPrNumberJq,
-      ]);
-      ctx.relayErr(r);
-      if (r.exitCode != 0) throw PrExit(r.exitCode);
-      final selected = int.tryParse(ctx.captured(r));
-      if (selected == null || selected <= 0) {
+      final selected =
+          await branchPrNumber(branch, 'open') ??
+          await branchPrNumber(branch, 'closed');
+      if (selected == null) {
         stop(
           'pr-snapshot: cannot find a pull request for current branch $branch in $repo; pass a PR number',
           1,
@@ -355,9 +346,6 @@ class _Snapshot {
       }
       pr = '$selected';
     }
-    final slash = repo.indexOf('/');
-    owner = slash < 0 ? repo : repo.substring(0, slash);
-    name = slash < 0 ? repo : repo.substring(slash + 1);
 
     // The evaluator's material file, in the system temp directory (D8).
     final mat = await ctx.makeTemp();
@@ -417,6 +405,33 @@ class _Snapshot {
       if (limited) throw PrExit(1);
     }
     return 0;
+  }
+
+  /// REST lists newest first and includes merged PRs in its `closed` state.
+  Future<int?> branchPrNumber(String branch, String state) async {
+    final ref = Uri.encodeComponent(branch);
+    final r = await gh([
+      'api',
+      '--paginate',
+      'repos/$repo/pulls?state=$state&head=$owner:$ref&per_page=100',
+      '--jq',
+      '.[] | {number, ref: .head.ref, repo: .head.repo.full_name}',
+    ], paged: true);
+    ctx.relayErr(r);
+    if (r.exitCode != 0) throw PrExit(r.exitCode);
+    final slug = repo.toLowerCase();
+    for (final line in LineSplitter.split(ctx.captured(r))) {
+      final item = _document(line);
+      final number = item?['number'];
+      if (number is! int || number <= 0) {
+        stop('pr-snapshot: unreadable branch PR listing for $repo', 1);
+      }
+      if (item!['ref'] == branch &&
+          _stringOf(item['repo']).toLowerCase() == slug) {
+        return number;
+      }
+    }
+    return null;
   }
 
   /// `--full`: one node read whole, no snapshot, no reviewer config, no claim.

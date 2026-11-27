@@ -40,17 +40,10 @@ void main() {
     f.onGh = (args) => answer('', exit: 3, stderr: 'no repo\n');
     expect(await run(['snapshot']), 3);
     expect(f.stderr, 'no repo\n');
-    expect(f.ghCalls.single.take(10), [
-      'pr',
-      'list',
-      '--head',
-      'feature',
-      '--state',
-      'all',
-      '--repo',
-      'o/n',
-      '--json',
-      'number,state,isCrossRepository',
+    expect(f.ghCalls.single.take(3), [
+      'api',
+      '--paginate',
+      'repos/o/n/pulls?state=open&head=o:feature&per_page=100',
     ]);
   });
 

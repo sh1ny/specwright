@@ -73,6 +73,10 @@ Before reacting to, replying to or resolving an item addressed by ID, `sw pr rep
 - **WHEN** the selected repository has an open PR from its own current branch and a newer open PR from the same-named branch in a fork
 - **THEN** an implicit snapshot reads the selected repository's own PR; an explicit number or URL can still select the fork PR
 
+#### Scenario: Newer PRs fill a page before the open match
+- **WHEN** a newer set of closed or fork PRs shares the current branch name and the selected repository's own open PR is not on the first page
+- **THEN** an implicit snapshot still reads that open PR, and falls back to the newest closed or merged PR from the matching branch and repository only if there is no open match
+
 #### Scenario: Store snapshot infers its planning remote
 - **WHEN** a store-started snapshot with `--project <code>` omits `--repo` and the project selects `planning_store.remote: plans`
 - **THEN** it reads the store PR from `plans`, not from either checkout's `origin` or the code project's selected code remote

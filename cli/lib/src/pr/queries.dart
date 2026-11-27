@@ -4,11 +4,6 @@
 /// `sw pr reply`: the REST reply's `--jq`.
 const String htmlUrlJq = '.html_url';
 
-/// The newest open PR on the repository's own branch, or its newest PR in any state.
-const String branchPrNumberJq =
-    '(first(.[] | select(.isCrossRepository == false and .state == "OPEN"))'
-    ' // first(.[] | select(.isCrossRepository == false))).number // empty';
-
 /// The snapshot's GraphQL query (`pr-snapshot.sh`'s `QUERY`).
 ///
 /// Constraint C4: this text, [snapshotShape] and the pieces `sw` builds around

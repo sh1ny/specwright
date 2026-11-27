@@ -32,7 +32,7 @@ String snapJson({
 String kindOf(List<String> args) {
   final text = args.join(' ');
   if (args.first == 'repo') return 'repo';
-  if (args.first == 'pr') return 'prnum';
+  if (text.contains('/pulls?state=')) return 'prnum';
   if (args.first == 'run') return 'logs';
   if (text.contains('node(id:\$id)')) return 'full';
   if (text.contains('headRefOid headRefName headRepository')) return 'cfg';
@@ -61,7 +61,7 @@ void main() {
       if (custom != null) return custom(args);
       return switch (kind) {
         'repo' => answer('o/n\n'),
-        'prnum' => answer('7\n'),
+        'prnum' => answer('{"number":7,"ref":"feature","repo":"o/n"}\n'),
         'cfg' => answer('$oid feature o/n\n'),
         'rate' => answer('HTTP/2.0 200 OK\r\nDate: $date\r\n\r\n{}'),
         'activity' => answer('$pushed\n'),
@@ -423,19 +423,10 @@ void main() {
     test('looks up the repository and PR, then reads cfg, the clock, the push and the PR', () async {
       expect(await snapshot([]), 0);
       expect(kinds(), ['prnum', 'cfg', 'rate', 'activity', 'snapshot']);
-      expect(f.ghCalls.first, [
-        'pr',
-        'list',
-        '--head',
-        'feature',
-        '--state',
-        'all',
-        '--repo',
-        'o/n',
-        '--json',
-        'number,state,isCrossRepository',
-        '--jq',
-        branchPrNumberJq,
+      expect(f.ghCalls.first.take(3), [
+        'api',
+        '--paginate',
+        'repos/o/n/pulls?state=open&head=o:feature&per_page=100',
       ]);
       final cfg = cfgFor(
         logins: '',
@@ -538,11 +529,14 @@ void main() {
     test('a numeric branch name selects its PR, not that PR number', () async {
       f.branch = '123';
       answers({
-        'prnum': (args) =>
-            answer(args[2] == '--head' && args[3] == '123' ? '7\n' : '123\n'),
+        'prnum': (args) => answer(
+          args[2] == 'repos/o/n/pulls?state=open&head=o:123&per_page=100'
+              ? '{"number":7,"ref":"123","repo":"o/n"}\n'
+              : '',
+        ),
       });
       expect(await snapshot([]), 0);
-      expect(jsonDecode(f.stdout)['number'], 7);
+      expect(f.ghCalls.last, contains('pr=7'));
     });
 
     test('a failed branch PR lookup exits with gh\'s status', () async {
