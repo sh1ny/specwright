@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import '../fence/fence.dart';
+import '../fence/urls.dart';
 import '../process/limit_line.dart';
 import '../process/limits.dart';
 import '../vcs/tool_runner.dart';
@@ -55,6 +56,7 @@ class WorkflowTransport {
     String login,
     List<String> command, {
     RunLimits? outer,
+    String host = defaultGitHubHost,
   }) async {
     final watch = Stopwatch()..start();
     Never limited(BoundedLimit limit) => throw PairStop(
@@ -110,12 +112,13 @@ class WorkflowTransport {
       }
 
       await checkGhVersion(gh, discovery);
-      final tokenEnv = await verifyIdentity(login, gh, discovery);
-      checkOuter();
-      checkArguments(command);
-      checkOptions(command);
-      await checkRemotes(git, tokenEnv);
-      final fenced = await fencedEnvironment(tokenEnv, git);
+      final tokenEnv = await verifyIdentity(login, gh, discovery, host: host);
+      final fenced = await prepareFencedCommand(
+        command,
+        tokenEnv,
+        git,
+        host: host,
+      );
       return await call(command, fenced);
     } on FenceStop catch (stop) {
       checkOuter();

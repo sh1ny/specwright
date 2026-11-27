@@ -75,10 +75,9 @@ final _version = RegExp(r'^\d+\.\d+\.\d+([-+][0-9A-Za-z.+-]+)?$');
 ///
 /// C47: an existing [start] is resolved physically first (symbolic links
 /// resolved on its absolute path, so a `link/..` names the directory above the
-/// link's target) before the walk for `.git`, for every project command's
-/// version check. `--project` stays version-only (ADR 0040), so the repository
-/// a command acts on is still chosen by its own options; a start that does not
-/// exist keeps its lexical form.
+/// link's target) before the walk for `.git`, for both the version check and
+/// GitHub connection settings. The execution repo stays independently
+/// selected. A start that does not exist stays lexical.
 String projectRoot(String start) {
   final absolute = p.absolute(start);
   var from = p.normalize(absolute);
@@ -194,6 +193,7 @@ ProjectChoice chooseProject(List<String> args, String cwd) {
   if (project != null) return ProjectChoice(project, rest, project: project);
   if (rest.isEmpty) return ProjectChoice(cwd, rest);
   final command = rest.first;
+  if (command == 'as') return ProjectChoice(cwd, rest);
   final tail = rest.sublist(1);
   final own =
       _optionValue(tail, '--code') ??

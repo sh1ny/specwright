@@ -29,7 +29,7 @@ Hostile-network injection (bound-pr-scripts), matched against the joined argv li
   (evals/pr-pair/record_markdown.py) imports markdown_key from this module.
 Issue lists: per repo "issue_list": [{"number", "state", "body", "pull_request": {...}}] backs `api repos/<o>/<n>/issues?state=all&per_page=100`
   (state filter default open, `all` for both; pages as for pulls; --jq as elsewhere), a pull_request key marking a PR.
-A call (other than --help) whose host is not github.com (--hostname, else a non-empty GH_HOST) fails: the fake knows only github.com.
+A call (other than --help) whose host does not match the test state's `host` (default github.com) fails.
 
 Merge and refs (add-agent-merge). Per repo: "branches": {"feat/x": "<sha>"} (branch heads), "protected_branches": [names]
 (DELETE refused, 422), "allowed_methods": ["merge","squash","rebase"] (default all), "merge_queue": true (merge refused, 405).
@@ -464,7 +464,11 @@ def new_comment(st, slug, num, text, user):
 
 
 def whoami(st):
-    tok = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
+    host = st.get("host", "github.com")
+    if host == "github.com" or host.endswith((".ghe.com", ".github.localhost")) or host == "github.localhost":
+        tok = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
+    else:
+        tok = os.environ.get("GH_ENTERPRISE_TOKEN") or os.environ.get("GITHUB_ENTERPRISE_TOKEN")
     if tok:
         for login, t in st.get("tokens", {}).items():
             if t == tok:
@@ -1249,8 +1253,9 @@ def main(argv):
             before = json.dumps(st)
         inject_failure(st, argv)
         hostile(st, argv)
-        if host_of(argv) != "github.com" and "--help" not in argv:
-            raise Fail(f"fake gh: host {host_of(argv)} is not supported (only github.com)", 1)
+        host = st.get("host", "github.com")
+        if host_of(argv) != host and "--help" not in argv:
+            raise Fail(f"fake gh: host {host_of(argv)} is not supported (only {host})", 1)
         cmds = {"auth": cmd_auth, "api": cmd_api, "pr": cmd_pr, "repo": cmd_repo, "release": cmd_release, "run": cmd_run}
         if not argv or argv[0] not in cmds:
             raise Fail(f"fake gh: unsupported command: {' '.join(argv)}", 2)

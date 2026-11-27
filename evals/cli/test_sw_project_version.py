@@ -16,6 +16,9 @@ from pathlib import Path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import swharness  # noqa: E402
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "git-workflow"))
+import fixtures  # noqa: E402
+
 EXE = ".exe" if os.name == "nt" else ""
 
 
@@ -162,6 +165,57 @@ class ProjectChoiceTests(ProjectVersionCase):
         done = self.sw_run("as", "sh1ny", "git", "status", cwd=store)
         document = self.assert_mismatch(done, "no installed version found")
         self.assertIn(store.name, document["message"])
+
+    def enterprise_projects(self):
+        code = self.project("code")
+        store = self.project("store", None)
+        (store / "openspec").mkdir()
+        (code / "openspec" / "specwright.yaml").write_text(
+            "github:\n  host: github.example.com\n", encoding="utf-8")
+        (store / "openspec" / "specwright.yaml").write_text(
+            "github:\n  host: stale.example.org\n", encoding="utf-8")
+        fixtures.install_fake_gh(self.root)
+        state, log = self.root / "gh-state.json", self.root / "gh-log.jsonl"
+        state.write_text(json.dumps({
+            "host": "github.example.com", "user": "active",
+            "tokens": {"active": "other-account", "publisher": "expected-token"},
+        }), encoding="utf-8")
+        env = dict(self.env, PATH=str(self.root / "bin") + os.pathsep + self.env["PATH"],
+                   FAKE_GH_STATE=str(state), FAKE_GH_LOG=str(log))
+        return code, store, env
+
+    def test_store_fence_uses_code_project_host(self):
+        code, store, env = self.enterprise_projects()
+        done = self.sw_run("--project", code, "as", "publisher", "gh", "api", "user", "--jq", ".login",
+                           cwd=store, env=env)
+        self.assertEqual((done.returncode, done.stdout.strip()), (0, "publisher"), done.stderr)
+
+    def test_store_fence_checks_store_remote_from_store_cwd(self):
+        code, store, env = self.enterprise_projects()
+        self.git(store, "remote", "add", "origin", "https://marker:secret@github.example.com/team/plans.git")
+        done = self.sw_run("--project", code, "as", "publisher", "git", "status", cwd=store, env=env)
+        self.assertEqual((done.returncode, done.stdout), (3, ""), done.stderr)
+        self.assertIn("origin", done.stderr)
+        self.assertIn("github.example.com", done.stderr)
+        self.assertNotIn("marker:secret", done.stderr)
+
+    def test_resolve_refuses_project_with_another_version(self):
+        caller = self.project("caller")
+        other = self.project("other", "99.0.0")
+        done = self.sw_run("--project", other, "as", "--resolve", cwd=caller)
+        self.assert_mismatch(done, self.version, "99.0.0")
+
+    def test_fence_has_no_fallback_when_selected_binary_is_missing(self):
+        other = self.project("other", "99.0.0")
+        self.assertFalse((self.home / ".specwright" / "bin" / "99.0.0" / ("sw" + EXE)).exists())
+        done = self.sw_run("--project", other, "as", "--resolve", cwd=other)
+        self.assert_mismatch(done, self.home.as_posix() + "/.specwright/bin/99.0.0/sw" + EXE)
+
+    def test_fence_refuses_malformed_project_prefix(self):
+        code = self.project("code")
+        done = self.sw_run("--project", code, "--project", code, "as", "--resolve", cwd=code)
+        self.assertEqual((done.returncode, done.stdout), (2, ""), done.stderr)
+        self.assertIn("--project", done.stderr)
 
     def test_own_code_argument_chooses_the_project(self):
         code = self.project("code")

@@ -18,29 +18,53 @@ String _dropNewlines(String text) {
   return text.substring(0, end);
 }
 
-// The three patterns of as.sh, over the decoded text: a byte that is not UTF-8
-// is a lone surrogate there, so it cannot match a pattern character. `.` and
-// `[^/]` cross a newline, as in bash's `[[ =~ ]]`.
-final RegExp _githubUrl = RegExp(
-  r'^[a-z][a-z0-9+.-]*://([^/]*@)?github\.com\.?([:/]|$)',
-  dotAll: true,
+const defaultGitHubHost = 'github.com';
+
+String canonicalHost(String host) {
+  final lower = lowerAscii(host);
+  return lower.endsWith('.') ? lower.substring(0, lower.length - 1) : lower;
+}
+
+String githubTokenVariable(String host) =>
+    host == defaultGitHubHost ||
+        host == 'github.localhost' ||
+        host.endsWith('.github.localhost') ||
+        host.endsWith('.ghe.com')
+    ? 'GH_TOKEN'
+    : 'GH_ENTERPRISE_TOKEN';
+
+final _urlHost = RegExp(
+  r'^[a-zA-Z][a-zA-Z0-9+.-]*://(?:[^/]*@)?(\[[^\]]+\]|[^:/?#@\s]+)(?=[:/?#]|$)',
 );
-final RegExp _githubUserinfo = RegExp(
-  r'^[a-z][a-z0-9+.-]*://[^/]*@github\.com\.?([:/]|$)',
-  dotAll: true,
-);
+final _scpHost = RegExp(r'^(?:[^@/:\s]+@)?([^/\\:@\s]+):[^\r\n]+$');
+
+/// Host from Git URL or scp syntax, not a local path or opaque helper syntax.
+String? gitUrlHost(String text) {
+  final url = _urlHost.firstMatch(text);
+  if (url != null) return canonicalHost(url[1]!);
+  if (text.contains('://') || text.contains('::')) return null;
+  final scp = _scpHost.firstMatch(text);
+  if (scp == null || scp[1]!.length == 1) return null;
+  return canonicalHost(scp[1]!);
+}
+
+bool githubHostMatches(String? actual, String configured) =>
+    actual == configured ||
+    (configured == defaultGitHubHost && actual == 'ssh.github.com');
+
 final RegExp _anyUserinfo = RegExp(
   r'^[A-Za-z][A-Za-z0-9+.-]*://[^/]*@',
   dotAll: true,
 );
 final RegExp _maskScheme = RegExp(r'^([A-Za-z][A-Za-z0-9+.-]*://)[^/]*@');
 
-/// `gh_url`: a github.com URL, with or without userinfo.
-bool ghUrl(String text) => _githubUrl.hasMatch(_dropNewlines(lowerAscii(text)));
+/// Whether a Git URL addresses this GitHub host, regardless of transport.
+bool ghUrl(String text, {String host = defaultGitHubHost}) =>
+    githubHostMatches(gitUrlHost(_dropNewlines(text)), host);
 
-/// `gh_userinfo`: a github.com URL that carries userinfo.
-bool ghUserinfo(String text) =>
-    _githubUserinfo.hasMatch(_dropNewlines(lowerAscii(text)));
+/// URL-form userinfo addressing this GitHub host, including a bare username.
+bool ghUserinfo(String text, {String host = defaultGitHubHost}) =>
+    hasUserinfo(text) && ghUrl(text, host: host);
 
 /// `has_userinfo`: a URL of any host that carries userinfo.
 bool hasUserinfo(String text) => _anyUserinfo.hasMatch(text);

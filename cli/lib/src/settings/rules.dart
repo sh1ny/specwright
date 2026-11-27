@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import '../commit/task_cover.dart' show isPySpace, pyStrip;
+import '../fence/urls.dart' show canonicalHost, defaultGitHubHost;
 import 'reader.dart';
 import 'values.dart';
 
@@ -90,6 +91,100 @@ Map<String, Object?> settingSection(
     '$path: ${settingText(parent, key)} must be a mapping',
     code: 2,
   );
+}
+
+/// Connection settings belong to the code project, not the checkout a
+/// command targets. Absent settings preserve the public HTTPS fence.
+class GitHubConnection {
+  const GitHubConnection({this.host = defaultGitHubHost, this.fence = true});
+
+  final String host;
+  final bool fence;
+}
+
+final _dnsLabel = RegExp(r'^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$');
+
+GitHubConnection githubConnection(Map<String, Object?> settings) {
+  final github = settingSection(settings, 'github', 'github');
+  var host = defaultGitHubHost;
+  if (github.containsKey('host')) {
+    final raw = github['host'];
+    if (raw is! String) _badConnection('github.host', 'must be a DNS hostname');
+    host = canonicalHost(raw);
+    if (host.length > 253 || !host.split('.').every(_dnsLabel.hasMatch)) {
+      _badConnection(
+        'github.host',
+        'must be a DNS hostname without a scheme, port or path',
+      );
+    }
+  }
+  final fence = github.containsKey('fence') ? github['fence'] : true;
+  if (fence is! bool) _badConnection('github.fence', 'must be a boolean');
+  if (!fence) {
+    for (final (section, key, dotted) in [
+      (github, 'login', 'github.login'),
+      (
+        settingSection(settings, 'planning_store', 'planning_store'),
+        'login',
+        'planning_store.login',
+      ),
+      (
+        settingSection(github, 'review_request', 'github.review_request'),
+        'login',
+        'github.review_request.login',
+      ),
+      (settingSection(settings, 'pr', 'pr'), 'request_as', 'pr.request_as'),
+    ]) {
+      final value = section[key];
+      if (value != null && value != '') {
+        _badConnection(
+          dotted,
+          'remove the named account or re-enable github.fence',
+        );
+      }
+    }
+  }
+  return GitHubConnection(host: host, fence: fence);
+}
+
+Never _badConnection(String key, String message) =>
+    throw SettingsStop('bad_setting', '$key: $message', code: 2);
+
+/// A role never inherits the other role's remote. An explicit `origin` is
+/// distinguishable from the default because it pins Git pull.
+class RemoteSelection {
+  const RemoteSelection({this.name = 'origin', this.explicit = false});
+
+  final String name;
+  final bool explicit;
+}
+
+final _invalidRemote = RegExp(r'[\s~^:?*\[\\]|[\x00-\x20\x7f]');
+
+RemoteSelection selectedRemote(
+  Map<String, Object?> settings, {
+  bool store = false,
+}) {
+  final section = store
+      ? settingSection(settings, 'planning_store', 'planning_store')
+      : settings;
+  if (!section.containsKey('remote')) return const RemoteSelection();
+  final name = section['remote'];
+  if (name is! String ||
+      name.startsWith('-') ||
+      name.contains('..') ||
+      name.contains('@{') ||
+      _invalidRemote.hasMatch(name) ||
+      name
+          .split('/')
+          .any((p) => p.isEmpty || p.startsWith('.') || p.endsWith('.lock')) ||
+      name.endsWith('.')) {
+    _badConnection(
+      store ? 'planning_store.remote' : 'remote',
+      'must be a configured Git remote name, not a URL or path',
+    );
+  }
+  return RemoteSelection(name: name, explicit: true);
 }
 
 /// `str(v or fallback)`.

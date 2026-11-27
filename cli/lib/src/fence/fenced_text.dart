@@ -5,6 +5,7 @@ import '../vcs/codec.dart';
 import '../vcs/text_result.dart';
 import '../vcs/tool_runner.dart';
 import 'fence.dart';
+import 'urls.dart';
 
 /// `as.sh <login> <command...>` (or `as.sh --resolve`) run in this process in
 /// [repo]: [runFence] with the bounded `gh` lookups of `sw as` ([runGh]), the
@@ -27,6 +28,7 @@ import 'fence.dart';
 Future<TextResult> fencedText(
   String repo,
   List<String> argv, {
+  String host = defaultGitHubHost,
   Map<String, String>? environment,
   GhCall? gh,
   GitCall? git,
@@ -38,6 +40,7 @@ Future<TextResult> fencedText(
   final code = await runFence(
     argv,
     environment: environment ?? Map<String, String>.of(Platform.environment),
+    host: host,
     gh:
         gh ??
         (ghArgs, e) =>

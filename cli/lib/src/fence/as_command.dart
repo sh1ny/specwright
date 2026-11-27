@@ -5,6 +5,7 @@ import '../pr/gh.dart';
 import '../vcs/tool_runner.dart';
 import 'exec_inherit.dart';
 import 'fence.dart';
+import 'urls.dart';
 
 /// `sw as <login> <command...>` or `sw as --resolve`: the identity fence. The
 /// arguments are the process's own, so each reaches the fenced command as one
@@ -18,6 +19,7 @@ Future<int> runAsCommand(
   List<String> args, {
   required void Function(List<int> bytes) writeOut,
   required void Function(List<int> bytes) writeErr,
+  String host = defaultGitHubHost,
   Map<String, String>? environment,
   GhCall? gh,
   GitCall? git,
@@ -30,6 +32,7 @@ Future<int> runAsCommand(
   return runFence(
     args,
     environment: env,
+    host: host,
     gh:
         gh ??
         (ghArgs, e) =>

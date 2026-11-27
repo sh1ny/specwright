@@ -7,7 +7,7 @@ Red means added/changed coverage to prove before implementation; inherited green
 | Requirement | Scenario | Test file | Test name | State |
 |---|---|---|---|---|
 | github-identity → GitHub connection settings keep the fenced public default | Existing settings | `evals/pr-pair/test_as_sh.py` | `test_configured_login_pins_its_token_not_the_active_one` | green |
-| github-identity → GitHub connection settings keep the fenced public default | Invalid host or fence value | `evals/pr-pair/test_as_sh.py` | `test_invalid_connection_values_stop_before_gh` | red |
+| github-identity → GitHub connection settings keep the fenced public default | Invalid host or fence value | `evals/pr-pair/test_as_sh.py` | `test_invalid_connection_values_stop_before_gh` | green |
 | github-identity → Ambient authentication is an explicit opt-out | SSH transport and an environment token only | `evals/pr-pair/test_pr_pair.py` | `test_ship_and_watch_with_ssh_and_token_only` | red |
 | github-identity → Ambient authentication is an explicit opt-out | Token-only HTTPS automation | `evals/pr-pair/test_pr_pair.py` | `test_ship_on_https_with_caller_token_and_no_stored_login` | red |
 | github-identity → Ambient authentication is an explicit opt-out | A named identity conflicts with ambient authentication | `evals/pr-pair/test_pr_pair.py` | `test_ambient_workflow_rejects_each_named_identity` | red |
@@ -15,7 +15,7 @@ Red means added/changed coverage to prove before implementation; inherited green
 | github-identity → Fenced calls target the configured GitHub host | Enterprise host in the environment with default settings | `evals/pr-pair/test_as_sh.py` | `test_gh_host_and_enterprise_tokens_unset` | green |
 | github-identity → Fenced calls target the configured GitHub host | Host variables set but empty | `evals/pr-pair/test_as_sh.py` | `test_empty_gh_host_targets_github` | green |
 | github-identity → Fenced calls target the configured GitHub host | Fenced Enterprise ship and watch | `evals/pr-pair/test_pr_pair.py` | `test_enterprise_ship_and_watch_keep_host_and_identity` | red |
-| github-identity → Fenced calls target the configured GitHub host | Another host requests the credential | `evals/pr-pair/test_as_sh.py` | `test_enterprise_helper_refuses_other_hosts_and_protocols` | red |
+| github-identity → Fenced calls target the configured GitHub host | Another host requests the credential | `evals/pr-pair/test_as_sh.py` | `test_enterprise_helper_refuses_other_hosts_and_protocols` | green |
 | github-identity → Push authentication follows the actual destinations | A non-GitHub fetch URL has a GitHub push URL | `evals/vcs/test_sw_fence.py` | `test_push_fences_effective_github_target_with_off_host_fetch` | red |
 | github-identity → Push authentication follows the actual destinations | GitHub fetch and non-GitHub push | `evals/vcs/test_sw_fence.py` | `test_push_uses_ambient_credentials_for_off_host_push_urls` | red |
 | github-identity → Push authentication follows the actual destinations | Push destinations need incompatible authentication | `evals/vcs/test_sw_fence.py` | `test_mixed_effective_push_hosts_launch_nothing` | red |
@@ -42,10 +42,10 @@ Red means added/changed coverage to prove before implementation; inherited green
 | github-identity → Main refreshes and pulls from GitHub are fenced | The legacy upstream is not on the configured GitHub host | `evals/vcs/test_sw_fence.py` | `test_legacy_pull_does_not_fence_off_host_upstream` | red |
 | github-identity → The post-merge PR check is fenced | Merged PR check with a login set | `evals/pr-pair/test_pr_pair.py` | `test_closed_check_reads_selected_repo_with_bound_identity` | red |
 | github-identity → The post-merge PR check is fenced | Check cannot authenticate | `evals/pr-pair/test_pr_pair.py` | `test_cleanup_makes_no_change_when_merge_evidence_cannot_authenticate` | red |
-| github-identity → Credentials in a URL are refused | Credential-free HTTPS URL | `evals/pr-pair/test_as_sh.py` | `test_enterprise_helper_returns_verified_enterprise_token` | red |
+| github-identity → Credentials in a URL are refused | Credential-free HTTPS URL | `evals/pr-pair/test_as_sh.py` | `test_enterprise_helper_returns_verified_enterprise_token` | green |
 | github-identity → Credentials in a URL are refused | Token in the fetch URL | `evals/pr-pair/test_as_sh.py` | `test_token_in_fetch_url_refused_no_request` | green |
 | github-identity → Credentials in a URL are refused | Token in one of several push URLs | `evals/pr-pair/test_as_sh.py` | `test_token_in_second_push_url_refused` | green |
-| github-identity → Credentials in a URL are refused | Credential added by a URL rewrite | `evals/pr-pair/test_as_sh.py` | `test_enterprise_userinfo_rewrite_refused_without_request` | red |
+| github-identity → Credentials in a URL are refused | Credential added by a URL rewrite | `evals/pr-pair/test_as_sh.py` | `test_enterprise_userinfo_rewrite_refused_without_request` | green |
 | github-identity → Credentials in a URL are refused | Token in the username slot | `evals/pr-pair/test_as_sh.py` | `test_token_in_username_slot_refused_masked` | green |
 | github-identity → Credentials in a URL are refused | Git pointed at another repository | `evals/pr-pair/test_as_sh.py` | `test_git_selecting_another_repo_refused` | green |
 | github-identity → Credentials in a URL are refused | Username without a secret | `evals/pr-pair/test_as_sh.py` | `test_bare_username_refused` | green |
@@ -53,8 +53,8 @@ Red means added/changed coverage to prove before implementation; inherited green
 | github-identity → Non-GitHub remotes stay outside the fence | Local mode with a self-hosted remote | `evals/vcs/test_sw_fence.py` | `test_self_hosted_main_fetch_uses_normal_git_credentials` | red |
 | github-identity → Non-GitHub remotes stay outside the fence | PR mode with a non-GitHub origin | `evals/pr-pair/test_pr_pair.py` | `test_expected_refuses_off_host_code_remote_before_push` | red |
 | github-identity → The trailing-dot host is github.com | Token in a trailing-dot URL | `evals/pr-pair/test_as_sh.py` | `test_trailing_dot_token_in_fetch_url_refused` | green |
-| github-identity → The trailing-dot host is github.com | Trailing-dot URL argument or rewrite | `evals/pr-pair/test_as_sh.py` | `test_enterprise_trailing_dot_userinfo_refused` | red |
-| github-identity → The trailing-dot host is github.com | Credential-free trailing-dot URL | `evals/pr-pair/test_as_sh.py` | `test_enterprise_trailing_dot_helper_uses_canonical_host` | red |
+| github-identity → The trailing-dot host is github.com | Trailing-dot URL argument or rewrite | `evals/pr-pair/test_as_sh.py` | `test_enterprise_trailing_dot_userinfo_refused` | green |
+| github-identity → The trailing-dot host is github.com | Credential-free trailing-dot URL | `evals/pr-pair/test_as_sh.py` | `test_enterprise_trailing_dot_helper_uses_canonical_host` | green |
 | github-identity → The trailing-dot host is github.com | Look-alike host | `evals/pr-pair/test_as_sh.py` | `test_lookalike_host_not_github` | green |
 | github-identity → The trailing-dot host is github.com | Trailing-dot store remote | `evals/pr-pair/test_pr_pair.py` | `test_expected_fences_trailing_dot_store_url` | red |
 | github-identity → Unfenced git keeps the caller's enterprise host settings | Enterprise store read by rounds | `evals/pr-pair/test_pr_pair.py` | `test_rounds_off_host_store_hands_off_without_reading_history` | red |
@@ -71,21 +71,21 @@ Red means added/changed coverage to prove before implementation; inherited green
 | github-identity → The fence runs in the project's sw | Fenced gh call with a matching sw | `evals/pr-pair/test_as_sh.py` | `test_configured_login_pins_its_token_not_the_active_one` | green |
 | github-identity → The fence runs in the project's sw | Resolve through sw | `evals/pr-pair/test_as_sh.py` | `test_resolve_prints_the_active_login_only` | green |
 | github-identity → The fence runs in the project's sw | A refusal keeps its exit status | `evals/pr-pair/test_as_sh.py` | `test_token_in_second_push_url_refused` | green |
-| github-identity → The fence runs in the project's sw | Fenced store call selects the code project | `evals/cli/test_sw_project_version.py` | `test_store_fence_uses_code_project_host` | red |
-| github-identity → The fence runs in the project's sw | Selected project does not change target validation | `evals/cli/test_sw_project_version.py` | `test_store_fence_checks_store_remote_from_store_cwd` | red |
-| github-identity → The fence runs in the project's sw | Resolve in a project of another version | `evals/cli/test_sw_project_version.py` | `test_resolve_refuses_project_with_another_version` | red |
-| github-identity → The fence runs in the project's sw | Missing selected binary refuses without fallback | `evals/cli/test_sw_project_version.py` | `test_fence_has_no_fallback_when_selected_binary_is_missing` | red |
-| github-identity → The fence runs in the project's sw | Malformed fence project prefix is refused | `evals/cli/test_sw_project_version.py` | `test_fence_refuses_malformed_project_prefix` | red |
+| github-identity → The fence runs in the project's sw | Fenced store call selects the code project | `evals/cli/test_sw_project_version.py` | `test_store_fence_uses_code_project_host` | green |
+| github-identity → The fence runs in the project's sw | Selected project does not change target validation | `evals/cli/test_sw_project_version.py` | `test_store_fence_checks_store_remote_from_store_cwd` | green |
+| github-identity → The fence runs in the project's sw | Resolve in a project of another version | `evals/cli/test_sw_project_version.py` | `test_resolve_refuses_project_with_another_version` | green |
+| github-identity → The fence runs in the project's sw | Missing selected binary refuses without fallback | `evals/cli/test_sw_project_version.py` | `test_fence_has_no_fallback_when_selected_binary_is_missing` | green |
+| github-identity → The fence runs in the project's sw | Malformed fence project prefix is refused | `evals/cli/test_sw_project_version.py` | `test_fence_refuses_malformed_project_prefix` | green |
 | github-identity → sw as keeps as.sh's contract | Unchanged black-box evals pass on sw | `evals/pr-pair/test_as_sh.py` | `test_configured_login_pins_its_token_not_the_active_one` | green |
 | github-identity → sw as keeps as.sh's contract | Exit codes | `cli/test/fence/fence_test.dart` | `no arguments is the usage line, exit 1 / a login with no command is exit 2` | green |
-| github-identity → sw as keeps as.sh's contract | A hung token lookup | `evals/pr-pair/test_as_sh.py` | `test_resolve_token_lookup_hung_exits_3_named` | red |
-| github-identity → sw as keeps as.sh's contract | A nested fence keeps the outer originals | `evals/pr-pair/test_as_sh.py` | `test_nested_fence_restores_original_off_host_git_environment` | red |
+| github-identity → sw as keeps as.sh's contract | A hung token lookup | `evals/pr-pair/test_as_sh.py` | `test_resolve_token_lookup_hung_exits_3_named` | green |
+| github-identity → sw as keeps as.sh's contract | A nested fence keeps the outer originals | `evals/pr-pair/test_as_sh.py` | `test_nested_fence_restores_original_off_host_git_environment` | green |
 | native-cli → The project is chosen by --project, then the command's own argument | A store-started call | `evals/cli/test_sw_project_version.py` | `test_store_started_call_with_project` | green |
 | native-cli → The project is chosen by --project, then the command's own argument | Store-started call without --project | `evals/cli/test_sw_project_version.py` | `test_store_started_call_without_project_is_sw_mismatch` | green |
 | native-cli → The project is chosen by --project, then the command's own argument | Two leading --project options | `evals/cli/test_sw_project_version.py` | `test_two_leading_project_options_is_usage` | green |
 | native-cli → The project is chosen by --project, then the command's own argument | A relative --code in the undo planner | `evals/finish/test_finish_shim.py` | `test_relative_code_is_anchored_at_the_planning_root` | green |
 | native-cli → The project root is found from the physical path | A project path through a link and `..` | `evals/cli/test_sw_project_version.py` | `test_project_through_link_and_dotdot_is_physical` | green |
-| native-cli → The project root is found from the physical path | Stale settings in a shared store do not choose its GitHub host | `evals/cli/test_sw_project_version.py` | `test_store_fence_uses_code_project_host` | red |
+| native-cli → The project root is found from the physical path | Stale settings in a shared store do not choose its GitHub host | `evals/cli/test_sw_project_version.py` | `test_store_fence_uses_code_project_host` | green |
 | planning-stores → A store without a PR is a manual handoff | Feedback rounds with an off-host store | `evals/pr-pair/test_pr_pair.py` | `test_rounds_off_host_store_hands_off_without_reading_history` | red |
 | planning-stores → A store without a PR is a manual handoff | PR finish with a local-only store | `evals/pr-pair/test_pr_pair.py` | `test_pr_finish_hands_off_local_store_before_archive` | red |
 | planning-stores → A store without a PR is a manual handoff | Archive edits already exist at PR finish | `evals/pr-pair/test_pr_pair.py` | `test_pr_finish_preserves_manual_store_archive_edits` | red |
@@ -244,8 +244,8 @@ Red means added/changed coverage to prove before implementation; inherited green
 
 ## 2. Project settings, identity and fence
 
-- [ ] 2.1 Before implementation, write and run the new or adapted settings, ambient refusal, Enterprise host/token, indexed credential isolation, selected-project and fence refusal cases in `evals/cli/test_sw_project_version.py` and `evals/pr-pair/test_as_sh.py`; keep the matching public-default cases as regressions. Rework the touched lookup cutoff tests to inject the limit instead of depending on runner speed.
-- [ ] 2.2 Implement the typed host, fence and role remote, physical code-project selection, shared host/URL normalization, and Enterprise and ambient dispatch. Keep the existing fenced HTTPS and userinfo rules and preserve scoped caller environment for plain Git. Verify the focused modules from 2.1 plus the mapped default fence adapter cases. Update the settings template and README settings and authentication examples, including how to opt out and why defaults remain safe.
+- [x] 2.1 Before implementation, write and run the new or adapted settings, ambient refusal, Enterprise host/token, indexed credential isolation, selected-project and fence refusal cases in `evals/cli/test_sw_project_version.py` and `evals/pr-pair/test_as_sh.py`; keep the matching public-default cases as regressions. Rework the touched lookup cutoff tests to inject the limit instead of depending on runner speed.
+- [x] 2.2 Implement the typed host, fence and role remote, physical code-project selection, shared host/URL normalization, and Enterprise and ambient dispatch. Keep the existing fenced HTTPS and userinfo rules and preserve scoped caller environment for plain Git. Verify the focused modules from 2.1 plus the mapped default fence adapter cases. Update the settings template and README settings and authentication examples, including how to opt out and why defaults remain safe.
 
 ## 3. Selected VCS transport and ref policy
 
