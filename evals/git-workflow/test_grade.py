@@ -1877,5 +1877,35 @@ class CompletionWording(unittest.TestCase):
         self.assertEqual(grade.completion_by_repo(old), {"code": self.BOTH, "store": self.BOTH})
 
 
+class ConnectionWorkflowEvals(GroupGraderCase):
+    def test_archive_handoff_catches_archive_or_sync_and_in_place_edits(self):
+        for suffix in ("local-store", "preedited"):
+            with self.subTest(suffix=suffix):
+                repo = self.fixture("eval-store-archive-before-merge-" + suffix,
+                                    "Share and archive the planning branch feat/add-greeting by hand; no GitHub remote.")
+                reads = json.dumps(["list", "--json"]) + "\n"
+                fixtures.write(repo, "openspec-trace.jsonl", reads)
+                self.assert_passes()
+                for command in ("archive", "sync"):
+                    fixtures.write(repo, "openspec-trace.jsonl", reads + json.dumps([command, "add-greeting"]) + "\n")
+                    self.assert_fails("OpenSpec identified the planning root without invoking archive or spec sync")
+                fixtures.write(repo, "openspec-trace.jsonl", reads)
+                fixtures.write(repo / "store", "openspec/specs/greeting/spec.md", "The agent overwrote the spec.\n")
+                self.assert_fails("Both branch tips and all planning files are unchanged")
+
+    def test_selected_remote_reuse_catches_even_rolled_back_branch_creation(self):
+        repo = self.fixture("eval-store-branch-reused-name-selected",
+                            "Add-csv-export is already archived. Choose another name or abort.")
+        store, code = repo / "store", repo / "code"
+        trace = {**os.environ, "GIT_TRACE": fixtures.posix(repo / "git-trace.log")}
+        fetch = ["git", "fetch", "--refmap=", "plans", "+refs/heads/main:refs/remotes/plans/main"]
+        subprocess.run(fetch, cwd=store, env=trace, check=True, capture_output=True, text=True)
+        self.assert_passes()
+        for args in (("checkout", "-qb", "feat/add-csv-export"), ("checkout", "-q", "main"),
+                     ("branch", "-D", "feat/add-csv-export")):
+            subprocess.run(["git", *args], cwd=code, env=trace, check=True, capture_output=True, text=True)
+        self.assert_fails("No branch creation or other Git write was attempted before refusing the name")
+
+
 if __name__ == "__main__":
     unittest.main()

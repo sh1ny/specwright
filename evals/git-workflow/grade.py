@@ -5,6 +5,7 @@ Writes <run-dir>/grading.json for every eval-*/<config>/run-*/ that has a repo.
 A store run's repo/ holds code/ (and usually store/) plus gh-log.jsonl from the
 fake gh; those runs are graded by check_store().
 """
+import hashlib
 import json
 import os
 import re
@@ -41,6 +42,11 @@ def status_of(repo):
     """Porcelain status lines, ignoring __pycache__ from running tests."""
     return [l for l in (git(repo, "status", "--porcelain", "--untracked-files=all") or "").splitlines()
             if "__pycache__" not in l]
+
+
+def planning_files(store):
+    return {p.relative_to(store).as_posix(): hashlib.sha256(p.read_bytes()).hexdigest()
+            for p in (store / "openspec").rglob("*") if p.is_file()}
 
 
 def gh_calls(repo):
@@ -1568,8 +1574,9 @@ def check_store(name, repo, run):
         R.extend(check_branch_store(name, code, store, rep))
     elif name.startswith(("eval-store-finish-", "eval-store-archive-on-main")):
         R.extend(check_store_finish(name, repo, code, store, rep))
-    elif name in ("eval-store-ship-push-rejected", "eval-store-ship-code-push-rejected",
-                  "eval-store-ship-code-push-rejected-store-pr-open", "eval-store-archive-before-merge-local-store"):
+    elif name.startswith("eval-store-archive-before-merge-") or name in (
+                 "eval-store-ship-push-rejected", "eval-store-ship-code-push-rejected",
+                 "eval-store-ship-code-push-rejected-store-pr-open"):
         R.extend(check_store_pr(name, repo, code, store, rep))
     elif name == "eval-store-roadmap-close-locked":
         R.extend(check_store_roadmap_locked(repo, code, store, rep))
@@ -2045,7 +2052,6 @@ def check_store_pr(name, repo, code, store, rep):
     R = []
     on = lambda r: git(r, "branch", "--show-current")
     bs = lambda r: (git(r, "branch", "--format=%(refname:short)") or "").splitlines()
-    cn = "add-greeting"
     try:
         repos = json.loads((repo / "gh-state.json").read_text(encoding="utf-8"))["repos"]
     except (OSError, ValueError, KeyError):
@@ -2125,17 +2131,22 @@ def check_store_pr(name, repo, code, store, rep):
             none = [x for x in sentences(rep) if re.search(r"pull request|\bprs?\b", x)
                     and re.search(r"\b(no|not|neither|nothing|never|without)\b|n't|stopp|did not|didn't", x)]
             R.append(("The report says no pull request was opened in either repo", bool(none), f"matching sentences={none[:2]}"))
-    else:  # eval-store-archive-before-merge-local-store
-        arch = find_commit(store, f"feat({cn}): archive change")
-        ok, ev = archive_commit_ok(store, arch, cn, rf"{DATE}-{cn}", False)
-        on_branch = bool(arch) and (git(store, "branch", "--format=%(refname:short)", "--contains", arch) or "").split() == [FEAT]
-        R.append(("The store has an archive commit feat(add-greeting): archive change on feat/add-greeting that stages only the removed change directory, the archive directory and openspec/specs/greeting/spec.md, and no specwright-change.yaml was written",
-                  ok and on_branch and not [f for f in history_paths(store) if f.endswith(MARKER)],
-                  f"on feat/add-greeting only={on_branch}; {ev}"))
-        R.append(("The store is still on feat/add-greeting, its main is unchanged, it has no remote and no remote-tracking branch, and its tree is clean",
-                  on(store) == FEAT and bs(store) == [FEAT, "main"] and subjects(store, "main") == STORE_MAIN
-                  and not git(store, "remote") and not git(store, "for-each-ref", "refs/remotes") and not status_of(store),
-                  f"store={on(store)} {bs(store)} remotes={git(store, 'remote')!r} status={status_of(store)}"))
+    else:  # manual archive handoff, clean or with preexisting archive edits
+        trace = repo / "openspec-trace.jsonl"
+        calls = [json.loads(line) for line in trace.read_text(encoding="utf-8").splitlines()] if trace.is_file() else []
+        R.append(("OpenSpec identified the planning root without invoking archive or spec sync",
+                  any("list" in a and "--json" in a for a in calls)
+                  and not any({"archive", "sync"} & set(a) for a in calls), f"OpenSpec calls={calls}"))
+        before = json.loads((repo / "archive-before.json").read_text(encoding="utf-8"))
+        tips = {role: git(repo / role, "rev-parse", "HEAD") for role in ("code", "store")}
+        current = planning_files(store)
+        changed = sorted(p for p in current.keys() | before["planning"].keys() if current.get(p) != before["planning"].get(p))
+        status = status_of(store)
+        R.append(("Both branch tips and all planning files are unchanged",
+                  tips == before["tips"] and on(store) == FEAT and bs(store) == [FEAT, "main"]
+                  and subjects(store, "main") == STORE_MAIN and not git(store, "remote")
+                  and not changed and status == before["status"],
+                  f"tips={tips} changed={changed} store status={status}"))
         R.append(("The code repo is untouched: still on feat/add-greeting with its task commits, main has only the initial commit, and the tree is clean",
                   code_untouched, code_ev))
         ps = pulls.get("acme/greeter", [])
@@ -2399,9 +2410,9 @@ def check_store_branch(name, code, store, rep):
         R.extend(hook_fail_common(code, store, rep, "feat/add-csv-export"))
         R.append(("Both mains are unchanged", mains, f"code main={subjects(code, 'main')} store main={subjects(store, 'main')}"))
         R.append(("No change directory add-csv-export exists in either repo", not dirs, f"dirs={dirs}"))
-    elif name in ("eval-store-branch-reused-name", "eval-store-branch-reused-name-origin"):
-        # local: the earlier archive is on the store's main; origin: on origin/main only, and a fetch moves origin/main only
-        store_main = STORE_MAIN if name.endswith("-origin") else ["merge: add-csv-export", *STORE_MAIN]
+    elif name.startswith("eval-store-branch-reused-name"):
+        remote_only = name.endswith(("-origin", "-selected"))
+        store_main = STORE_MAIN if remote_only else ["merge: add-csv-export", *STORE_MAIN]
         R.append(("Both repos are still on main with only the main branch and no new commit",
                   on(code) == on(store) == "main" and bs(code) == bs(store) == ["main"] and subjects(code, "main") == [INITIAL]
                   and subjects(store, "main") == store_main,
@@ -2412,6 +2423,18 @@ def check_store_branch(name, code, store, rep):
         other = re.search(r"another name|different name|new name|rename|add-csv-export-2", rep)
         R.append(("The report says the name belongs to an archived change and offers another name",
                   bool(used) and bool(other), f"used={used.group(0) if used else None} other={other.group(0) if other else None}"))
+        if name.endswith("-selected"):
+            trace = git_trace(store.parent)
+            path = "openspec/changes/archive/2026-09-01-add-csv-export"
+            refs = {r: git(store, "ls-tree", "-d", "--name-only", r, "--", path)
+                    for r in ("main", "origin/main", "plans/main")}
+            fetches = [a for a in trace or [] if a[:1] == ["fetch"]]
+            R.append(("The store fetched plans and found the archive only on plans/main",
+                      any("plans" in a for a in fetches) and refs == {"main": "", "origin/main": "", "plans/main": path},
+                      f"fetches={fetches} archive by ref={refs}"))
+            writes = changing_git(trace or [])
+            R.append(("No branch creation or other Git write was attempted before refusing the name",
+                      bool(trace) and not writes, f"Git writes={writes}"))
     else:  # eval-store-branch-locked, eval-store-branch-stale-lock
         R.append(("Both repos are still on main with only the main branch and no new commit",
                   on(code) == on(store) == "main" and bs(code) == bs(store) == ["main"] and mains,

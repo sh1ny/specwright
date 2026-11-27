@@ -1220,22 +1220,8 @@ sys.exit(subprocess.call([{jjenv.real_git()!r}, *a]))
         self.assertIn("push URLs", r["message"])
         self.assertEqual(self.gh_calls(), [])
 
-    def test_archive_entry_hands_off_before_prompt_sync_or_writes(self):
-        # The installed archive entry is agent instructions, not an OpenSpec CLI hook.
-        # Bind this black-box test to that entry and run the command the skill prescribes.
-        config = (ROOT / "templates" / "openspec" / "config.yaml").read_text(encoding="utf-8")
-        trigger = next(line for line in config.splitlines() if "'specwright-finish' PR transport gate" in line)
-        self.assertRegex(trigger, r"before asking to archive, syncing specs, or moving files")
-        self.assertRegex(trigger, r"manual_store_handoff means .* skip that change\. Do not change existing archive edits")
-        finish = (ROOT / "skills" / "specwright-finish" / "SKILL.md").read_text(encoding="utf-8")
-        entry, _ = finish.split("\n## Resume\n", 1)
-        gate = next(line for line in entry.splitlines() if line.startswith("**PR transport gate.**"))
-        self.assertRegex(gate, r"before archive prompts, spec sync, changes to existing archive edits, or \*\*Resume\*\*")
-        command = re.search(r"`<sw> pr ([^`]+)`", gate)
-        self.assertIsNotNone(command)
-        locations = {"<code toplevel>": self.code, "<store toplevel>": self.store, "<branch>": BRANCH}
-        argv = re.findall(r"<[^>]+>|\S+", command[1])
-        argv = [locations.get(arg, arg) for arg in argv]
+    def test_transport_only_leaves_clean_and_preedited_store_untouched(self):
+        argv = ("expected", "--transport-only", "--code", self.code, "--store", self.store, "--branch", BRANCH)
         self.assertEqual(self.pp(*argv)["action"], "publishable")
         self.git(self.store, "remote", "remove", "origin")
         self.save_gh({**self.gh(), "user": None})

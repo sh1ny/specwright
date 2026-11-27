@@ -138,6 +138,21 @@ def install_fake_openspec(dest, version):
     (dest / "bin" / "openspec").chmod(0o755)
 
 
+def trace_openspec(dest):
+    """Log invocations, including failed mutations, and delegate to the real installed OpenSpec."""
+    real = shutil.which("openspec")
+    if not real:
+        raise SystemExit("trace_openspec: the openspec CLI is not on PATH")
+    log = dest / "openspec-trace.jsonl"
+    fakeexe.write_python_fake(dest / "bin" / "openspec", f"""
+import json, subprocess, sys
+args = sys.argv[1:]
+with open({str(log)!r}, "a", encoding="utf-8") as log:
+    log.write(json.dumps(args) + "\\n")
+sys.exit(subprocess.call([{real!r}, *args]))
+""")
+
+
 def code_repo(code, store_id="team-plans", pointer=True, settings="finish: local\n"):
     """The project repo: Specwright settings, an optional config.yaml pointing at the store
     (otherwise the store is the global defaultStore) and the tiny project. No openspec specs/changes.
@@ -881,14 +896,21 @@ def build_store(name, dest):
         write(store, "openspec/changes/archive/2026-09-01-add-csv-export/proposal.md", ARCHIVED_CSV)
         git(store, "add", "-A")
         git(store, "commit", "-q", "-m", "merge: add-csv-export")  # an earlier change of the same name, archived on main
-    elif name == "eval-store-branch-reused-name-origin":
-        # an earlier change of the same name was archived and merged from another checkout: it is on the store's
-        # origin main only, and this checkout's local main has not been pulled
-        store_base(dest)
-        bare = dest / "so.git"  # short: Windows paths under the eval run dir near MAX_PATH
+    elif name in ("eval-store-branch-reused-name-origin", "eval-store-branch-reused-name-selected"):
+        # Another checkout lands the archive only on the remote this store selected.
+        selected = name.endswith("-selected")
+        remote = "plans" if selected else "origin"
+        store_base(dest, settings="finish: local\n" + ("planning_store:\n  remote: plans\n" if selected else ""))
+        if selected:
+            default = posix(dest / "default.git")
+            git(dest, "init", "-q", "--bare", "-b", "main", default)
+            git(store, "remote", "add", "origin", default)
+            git(store, "push", "-q", "origin", "main")
+            env_file(dest, GIT_TRACE=posix(dest / "git-trace.log"))
+        bare = dest / "so.git"
         git(dest, "init", "-q", "--bare", "-b", "main", posix(bare))
-        git(store, "remote", "add", "origin", posix(bare))
-        git(store, "push", "-q", "origin", "main")
+        git(store, "remote", "add", remote, posix(bare))
+        git(store, "push", "-q", remote, "main")
         other = dest / "oc"
         git(dest, "clone", "-q", posix(bare), posix(other))
         for k, v in (("user.name", "Other Bot"), ("user.email", "other@example.invalid"), ("commit.gpgsign", "false")):
@@ -1015,8 +1037,15 @@ def build_store(name, dest):
         pr_pair_base(dest, store_push_ok=True)  # the shim lets the store push through; the code push dies at the proxy
     elif name == "eval-store-ship-code-push-rejected-store-pr-open":
         pr_pair_base(dest, store_push_ok=True, store_pr=True)  # the same, with store PR #3 already open
-    elif name == "eval-store-archive-before-merge-local-store":
-        pr_pair_base(dest, store_origin=False, code_pr=True)  # code PR #7 is open and ready; the store has no GitHub origin
+    elif name in ("eval-store-archive-before-merge-local-store", "eval-store-archive-before-merge-preedited"):
+        from grade import planning_files, status_of
+        pr_pair_base(dest, store_origin=False, code_pr=True)
+        if name.endswith("-preedited"):
+            archive_change(dest, "add-greeting")
+        tips = {role: _rev(dest / role, "rev-parse", "HEAD") for role in ("code", "store")}
+        write(dest, "archive-before.json",
+              json.dumps({"tips": tips, "planning": planning_files(store), "status": status_of(store)}))
+        trace_openspec(dest)
     elif name == "eval-store-roadmap-close-locked":
         build_roadmap_close_locked(dest)
     elif name == "eval-store-roadmap-close-hook-fail":

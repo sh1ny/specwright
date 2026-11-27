@@ -3,7 +3,7 @@
 ## ADDED Requirements
 
 ### Requirement: A store without a PR is a manual handoff
-In the PR workflow, a proven local-only store SHALL hand off its named branch for manual sharing and archiving. `pair-state` SHALL report a manual handoff rather than readiness; watch and finish SHALL stop the store's part before archive prompts or edits. Feedback SHALL NOT read store history or ancestry or count store rounds. A handoff SHALL NOT authorize automated archive or merge, and SHALL leave the store unchanged.
+In PR mode, a proven local-only store SHALL hand off its named branch for manual sharing and archive. `pair-state` SHALL report handoff, not readiness. Watch and finish SHALL stop the store before archive prompts or edits; feedback SHALL NOT read store history or ancestry or count store rounds. A handoff SHALL leave the store unchanged and SHALL NOT authorize automated archive or merge. `finish: local` SHALL retain its existing local archive and merge workflow.
 
 #### Scenario: Feedback rounds with an off-host store
 - **WHEN** the local store branch has a committed fix trailer, but its selected remote is outside the configured GitHub host

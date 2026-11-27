@@ -53,3 +53,9 @@ None.
 - Repairs before round 8: "Owner: Allow it for releases only. Clarify the approved jj release-only private-ref exception, immediate cleanup and unchanged ordinary jj refreshes."
 - Owner round 8: `scoped-pass` — "Owner: “Fix, recheck only those.” Limit this repair and its independent recheck to the four round 8 findings. Explicit owner exception to full rereview; no approval of changed jj behaviour, #260 scope, build or merge."
 - Repairs before round 9: "Owner closed design with a targeted recheck of exactly the four round 8 findings; all were resolved. No change to jj behaviour or #260 scope."
+
+## Pre-ship owner decision
+
+- Reviewed head: `cf473daa6e6d584fe28e53f75ef88b6725345497`, pre-ship round 4.
+- Owner decision: “Fix four, file the race, ship.” Fix findings F2–F5 and verify them locally, then ship without another pre-ship round. This decision does not approve merge.
+- F1 (P0), a fetch or pull can follow a remote URL changed during credential lookup: deferred by the owner to [#261](https://github.com/sh1ny/specwright/issues/261). The issue remains open; no fix, waiver, or passing pre-ship verdict is recorded for it.

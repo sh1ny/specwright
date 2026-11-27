@@ -253,6 +253,9 @@ class _Snapshot {
     }
     logs = parsed.flag('logs');
     wait = parsed.flag('wait');
+    if (parsed.rest.length > 1) {
+      stop('pr-snapshot: pass at most one PR number or URL', 2);
+    }
     ({String host, String repo, int number})? fromUrl;
     for (final arg in parsed.rest) {
       if (arg.startsWith('https://')) {

@@ -88,10 +88,11 @@ Red means added/changed coverage to prove before implementation; inherited green
 | native-cli → The project root is found from the physical path | A project path through a link and `..` | `evals/cli/test_sw_project_version.py` | `test_project_through_link_and_dotdot_is_physical` | green |
 | native-cli → The project root is found from the physical path | Stale settings in a shared store do not choose its GitHub host | `evals/cli/test_sw_project_version.py` | `test_store_fence_uses_code_project_host` | green |
 | planning-stores → A store without a PR is a manual handoff | Feedback rounds with an off-host store | `evals/pr-pair/test_pr_pair.py` | `test_rounds_off_host_store_hands_off_without_reading_history` | green |
-| planning-stores → A store without a PR is a manual handoff | PR finish with a local-only store | `evals/pr-pair/test_pr_pair.py` | `test_archive_entry_hands_off_before_prompt_sync_or_writes` | green |
-| planning-stores → A store without a PR is a manual handoff | Archive edits already exist at PR finish | `evals/pr-pair/test_pr_pair.py` | `test_archive_entry_hands_off_before_prompt_sync_or_writes` | green |
-| planning-stores → A change name is used once | Name of an archived change | `evals/vcs/test_fetch_pull.py` | `test_selected_planning_tip_contains_archive_not_in_origin` | green |
-| planning-stores → A change name is used once | Archived from another checkout | `evals/vcs/test_fetch_pull.py` | `test_selected_planning_tip_contains_archive_not_in_origin` | green |
+| planning-stores → A store without a PR is a manual handoff | PR finish with a local-only store | `evals/git-workflow/evals.json` | `eval-store-archive-before-merge-local-store` | green |
+| planning-stores → A store without a PR is a manual handoff | Archive edits already exist at PR finish | `evals/git-workflow/evals.json` | `eval-store-archive-before-merge-preedited` | green |
+| planning-stores → A store without a PR is a manual handoff | `finish: local` keeps its existing behavior | `evals/git-workflow/evals.json` | `eval-store-finish-local` | green |
+| planning-stores → A change name is used once | Name of an archived change | `evals/git-workflow/evals.json` | `eval-store-branch-reused-name` | green |
+| planning-stores → A change name is used once | Archived from another checkout | `evals/git-workflow/evals.json` | `eval-store-branch-reused-name-selected` | green |
 | planning-stores → The expected PR set follows the change's work and transport | Planning-only change with a GitHub store | `evals/pr-pair/test_pr_pair.py` | `test_expected_planning_only_github_store` | green |
 | planning-stores → The expected PR set follows the change's work and transport | Planning-only change with no GitHub store | `evals/pr-pair/test_pr_pair.py` | `test_expected_planning_only_local_store` | green |
 | planning-stores → The expected PR set follows the change's work and transport | Local-only store with code to ship | `evals/pr-pair/test_pr_pair.py` | `test_fenced_ship_keeps_indexed_rewrites_and_gh_target` | green |
@@ -150,6 +151,7 @@ Red means added/changed coverage to prove before implementation; inherited green
 | pr-script-runtime → PR snapshots and replies run in the project's sw | Missing selected binary refuses without fallback | `evals/pr-pair/test_snapshot_native.py` | `test_missing_selected_binary_has_no_fallback` | green |
 | pr-script-runtime → PR snapshots and replies run in the project's sw | Malformed project prefix | `evals/pr-pair/test_snapshot_native.py` | `test_malformed_project_prefix_is_usage` | green |
 | pr-script-runtime → PR snapshots and replies run in the project's sw | The same PR number exists on another remote | `evals/pr-pair/test_snapshot_native.py` | `test_snapshot_infers_selected_remote_not_gh_default` | green |
+| pr-script-runtime → PR snapshots and replies run in the project's sw | Multiple PR selectors cannot override one another | `evals/pr-pair/test_snapshot_native.py` | `test_multiple_pr_selectors_are_refused_before_github` | green |
 | pr-script-runtime → PR snapshots and replies run in the project's sw | Store snapshot infers its planning remote | `evals/pr-pair/test_snapshot_native.py` | `test_store_snapshot_infers_selected_planning_remote` | green |
 | pr-script-runtime → PR snapshots and replies run in the project's sw | Selected remote is unusable and no repo is given | `evals/pr-pair/test_snapshot_native.py` | `test_repo_omitted_stops_before_gh_when_selected_remote_is_unusable` | green |
 | releases → The release commit is found on main | Squash-merged change | `evals/release/test_release.py` | `test_squash` | green |

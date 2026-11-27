@@ -55,6 +55,18 @@ class NativeSnapshotCase(SnapCase):
         return data.decode("utf-8")
 
 
+class TestSelectors(NativeSnapshotCase):
+    def test_multiple_pr_selectors_are_refused_before_github(self):
+        selected = f"https://github.com/{self.SLUG}/pull/{self.PR}"
+        foreign = f"https://github.example.com/{self.SLUG}/pull/{self.PR}"
+        for args in ((selected, str(self.PR)), (foreign, selected), (str(self.PR), selected)):
+            with self.subTest(args=args):
+                r = self.handoff_run(*args)
+                self.assertEqual((r.returncode, r.stdout), (2, b""), r.stdout + r.stderr)
+                self.assertIn("pass at most one PR number or URL", self.text(r.stderr))
+                self.assertEqual(self.gh_calls(), [], "ambiguous input must not bind an account or read a PR")
+
+
 class TestReviewerConfigWithoutChild(NativeSnapshotCase):
     def test_bad_config_checked_without_child(self):
         """The config is checked in the process itself, before any gh call: one `reviewers.py:` line about the JSON and exit 2."""
