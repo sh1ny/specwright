@@ -28,7 +28,7 @@ class Smoke(SnapCase):
         self.assertEqual((snap["threads"], snap["comments"], snap["reviews"], snap["complete"]), ([], [], [], True))
         self.assertEqual(snap["checks"]["total"], 0)
 
-    def test_implicit_numeric_branch_prefers_its_open_pr(self):
+    def test_implicit_numeric_branch_ignores_a_newer_fork_pr(self):
         (self.tmp / "openspec" / "specwright.yaml").write_text("remote: publishing\ngithub:\n  fence: false\n", encoding="utf-8")
         env = self.env(GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_NOSYSTEM="1")
         for args in (("init", "-q", "-b", "123"), ("remote", "add", "publishing", f"https://github.com/{self.SLUG}.git")):
@@ -37,17 +37,26 @@ class Smoke(SnapCase):
         def seed(st):
             pulls = st["repos"][self.SLUG]["pulls"]
             pulls[0]["head"].update(ref="123", label="o:123")
-            closed, unrelated = self._pull(), self._pull()
+            closed, unrelated, fork = (self._pull() for _ in range(3))
             closed.update(number=8, state="closed", html_url=f"https://github.com/{self.SLUG}/pull/8")
             closed["head"].update(ref="123", label="o:123")
             unrelated.update(number=123, html_url=f"https://github.com/{self.SLUG}/pull/123")
-            pulls.extend((closed, unrelated))
+            fork.update(number=9, html_url=f"https://github.com/{self.SLUG}/pull/9")
+            fork["head"].update(ref="123", label="contributor:123", repo={"full_name": "contributor/fork"})
+            pulls.extend((closed, unrelated, fork))
         self.mutate(seed)
 
-        result = self.run_script(snapfix.SNAPSHOT, env={"GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"})
+        isolated = {"GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}
+        result = self.run_script(snapfix.SNAPSHOT, env=isolated)
         self.assertEqual(result.returncode, 0, result.stderr)
         snap = json.loads(result.stdout)
         self.assertEqual((snap["number"], snap["head"]), (7, "123"))
+
+        for args in ((9, "--repo", self.SLUG), (f"https://github.com/{self.SLUG}/pull/9",)):
+            with self.subTest(selector=args[0]):
+                explicit = self.run_script(snapfix.SNAPSHOT, *args, env=isolated)
+                self.assertEqual(explicit.returncode, 0, explicit.stderr)
+                self.assertEqual(json.loads(explicit.stdout)["number"], 9)
 
     def test_evaluator_is_named(self):
         self.assertIn(snapfix.JQ_NAME, ("gojq", "jq"))

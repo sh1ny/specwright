@@ -69,6 +69,10 @@ Before reacting to, replying to or resolving an item addressed by ID, `sw pr rep
 - **WHEN** the current branch is `123`, its open PR in the selected repository is number 7, and PR 123 has a different head branch
 - **THEN** `sw pr snapshot` without a PR number or URL reads PR 7, not PR 123
 
+#### Scenario: A newer fork PR uses the same branch name
+- **WHEN** the selected repository has an open PR from its own current branch and a newer open PR from the same-named branch in a fork
+- **THEN** an implicit snapshot reads the selected repository's own PR; an explicit number or URL can still select the fork PR
+
 #### Scenario: Store snapshot infers its planning remote
 - **WHEN** a store-started snapshot with `--project <code>` omits `--repo` and the project selects `planning_store.remote: plans`
 - **THEN** it reads the store PR from `plans`, not from either checkout's `origin` or the code project's selected code remote

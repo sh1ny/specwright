@@ -433,7 +433,7 @@ void main() {
         '--repo',
         'o/n',
         '--json',
-        'number,state',
+        'number,state,isCrossRepository',
         '--jq',
         branchPrNumberJq,
       ]);

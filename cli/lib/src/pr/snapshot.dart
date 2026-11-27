@@ -340,7 +340,7 @@ class _Snapshot {
         '--repo',
         repo,
         '--json',
-        'number,state',
+        'number,state,isCrossRepository',
         '--jq',
         branchPrNumberJq,
       ]);
