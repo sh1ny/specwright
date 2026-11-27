@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import '../commit/task_cover.dart' show pyStrip;
+import '../entry/project_version.dart' show projectRoot;
 import '../settings/reviewer_config.dart';
 import '../settings/rules.dart';
 import 'context.dart';
@@ -29,7 +30,7 @@ Future<Contexts> workflowContexts(
 ) async {
   final problems = <SettingProblem>[];
   try {
-    final settings = await _loadSettings(ctx, code);
+    final settings = loadSettings(readSettingsText([projectRoot(code)]));
     final mains = {
       code: await _detectMain(ctx, code, selectedRemote(settings).name),
     };
@@ -64,21 +65,13 @@ prGitHubSettings(
   bool? store,
 }) async {
   final dir = directory ?? ctx.cwd;
-  final project = code ?? ctx.project ?? dir;
-  final settings = Directory(project).existsSync()
-      ? await _loadSettings(ctx, project)
-      : <String, Object?>{};
+  final project = projectRoot(code ?? ctx.project ?? dir);
   try {
-    String pathKey(String path) {
-      final normalized = _trimSlash(path);
-      return Platform.isWindows ? normalized.toLowerCase() : normalized;
-    }
+    final settings = loadSettings(readSettingsText([project]));
+    String pathKey(String path) =>
+        Platform.isWindows ? path.toLowerCase() : path;
 
-    final isStore =
-        store ??
-        (project != dir &&
-            pathKey(await _toplevel(ctx, project)) !=
-                pathKey(await _toplevel(ctx, dir)));
+    final isStore = store ?? pathKey(project) != pathKey(projectRoot(dir));
     final github = settingSection(settings, 'github', 'github');
     final codeLogin = pyStrip('${github['login'] ?? ''}');
     final storeSettings = isStore

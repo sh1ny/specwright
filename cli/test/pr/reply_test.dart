@@ -770,6 +770,7 @@ void main() {
 
     setUp(() {
       work = Directory.systemTemp.createTempSync('sw-reply-line-');
+      writeAmbientSettings(work);
       bin = Directory('${work.path}\\bin')..createSync();
     });
     tearDown(() => work.deleteSync(recursive: true));

@@ -5,6 +5,7 @@
 @Timeout(Duration(minutes: 2))
 library;
 
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
@@ -12,10 +13,25 @@ import 'dart:typed_data';
 import 'package:specwright_cli/src/fence/fence.dart';
 import 'package:specwright_cli/src/fence/fenced_text.dart';
 import 'package:specwright_cli/src/pr/gh.dart';
+import 'package:specwright_cli/src/process/limits.dart';
 import 'package:specwright_cli/src/vcs/tool_runner.dart';
 import 'package:test/test.dart';
 
+import '../fake_process.dart';
 import '../vcs/bash_support.dart';
+
+class _StoppingTree extends NoopTree {
+  _StoppingTree(this.process);
+  final FakeProcess process;
+
+  @override
+  Future<void> stop() async {
+    await super.stop();
+    process.exit(-1);
+    unawaited(process.stdoutController.close());
+    unawaited(process.stderrController.close());
+  }
+}
 
 void main() {
   final bash = findBash();
@@ -156,16 +172,82 @@ void main() {
     skip: skip,
   );
 
-  test('the fenced command has no deadline', () async {
-    final watch = Stopwatch()..start();
-    final r = await fencedText(
-      repo,
-      ['me', 'bash', '-c', 'sleep 3; echo done'],
-      environment: env({'SPECWRIGHT_NET_DEADLINE': '1'}),
-      gh: fakeGh(),
-      git: outsideWorkTree,
+  const lookupDeadline = Duration(seconds: 97);
+  final boundedEnv = env({'SPECWRIGHT_NET_DEADLINE': '97'});
+
+  test(
+    'the real lookup deadline stops a credential read before Git can run',
+    () async {
+      final process = FakeProcess();
+      final tree = _StoppingTree(process);
+      void Function()? expire;
+      final result = runZoned(
+        () => fencedText(
+          repo,
+          ['me', 'git', 'fetch', 'origin', 'main'],
+          environment: boundedEnv,
+          gh: (args, e) {
+            if (args.contains('--help')) return fakeGh()(args, e);
+            return runBoundedCommand(
+              repo,
+              [Platform.resolvedExecutable, '--version'],
+              environment: e,
+              limits: resolveLimits(e, paged: false),
+              startProcess: FakeStarter(process).call,
+              treeFor: () => tree,
+              helperCommand: const ['fake-helper', '__exec'],
+            );
+          },
+          git: outsideWorkTree,
+          launch: (command, _) async {
+            launched.add(command);
+            return 0;
+          },
+        ),
+        zoneSpecification: ZoneSpecification(
+          createTimer: (self, parent, zone, duration, callback) {
+            if (duration == lookupDeadline) {
+              expire = zone.bindCallback(callback);
+            }
+            return parent.createTimer(zone, duration, callback);
+          },
+        ),
+      );
+      process.frames();
+      await process.untilGo();
+      if (expire case final deadline?) {
+        deadline();
+      } else {
+        await tree
+            .stop(); // Release the held fake before reporting the failure.
+        fail('the running credential lookup was not given a deadline');
+      }
+      final r = await result;
+      expect(r.code, 3);
+      expect(r.stderr, contains('deadline_exceeded: gh auth token'));
+      expect(tree.calls, containsAllInOrder(['ready', 'stop', 'dispose']));
+      expect(launched, isEmpty);
+    },
+  );
+
+  test('credential timeout does not bound the launched command', () async {
+    final r = await runZoned(
+      () => fencedText(
+        repo,
+        ['me', 'bash', '-c', 'echo done'],
+        environment: boundedEnv,
+        gh: fakeGh(),
+        git: outsideWorkTree,
+      ),
+      zoneSpecification: ZoneSpecification(
+        createTimer: (self, parent, zone, duration, callback) =>
+            parent.createTimer(
+              zone,
+              duration == lookupDeadline ? Duration.zero : duration,
+              callback,
+            ),
+      ),
     );
     expect((r.code, r.stdout, r.stderr), (0, 'done\n', ''));
-    expect(watch.elapsed, greaterThan(const Duration(seconds: 2)));
   }, skip: skip);
 }

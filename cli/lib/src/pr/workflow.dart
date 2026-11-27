@@ -98,6 +98,23 @@ class Workflow {
     return _bound = login;
   }
 
+  /// The standalone PR commands bind before their first GitHub call as a
+  /// workflow does. An explicit outer `as` login is still reverified.
+  Future<Map<String, String>> commandEnvironment(
+    GitHubConnection connection,
+    String configured,
+  ) async {
+    _connection = connection;
+    final login = await codeLogin(configured);
+    final source = login == null
+        ? ctx.env
+        : {
+            ...discoveryEnvironment(ctx.env),
+            githubTokenVariable(connection.host): _tokens[login]!,
+          };
+    return hostGhEnvironment(source, connection.host, fenced: connection.fence);
+  }
+
   Future<String?> prTarget(RepoContext role) async {
     try {
       return (await identityOf(

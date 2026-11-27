@@ -519,6 +519,22 @@ class FenceCase(gbnet.GitButlerNetworkCase):
     def test_legacy_pull_does_not_fence_off_host_upstream(self):
         self.check_pull_environment("https://git.example.org/team/app.git", "unset")
 
+    def test_legacy_pull_refuses_upstream_drift_in_fenced_environment(self):
+        world = self.git_world()
+        self.git(world.repo, "checkout", "main")
+        self.git(world.repo, "remote", "add", "tracking", str(world.origin))
+        self.git(world.repo, "config", "branch.main.remote", "tracking")
+        before = world.real(world.repo, "rev-parse", "HEAD")
+        world.advance("pull")
+        doc, _ = self.h.run("pull", "--login", LOGIN, repo=world.repo, expected=3, env={
+            "GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": "branch.main.remote",
+            "GIT_CONFIG_VALUE_0": "origin",
+        })
+        self.assertEqual(doc["error"], "fence_failed", doc)
+        self.assertIn("pull upstream changed", doc["message"])
+        self.assertEqual(world.real(world.repo, "rev-parse", "HEAD"), before)
+        self.assertFalse(any(c["argv"][:1] == ["pull"] for c in self.h.git_calls()))
+
     def check_off_host_fetch_environment(self, extra, want):
         world = self.git_world()
         self.h.origin_url = "https://github.example.com/team/app.git"

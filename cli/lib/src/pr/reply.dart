@@ -10,7 +10,8 @@ import 'identity.dart';
 import 'pair.dart' show PairStop;
 import 'queries.dart';
 import 'settings_commands.dart' show prGitHubSettings;
-import 'workflow_transport.dart' show hostGhArgs, hostGhEnvironment;
+import 'workflow.dart' show Workflow;
+import 'workflow_transport.dart' show hostGhArgs;
 
 /// `sw pr reply`: `pr-reply.sh`, ported call for call (design D1, D6, D8). [argv] is the script's own argument list.
 ///
@@ -59,15 +60,12 @@ class _Reply {
   final PrContext ctx;
   late final GitHubConnection connection;
   late final int number;
+  late final String configuredLogin;
+  late final credentials = Workflow(ctx)
+      .commandEnvironment(connection, configuredLogin);
 
-  Future<GhResult> gh(List<String> args) => ctx.gh(
-    hostGhArgs(args, connection.host),
-    environment: hostGhEnvironment(
-      ctx.env,
-      connection.host,
-      fenced: connection.fence,
-    ),
-  );
+  Future<GhResult> gh(List<String> args) async =>
+      ctx.gh(hostGhArgs(args, connection.host), environment: await credentials);
   String pr = '';
   String kind = '';
   String repo = '';
@@ -159,6 +157,7 @@ class _Reply {
     number = parsedNumber;
     final settings = await prGitHubSettings(ctx);
     connection = settings.connection;
+    configuredLogin = settings.login;
     if (repo.isEmpty) {
       repo =
           (await identityOf(

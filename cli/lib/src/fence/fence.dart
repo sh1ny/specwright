@@ -636,9 +636,30 @@ Future<Map<String, String>> prepareFencedCommand(
   checkOptions(command);
   final countKey = _keyOf(env, 'GIT_CONFIG_COUNT', Platform.isWindows);
   final compare = countKey != null && env[countKey] != '0';
+  final barePull =
+      compare &&
+      const {'git', 'git.exe'}.contains(_base(command.first)) &&
+      command.length >= 2 &&
+      command[1] == 'pull' &&
+      (command.length == 2 || command.length == 3 && command[2] == '--ff-only');
+  Future<String> upstream(Map<String, String> environment) async {
+    final result = await git(['git', 'ls-remote', '--get-url'], environment);
+    final url = decodeReplacing(result.stdout).trim();
+    if (result.exitCode != 0 || url.isEmpty) {
+      throw FenceStop('as.sh: cannot prove the Git pull upstream; refusing');
+    }
+    return url;
+  }
+
+  final plannedUpstream = barePull ? await upstream(env) : null;
   final before = compare ? <(String, String), List<String>>{} : null;
   if (before != null) await checkRemotes(git, env, host: host, targets: before);
   final execution = await fencedEnvironment(env, git, host: host);
+  if (plannedUpstream != null && await upstream(execution) != plannedUpstream) {
+    throw FenceStop(
+      'as.sh: Git pull upstream changed in the fenced environment; refusing',
+    );
+  }
   final after = compare ? <(String, String), List<String>>{} : null;
   await checkRemotes(git, execution, host: host, targets: after);
   if (before != null && after != null) {

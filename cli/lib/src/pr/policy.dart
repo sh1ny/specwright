@@ -13,7 +13,8 @@ import 'gh.dart';
 import 'identity.dart';
 import 'pair.dart';
 import 'settings_commands.dart' show prGitHubSettings;
-import 'workflow_transport.dart' show hostGhArgs, hostGhEnvironment;
+import 'workflow.dart' show Workflow;
+import 'workflow_transport.dart' show hostGhArgs;
 
 // `sw pr policy`: `pr-pair.sh policy` (pr-pair.sh:2732-2914). The merge policy as the default branch holds it, read
 // from GitHub and never from the work tree (ADR 0020), with the head's copy compared for drift, and whether each
@@ -365,7 +366,8 @@ Future<int> runPolicy(
     },
   );
   needArgs(a, ['repo', 'head']);
-  final connection = (await prGitHubSettings(ctx)).connection;
+  final settings = await prGitHubSettings(ctx);
+  final connection = settings.connection;
   final host = connection.host;
   final repo = prRepoSlug(a['repo']!, host);
   if (repo == null) pairUsage('--repo must name owner/name on $host');
@@ -439,7 +441,8 @@ Future<int> runPolicy(
     }
   }
 
-  final env = hostGhEnvironment(ctx.env, host, fenced: connection.fence);
+  final env = await Workflow(ctx)
+      .commandEnvironment(connection, settings.login);
   Future<String?> read(List<String> args) => _policyGh(ctx, args, host, env);
 
   final body = await read(['api', 'repos/$repo']);

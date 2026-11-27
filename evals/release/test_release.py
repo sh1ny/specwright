@@ -1549,6 +1549,22 @@ class TestReleaseProof(PubFlow):
         self.assertEqual(fx.git(self.bare, "tag", "-l"), "")
         self.assertEqual(self.gh_calls(), [])
 
+    def test_fetched_proof_cannot_be_reused_without_its_checkout_receipt(self):
+        code, proof, raw = self.prove()
+        self.assertEqual(code, 0, raw)
+        other = self.tmp / "another-checkout"
+        fx.git(self.work, "worktree", "add", "--detach", str(other), self.rc)
+        settings = self.work / "openspec/specwright.yaml"
+        fx.write(other, "openspec/specwright.yaml", settings.read_text(encoding="utf-8"))
+        stamp = "openspec/.specwright/VERSION"
+        fx.write(other, stamp, (self.work / stamp).read_text(encoding="utf-8"))
+        code, doc, raw = self.release("publish", "--version", "0.5.0", "--proof", proof["proof"],
+                                      cwd=other, env=self.env())
+        self.assertEqual((code, doc["error"]), (1, "release_proof_missing"), raw)
+        self.assertEqual(fx.git(self.work, "tag", "-l"), "")
+        self.assertEqual(fx.git(self.bare, "tag", "-l"), "")
+        self.assertEqual(self.gh_calls(), [])
+
     def test_release_proof_ignores_stale_standard_tracking_ref(self):
         self.redirect_tracking()
         fx.git(self.work, "update-ref", "refs/heads/main", self.base, self.rc)

@@ -36,6 +36,7 @@ class Fixture {
     Directory? temp,
     Map<String, String>? environment,
   }) : tempDir = temp ?? Directory.systemTemp.createTempSync('sw-pr-test-') {
+    writeAmbientSettings(tempDir);
     ctx = PrContext(
       writeOut: out.addAll,
       writeErr: err.addAll,
@@ -110,9 +111,19 @@ class Fixture {
 
   /// Files left in the temp directory.
   List<String> get leftovers => [
-    for (final e in tempDir.listSync()) e.uri.pathSegments.last,
+    for (final e in tempDir.listSync())
+      if (!e.path.endsWith('${Platform.pathSeparator}openspec'))
+        e.uri.pathSegments.last,
   ];
 
   File file(String name, String text) =>
       File('${tempDir.path}/$name')..writeAsBytesSync(utf8.encode(text));
+}
+
+/// I/O fixtures exercise transport after authentication, under an explicit
+/// caller account (the equivalent of the frozen workflow's token input).
+void writeAmbientSettings(Directory root) {
+  File('${root.path}/openspec/specwright.yaml')
+    ..createSync(recursive: true)
+    ..writeAsStringSync('github:\n  fence: false\n');
 }

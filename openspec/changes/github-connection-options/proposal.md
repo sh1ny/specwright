@@ -79,6 +79,11 @@ Use Specwright with SSH, GitHub Enterprise, token-only automation and a remote n
 - Configure `github.host` for GitHub Enterprise and opt out of identity fencing with `github.fence: false` when SSH or environment tokens supply credentials (#167).
 - Choose a named remote per code repository and planning store (#168).
 
+### Changed
+
+- `sw pr snapshot` and `sw pr reply` default to the selected remote. Reply checks that the item belongs to the selected PR; `sw pr policy` requires its PR coordinates.
+- `sw release prove-main` binds the fetched main commit to the publication destination. Pass its receipt-backed `--proof` to `untagged` and `publish`.
+
 ### Fixed
 
 - A local-only planning store no longer blocks the code PR; ship reports that the planning branch must be shared by hand (#260).

@@ -219,6 +219,32 @@ class TestProjectSelector(SnapCase):
         self.assertEqual([t["id"] for t in json.loads(r.stdout)["threads"]], [tid])
         self.assertFalse(any(c[:2] == ["repo", "view"] for c in self.gh_calls()))
 
+    def test_direct_snapshot_and_reply_bind_the_code_checkout_identity(self):
+        self.make_remote_repo(self.code, "publish")
+        (self.code / "openspec" / "specwright.yaml").write_text(
+            "remote: publish\ngithub:\n  login: me\n", encoding="utf-8")
+        nested = self.code / "nested"
+        (nested / "openspec").mkdir(parents=True)
+        (nested / "openspec" / "specwright.yaml").write_text(
+            "github:\n  host: github.example.com\n  fence: false\n", encoding="utf-8")
+        item = self.add_comment("rev", "a note")
+        body = self.tmp / "body.md"
+        body.write_text("done\n", encoding="utf-8")
+        # The command runs in the code checkout but the project selector is a
+        # subdirectory. Neither that file nor the caller token selects the actor.
+        opts = {"login": "other", "cwd": self.code, "project": fixtures.posix(nested)}
+        r = self.run_script(SNAPSHOT, self.PR, **opts)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(json.loads(r.stdout)["url"], f"https://github.com/{self.SLUG}/pull/{self.PR}")
+        r = self.run_script(REPLY, self.PR, "comment", item["node_id"], fixtures.posix(body), **opts)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        comments = self.st()["repos"][self.SLUG]["comments"][str(self.PR)]
+        self.assertEqual([c["user"]["login"] for c in comments], ["rev", "me"])
+        calls = [json.loads(s) for s in self.gh_log.read_text(encoding="utf-8").splitlines()]
+        lookups = [c for c in calls if c["argv"][:2] == ["auth", "token"]]
+        self.assertEqual([c["argv"][-1] for c in lookups], ["me", "me"])
+        self.assertFalse(any(c["env"].get("GH_TOKEN") == "tok-other" for c in calls))
+
     def test_store_snapshot_infers_selected_planning_remote(self):
         self.make_remote_repo(self.store, "plans", "github.example.com")
         (self.code / "openspec" / "specwright.yaml").write_text(

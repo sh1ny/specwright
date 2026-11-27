@@ -16,7 +16,8 @@ import 'queries.dart';
 import 'reviewers.dart' show reviewerLogins;
 import 'text.dart';
 import 'settings_commands.dart' show prGitHubSettings;
-import 'workflow_transport.dart' show hostGhArgs, hostGhEnvironment;
+import 'workflow.dart' show Workflow;
+import 'workflow_transport.dart' show hostGhArgs;
 import 'watch_state.dart';
 
 final RegExp _datePattern = RegExp(
@@ -130,6 +131,9 @@ class _Snapshot {
 
   final PrContext ctx;
   late final GitHubConnection connection;
+  late final String configuredLogin;
+  late final credentials = Workflow(ctx)
+      .commandEnvironment(connection, configuredLogin);
   String pr = '';
   String repo = '';
   String full = '';
@@ -176,13 +180,9 @@ class _Snapshot {
     claim?.release();
   }
 
-  Future<GhResult> gh(List<String> args) => ctx.gh(
+  Future<GhResult> gh(List<String> args) async => ctx.gh(
     hostGhArgs(args, connection.host),
-    environment: hostGhEnvironment(
-      pollEnv ?? ctx.env,
-      connection.host,
-      fenced: connection.fence,
-    ),
+    environment: pollEnv ?? await credentials,
   );
 
   Future<int> run(List<String> argv) async {
@@ -278,6 +278,7 @@ class _Snapshot {
     }
     final settings = await prGitHubSettings(ctx);
     connection = settings.connection;
+    configuredLogin = settings.login;
     if (fromUrl != null && fromUrl.host != connection.host) {
       stop('pr-snapshot: PR URL does not name ${connection.host}', 2);
     }
@@ -669,10 +670,11 @@ class _Snapshot {
   /// One poll: one deadline for all its gh calls, so a hung poll ends at that deadline and the timeout is still reported on
   /// time. Returns the snapshot and its document, or null when the poll failed.
   Future<({String text, Map<String, Object?> doc})?> poll() async {
+    final scoped = await credentials;
     final at =
         DateTime.now().microsecondsSinceEpoch / 1e6 +
         resolveLimits(ctx.env, paged: false).deadline.inMicroseconds / 1e6;
-    pollEnv = {...ctx.env, 'SPECWRIGHT_NET_DEADLINE_AT': at.toStringAsFixed(6)};
+    pollEnv = {...scoped, 'SPECWRIGHT_NET_DEADLINE_AT': at.toStringAsFixed(6)};
     try {
       if (await prepareCfg() != 0) return null;
       final s = await snapshot();

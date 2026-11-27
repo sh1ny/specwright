@@ -55,9 +55,9 @@ TIER: FULL
 - **Important:** no; implements the owner-approved ordering and outcome in S3.
 - **Chosen by:** agent.
 
-**Round 5 owner decision:** “Yes, fix and review.” Apply only the seven round 5 findings, within the ship-only scope in S3. The owner authorized one full independent review, not apply.
+**Completed design checkpoint, round 5:** The owner chose “Yes, fix and review” for the seven findings within S3. This authorized one full independent design review, not apply.
 
-**Round 6 owner decision:** “Fix both, recheck only those.” Close design review with an independent targeted recheck of the two remaining findings and their spec, design and task wording. If either finding remains, return to the owner. This is not apply approval.
+**Completed design checkpoint, round 6:** The owner chose “Fix both, recheck only those.” The subsequent design review checked the two fixes and their spec, design and task wording. This did not authorize apply.
 
 ### Decision summary
 

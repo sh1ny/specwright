@@ -246,6 +246,7 @@ class TestShipText(unittest.TestCase):
         ship = self.ship
         step = line_with(ship, r"^   1\. .*<sw> release check --main", "ship: the version check item")
         self.assertRegex(step, r"release\.enabled")
+        self.assertIn("When the code PR is expected", step)
         fetch = step.index("--no-tags")
         self.assertLess(fetch, step.index("check --main"), "the check comes before the fetch")
         self.assertRegex(step, r"(?i)(failed fetch|version_not_ahead_of_main)[^.]*leaves both pushes and PRs untouched")
@@ -272,7 +273,8 @@ class TestVersionCheckOptIn(unittest.TestCase):
             ("watch", next(l for l in sections(pr)["watch"].splitlines() if "check --main" in l)),
             ("local merge", next(l for l in sections(finish)["local"].splitlines() if "check --main" in l)),
         ):
-            self.assertRegex(line, r"(?i)(only )?with `release\.enabled` true", f"{name}: the check is not tied to release.enabled")
+            self.assertRegex(line, r"(?i)(?:with|and) `release\.enabled` (?:is )?true",
+                             f"{name}: the check is not tied to release.enabled")
         # every mention of the check, in either skill, sits on a line that names release.enabled or points at the Version check
         for text in (pr, finish):
             for l in text.splitlines():

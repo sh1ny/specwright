@@ -309,11 +309,42 @@ class ReleaseGit {
     }
   }
 
-  String _encodeProof(ReleaseTarget target, String branch, String commit) {
-    final digest = sha256Hex(
-      utf8.encode(jsonEncode([target.binding, branch, commit])),
-    );
-    return base64Url.encode(utf8.encode(jsonEncode([branch, commit, digest])));
+  String _proofDigest(ReleaseTarget target, String branch, String commit) =>
+      sha256Hex(utf8.encode(jsonEncode([target.binding, branch, commit])));
+
+  String _encodeProof(String branch, String commit, String digest) =>
+      base64Url.encode(utf8.encode(jsonEncode([branch, commit, digest])));
+
+  Future<File> _receipt(String digest) async {
+    final dir = await text(['rev-parse', '--absolute-git-dir']);
+    if (dir.isEmpty) {
+      throw ReleaseStop(
+        'release_proof_missing',
+        'cannot find release receipt directory',
+      );
+    }
+    return File('$dir/specwright-release-proofs/$digest');
+  }
+
+  Future<void> _recordProof(File receipt) async {
+    try {
+      await receipt.parent.create(recursive: true);
+      await receipt.create(exclusive: true);
+    } on PathExistsException {
+      if (await FileSystemEntity.type(receipt.path, followLinks: false) ==
+          FileSystemEntityType.file) {
+        return;
+      }
+      throw ReleaseStop(
+        'release_proof_missing',
+        'release receipt is not a regular file',
+      );
+    } on FileSystemException {
+      throw ReleaseStop(
+        'release_proof_missing',
+        'cannot record the release fetch receipt',
+      );
+    }
   }
 
   Future<ReleaseMain> proveMain(String branch) async {
@@ -368,12 +399,6 @@ class ReleaseGit {
         );
       }
       await verifyTarget();
-      return ReleaseMain(
-        branch,
-        commit,
-        _encodeProof(target!, branch, commit),
-        runLogin: _authenticatedLogin,
-      );
     } finally {
       final id =
           observed ?? await text(['rev-parse', '--verify', '--quiet', ref]);
@@ -386,6 +411,15 @@ class ReleaseGit {
         );
       }
     }
+    final commit = observed;
+    final digest = _proofDigest(target!, branch, commit);
+    await _recordProof(await _receipt(digest));
+    return ReleaseMain(
+      branch,
+      commit,
+      _encodeProof(branch, commit, digest),
+      runLogin: _authenticatedLogin,
+    );
   }
 
   Future<ReleaseMain> verifyProof(String proof, String main) async {
@@ -404,11 +438,20 @@ class ReleaseGit {
       _changed();
     }
     final branch = fields[0] as String, commit = fields[1] as String;
+    final digest = _proofDigest(target!, branch, commit);
     if (!_proofSha.hasMatch(commit) ||
         branch != main ||
-        _encodeProof(target!, branch, commit) != proof ||
+        _encodeProof(branch, commit, digest) != proof ||
         !await refExists(commit)) {
       _changed();
+    }
+    final receipt = await _receipt(digest);
+    if (await FileSystemEntity.type(receipt.path, followLinks: false) !=
+        FileSystemEntityType.file) {
+      throw ReleaseStop(
+        'release_proof_missing',
+        'no release fetch receipt for this checkout; run release prove-main again',
+      );
     }
     await _validateBranch(branch);
     await verifyTarget();

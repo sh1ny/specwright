@@ -4567,6 +4567,16 @@ class Policy(PolicyBase):
                 self.assertEqual(result["error"], "snapshot_target_mismatch", result)
                 self.assertFalse(self.gh_calls())
 
+    def test_direct_policy_binds_configured_login_before_repository_reads(self):
+        self.seed_both(self.AGENT, self.AGENT)
+        code = self.make_repo("code", f"https://github.com/{CODE}.git")
+        self.write(f"code/{self.PATH}", "github:\n  login: sh1ny\n")
+        r = self.policy(cwd=code)  # caller `tok-k` and stored active account are not sh1ny
+        self.assertTrue(r["ok"], r)
+        reads = [c for c in self.gh_calls() if any(x.startswith("repos/") for x in c["argv"])]
+        self.assertTrue(reads)
+        self.assertEqual({c["env"].get("GH_TOKEN") for c in reads}, {"tok-s"})
+
     def test_same_policy_no_drift_main_values(self):
         self.seed_both(self.AGENT, self.AGENT)
         r = self.policy()
