@@ -725,6 +725,12 @@ RETIRED = {
         'the script ran under Python 3.8; sw runs no Python',
     'test_workflow_records.WorkflowRecords.test_pass_write_on_python_3_8':
         'the script ran under Python 3.8; sw runs no Python',
+    'test_workflow_parity.WorkflowParity.test_store_credential_lookup_limit_retains_error':
+        'binding now stops before PR discovery; the native credential-limit test asserts that order with a deterministic byte limit',
+    'test_workflow_transport.WorkflowTransport.test_non_github_repository_preserves_git_network_limits':
+        'an off-host remote cannot back a saved GitHub PR; the native off-host test asserts refusal before any network read',
+    'test_workflow_transport.WorkflowTransport.test_started_repository_preserves_git_network_limits':
+        'a saved PR needs current target proof; the native ambient pass test supplies it and checks both Git read bounds',
 }
 
 
