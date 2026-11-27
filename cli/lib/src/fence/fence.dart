@@ -63,9 +63,6 @@ const _savedVariables = [
 
 final RegExp _gitConfigName = RegExp(r'^GIT_CONFIG_(KEY|VALUE)_[0-9]+$');
 
-const String _sshCommand =
-    'sh -c "echo as.sh: SSH is disabled - push over https://github.com so the identity can be pinned >&2; exit 1"';
-
 const String _credentialHelper =
     r'''!f() { [ "$1" = get ] || exit 0; h= p=; while IFS= read -r l && [ -n "$l" ]; do case $l in host=*) h=${l#host=} ;; protocol=*) p=${l#protocol=} ;; esac; done; h=$(printf %s "$h" | tr A-Z a-z); h=${h%:*}; h=${h%.}; [ "$h" = github.com ] && [ "$p" = https ] || exit 0; echo username=x-access-token; echo "password=$GH_TOKEN"; }; f''';
 
@@ -129,6 +126,33 @@ Map<String, String> saveOriginals(Map<String, String> env, {bool? windows}) {
   }
   out['AS_SH_ORIG_SET'] = listed;
   return out;
+}
+
+/// Restore the caller's transport for a plain Git/colocated backend command.
+/// Never pass the active fence token to a remote outside the fence.
+Map<String, String>? originalGitEnvironment([
+  Map<String, String>? environment,
+]) {
+  final env = environment ?? Platform.environment;
+  final windows = Platform.isWindows;
+  final savedKey = _keyOf(env, 'AS_SH_ORIG_SET', windows);
+  if (savedKey == null) return environment;
+  final result = <String, String>{};
+  for (final entry in env.entries) {
+    final name = windows ? entry.key.toUpperCase() : entry.key;
+    if (!_tokenVariables.contains(name) &&
+        !_savedVariables.contains(name) &&
+        !_gitConfigName.hasMatch(name) &&
+        !name.startsWith('AS_SH_ORIG_')) {
+      result[entry.key] = entry.value;
+    }
+  }
+  for (final name in env[savedKey]!.split(' ')) {
+    if (name.isEmpty) continue;
+    final key = _keyOf(env, 'AS_SH_ORIG_$name', windows);
+    if (key != null) result[name] = env[key]!;
+  }
+  return result;
 }
 
 /// What discovery runs with: [env] without the gh token and host variables
@@ -196,14 +220,16 @@ String _firstLine(List<int> output) {
   );
 }
 
-/// `--resolve`: the active github.com account, once, when gh holds its token.
-/// Both lookups run with no token in [env]: the active account is what is asked
-/// (C10).
-Future<String> resolveLogin(GhCall gh, Map<String, String> env) async {
+/// `--resolve`: the active account on the selected host, without ambient tokens.
+Future<String> resolveLogin(
+  GhCall gh,
+  Map<String, String> env, {
+  String host = defaultGitHubHost,
+}) async {
   final r = await gh([
     'api',
     '--hostname',
-    'github.com',
+    host,
     'user',
     '--jq',
     '.login',
@@ -214,15 +240,15 @@ Future<String> resolveLogin(GhCall gh, Map<String, String> env) async {
       : '';
   const how =
       "run 'gh auth login' or set github.login in openspec/specwright.yaml "
-      '(GH_TOKEN and GITHUB_TOKEN are not used to pick the login)';
+      '(GH_TOKEN, GITHUB_TOKEN and Enterprise tokens are not used to pick the login)';
   if (login.isEmpty) {
-    throw FenceStop('as.sh: no active gh account for github.com; $how');
+    throw FenceStop('as.sh: no active gh account for $host; $how');
   }
   final token = await gh([
     'auth',
     'token',
     '--hostname',
-    'github.com',
+    host,
     '--user',
     login,
   ], env);
@@ -235,22 +261,19 @@ Future<String> resolveLogin(GhCall gh, Map<String, String> env) async {
   return login;
 }
 
-/// Constraint C10: identity verification, `gh api user`, runs with `GH_TOKEN`
-/// set to the token just read for [login], so it checks that token and not the
-/// active account. The read itself, like every discovery call, runs with no
-/// token in [env]. A configured account that is not the active one passes, and
-/// a token that belongs to another login is refused. Returns the environment
-/// with `GH_TOKEN` set, which the fenced command gets too.
+/// Verify the stored account's own token in the selected host's credential slot.
+/// Discovery starts with no token; the returned environment has only the verified one.
 Future<Map<String, String>> verifyIdentity(
   String login,
   GhCall gh,
-  Map<String, String> env,
-) async {
+  Map<String, String> env, {
+  String host = defaultGitHubHost,
+}) async {
   final read = await gh([
     'auth',
     'token',
     '--hostname',
-    'github.com',
+    host,
     '--user',
     login,
   ], env);
@@ -261,11 +284,15 @@ Future<Map<String, String>> verifyIdentity(
   if (token.isEmpty) {
     throw FenceStop("as.sh: no gh credential for '$login' (gh auth login)");
   }
-  final withToken = {...env, 'GH_TOKEN': token};
+  final withToken = {
+    ...env,
+    githubTokenVariable(host): token,
+    if (host != defaultGitHubHost) 'GH_HOST': host,
+  };
   final who = await gh([
     'api',
     '--hostname',
-    'github.com',
+    host,
     'user',
     '--jq',
     '.login',
@@ -282,14 +309,16 @@ Future<Map<String, String>> verifyIdentity(
   return withToken;
 }
 
-FenceStop _refuse(String what, String maskedUrl) => FenceStop(
-  'as.sh: $what has credentials in a github.com URL ($maskedUrl); remove the '
+FenceStop _refuse(String what, String maskedUrl, String host) => FenceStop(
+  'as.sh: $what has credentials in a $host URL ($maskedUrl); remove the '
   'userinfo, the fence supplies the credential; refusing',
 );
 
-void _checkRule(String base, String prefix, String what) {
+void _checkRule(String base, String prefix, String what, String host) {
   if (!hasUserinfo(base)) return;
-  if (ghUrl(base) || ghUrl(prefix)) throw _refuse(what, mask(base));
+  if (ghUrl(base, host: host) || ghUrl(prefix, host: host)) {
+    throw _refuse(what, mask(base), host);
+  }
 }
 
 final RegExp _insteadOf = RegExp(
@@ -300,12 +329,14 @@ final RegExp _insteadOf = RegExp(
 /// Every argument of the command, `git -c key=value` included: a github.com URL
 /// with userinfo, in the argument or in its value, or a rewrite rule that adds
 /// it, is refused before anything runs.
-void checkArguments(List<String> command) {
+void checkArguments(List<String> command, {String host = defaultGitHubHost}) {
   for (final a in command) {
-    if (ghUserinfo(a)) throw _refuse('argument', mask(a));
+    if (ghUserinfo(a, host: host)) throw _refuse('argument', mask(a), host);
     final eq = a.indexOf('=');
     final v = eq < 0 ? a : a.substring(eq + 1);
-    if (eq >= 0 && ghUserinfo(v)) throw _refuse('argument', mask(v));
+    if (eq >= 0 && ghUserinfo(v, host: host)) {
+      throw _refuse('argument', mask(v), host);
+    }
     if (_insteadOf.hasMatch(lowerAscii(a))) {
       var k = a.substring(0, eq < 0 ? a.length : eq);
       if (k.length >= 4 && lowerAscii(k.substring(0, 4)) == 'url.') {
@@ -313,7 +344,7 @@ void checkArguments(List<String> command) {
       }
       final dot = k.lastIndexOf('.');
       if (dot >= 0) k = k.substring(0, dot);
-      _checkRule(k, v, 'argument');
+      _checkRule(k, v, 'argument', host);
     }
   }
 }
@@ -442,13 +473,21 @@ void _checkJj(List<String> command) {
 /// `git remote get-url`, `git config`) and the fenced command run with no
 /// deadline and no size bound, as in `as.sh`. Only the gh lookups are bounded.
 ///
-/// In a git work tree, no remote's fetch or push URL, and no
-/// `url.<base>.insteadOf` or `pushInsteadOf` rule, may add userinfo to a
-/// github.com URL.
-Future<void> checkRemotes(GitCall git, Map<String, String> env) async {
+/// In a work tree, neither effective remotes nor rewrite rules may put
+/// URL userinfo on the selected host. The optional map records effective
+/// fetch/push vectors so dispatch can detect an environment-induced change.
+Future<void> checkRemotes(
+  GitCall git,
+  Map<String, String> env, {
+  String host = defaultGitHubHost,
+  Map<(String, String), List<String>>? targets,
+}) async {
   final inside = await git(['git', 'rev-parse', '--is-inside-work-tree'], env);
   if (_stripNewlines(decodeReplacing(inside.stdout)) != 'true') return;
   final remotes = await git(['git', 'remote'], env);
+  if (remotes.exitCode != 0) {
+    throw FenceStop('as.sh: cannot read configured remotes; refusing');
+  }
   for (final r in _lines(remotes.stdout)) {
     if (r.isEmpty) continue;
     for (final (flags, kind) in [
@@ -463,9 +502,16 @@ Future<void> checkRemotes(GitCall git, Map<String, String> env) async {
         '--all',
         r,
       ], env);
-      for (final u in _lines(urls.stdout)) {
-        if (ghUserinfo(u)) throw _refuse("remote '$r' $kind URL", mask(u));
+      if (urls.exitCode != 0) {
+        throw FenceStop("as.sh: cannot read remote '$r' $kind URLs; refusing");
       }
+      final listed = _lines(urls.stdout);
+      for (final u in listed) {
+        if (ghUserinfo(u, host: host)) {
+          throw _refuse("remote '$r' $kind URL", mask(u), host);
+        }
+      }
+      if (targets != null) targets[(r, kind)] = listed;
     }
   }
   final rules = await git([
@@ -474,6 +520,9 @@ Future<void> checkRemotes(GitCall git, Map<String, String> env) async {
     '--get-regexp',
     r'^url\..*\.(insteadof|pushinsteadof)$',
   ], env);
+  if (rules.exitCode != 0 && rules.exitCode != 1) {
+    throw FenceStop('as.sh: cannot read Git URL rewrite rules; refusing');
+  }
   for (final line in _lines(rules.stdout)) {
     if (line.isEmpty) continue;
     final space = line.indexOf(' ');
@@ -483,7 +532,7 @@ Future<void> checkRemotes(GitCall git, Map<String, String> env) async {
     final dot = base.lastIndexOf('.');
     if (dot >= 0) base = base.substring(0, dot);
     final last = key.substring(key.lastIndexOf('.') + 1);
-    _checkRule(base, val, 'rewrite rule url.${mask(base)}.$last');
+    _checkRule(base, val, 'rewrite rule url.${mask(base)}.$last', host);
   }
 }
 
@@ -494,13 +543,23 @@ Future<void> checkRemotes(GitCall git, Map<String, String> env) async {
 /// is emptied (an empty value resets only its own key, so each
 /// `http.<url>.extraheader` key in effect is reset by name, sorted and without
 /// repeats in byte order as `sort -u` does in the C locale), the inherited
-/// credential helpers are dropped, and one helper answers github.com over
-/// https with `GH_TOKEN`.
+/// credential helpers are dropped, and one helper answers over HTTPS only.
 Future<Map<String, String>> fencedEnvironment(
   Map<String, String> env,
-  GitCall git,
-) async {
+  GitCall git, {
+  String host = defaultGitHubHost,
+}) async {
   final out = {...env};
+  final windows = Platform.isWindows;
+  final countKey = _keyOf(env, 'GIT_CONFIG_COUNT', windows);
+  final count = countKey == null ? 0 : int.tryParse(env[countKey]!) ?? -1;
+  if (count < 0 || count > env.length ~/ 2) {
+    throw FenceStop('as.sh: invalid indexed Git config; refusing');
+  }
+  out.removeWhere((key, _) {
+    final name = windows ? key.toUpperCase() : key;
+    return name == 'GIT_CONFIG_COUNT' || _gitConfigName.hasMatch(name);
+  });
   var n = 0;
   void cfg(String key, String value) {
     out['GIT_CONFIG_KEY_$n'] = key;
@@ -508,8 +567,27 @@ Future<Map<String, String>> fencedEnvironment(
     n++;
   }
 
+  for (var i = 0; i < count; i++) {
+    final key = _keyOf(env, 'GIT_CONFIG_KEY_$i', windows);
+    final value = _keyOf(env, 'GIT_CONFIG_VALUE_$i', windows);
+    if (key == null || value == null) {
+      throw FenceStop('as.sh: incomplete indexed Git config; refusing');
+    }
+    final k = env[key]!;
+    final folded = lowerAscii(k);
+    if (!folded.startsWith('url.') ||
+        !(folded.endsWith('.insteadof') || folded.endsWith('.pushinsteadof'))) {
+      continue;
+    }
+    final base = k.substring(4, k.lastIndexOf('.'));
+    final prefix = env[value]!;
+    _checkRule(base, prefix, 'indexed rewrite rule', host);
+    cfg(k, prefix);
+  }
+
   out
-    ..['GIT_SSH_COMMAND'] = _sshCommand
+    ..['GIT_SSH_COMMAND'] =
+        'sh -c "echo as.sh: SSH is disabled - push over https://$host so the identity can be pinned >&2; exit 1"'
     ..['GIT_TERMINAL_PROMPT'] = '0'
     ..['GCM_INTERACTIVE'] = 'never'
     ..['GIT_ASKPASS'] = ''
@@ -522,6 +600,9 @@ Future<Map<String, String>> fencedEnvironment(
     '--get-regexp',
     r'^http\..+\.extraheader$',
   ], env);
+  if (found.exitCode != 0 && found.exitCode != 1) {
+    throw FenceStop('as.sh: cannot read inherited Git HTTP headers; refusing');
+  }
   final keys = _readLines(found.stdout)..sort(_compareBytes);
   Uint8List? previous;
   for (final key in keys) {
@@ -530,9 +611,82 @@ Future<Map<String, String>> fencedEnvironment(
     cfg(decodeStrict(key, 'git config name'), '');
   }
   cfg('credential.helper', '');
-  cfg('credential.helper', _credentialHelper);
+  cfg(
+    'credential.helper',
+    host == defaultGitHubHost
+        ? _credentialHelper
+        : _credentialHelper
+              .replaceFirst('= github.com ]', '= $host ]')
+              .replaceFirst(r'$GH_TOKEN', '\$${githubTokenVariable(host)}'),
+  );
   out['GIT_CONFIG_COUNT'] = '$n';
   return out;
+}
+
+/// Check the actual command environment. Indexed entries may change routing
+/// when unsafe overrides are stripped; never accept a different destination
+/// just because it still names the same host.
+Future<Map<String, String>> prepareFencedCommand(
+  List<String> command,
+  Map<String, String> env,
+  GitCall git, {
+  String host = defaultGitHubHost,
+}) async {
+  checkArguments(command, host: host);
+  checkOptions(command);
+  final countKey = _keyOf(env, 'GIT_CONFIG_COUNT', Platform.isWindows);
+  final compare = countKey != null && env[countKey] != '0';
+  final barePull =
+      compare &&
+      const {'git', 'git.exe'}.contains(_base(command.first)) &&
+      command.length >= 2 &&
+      command[1] == 'pull' &&
+      (command.length == 2 || command.length == 3 && command[2] == '--ff-only');
+  Future<String> upstream(Map<String, String> environment) async {
+    final result = await git(['git', 'ls-remote', '--get-url'], environment);
+    final url = decodeReplacing(result.stdout).trim();
+    if (result.exitCode != 0 || url.isEmpty) {
+      throw FenceStop('as.sh: cannot prove the Git pull upstream; refusing');
+    }
+    return url;
+  }
+
+  final plannedUpstream = barePull ? await upstream(env) : null;
+  final before = compare ? <(String, String), List<String>>{} : null;
+  if (before != null) await checkRemotes(git, env, host: host, targets: before);
+  final execution = await fencedEnvironment(env, git, host: host);
+  if (plannedUpstream != null && await upstream(execution) != plannedUpstream) {
+    throw FenceStop(
+      'as.sh: Git pull upstream changed in the fenced environment; refusing',
+    );
+  }
+  final after = compare ? <(String, String), List<String>>{} : null;
+  await checkRemotes(git, execution, host: host, targets: after);
+  if (before != null && after != null) {
+    if (before.length != after.length) {
+      throw FenceStop(
+        'as.sh: Git destinations changed in the fenced environment; refusing',
+      );
+    }
+    for (final entry in before.entries) {
+      final (remote, kind) = entry.key;
+      final actual = after[entry.key];
+      if (actual == null || !_sameUrls(actual, entry.value)) {
+        throw FenceStop(
+          "as.sh: remote '$remote' $kind destinations changed in the fenced environment; refusing",
+        );
+      }
+    }
+  }
+  return execution;
+}
+
+bool _sameUrls(List<String> a, List<String> b) {
+  if (a.length != b.length) return false;
+  for (var i = 0; i < a.length; i++) {
+    if (a[i] != b[i]) return false;
+  }
+  return true;
 }
 
 /// `as.sh`'s whole run: [argv] is its argument list. Returns
@@ -542,6 +696,7 @@ Future<Map<String, String>> fencedEnvironment(
 Future<int> runFence(
   List<String> argv, {
   required Map<String, String> environment,
+  String host = defaultGitHubHost,
   required GhCall gh,
   required GitCall git,
   required Launch launch,
@@ -567,15 +722,23 @@ Future<int> runFence(
     final discovery = discoveryEnvironment(saveOriginals(environment));
     await checkGhVersion(gh, discovery);
     if (argv.first == '--resolve') {
-      out('${await resolveLogin(gh, discovery)}\n');
+      out('${await resolveLogin(gh, discovery, host: host)}\n');
       return 0;
     }
-    final withToken = await verifyIdentity(argv.first, gh, discovery);
+    final withToken = await verifyIdentity(
+      argv.first,
+      gh,
+      discovery,
+      host: host,
+    );
     final command = argv.sublist(1);
-    checkArguments(command);
-    checkOptions(command);
-    await checkRemotes(git, withToken);
-    return await launch(command, await fencedEnvironment(withToken, git));
+    final execution = await prepareFencedCommand(
+      command,
+      withToken,
+      git,
+      host: host,
+    );
+    return await launch(command, execution);
   } on FenceStop catch (stop) {
     err('${stop.message}\n');
     return stop.code;

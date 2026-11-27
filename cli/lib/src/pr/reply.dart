@@ -3,9 +3,15 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import '../options.dart';
+import '../settings/rules.dart' show GitHubConnection;
 import 'context.dart';
 import 'gh.dart';
+import 'identity.dart';
+import 'pair.dart' show PairStop;
 import 'queries.dart';
+import 'settings_commands.dart' show prGitHubSettings;
+import 'workflow.dart' show Workflow;
+import 'workflow_transport.dart' show hostGhArgs;
 
 /// `sw pr reply`: `pr-reply.sh`, ported call for call (design D1, D6, D8). [argv] is the script's own argument list.
 ///
@@ -20,6 +26,9 @@ Future<int> runReply(PrContext ctx, List<String> argv) async {
   try {
     return await reply.run(argv);
   } on PrExit catch (e) {
+    return e.code;
+  } on PairStop catch (e) {
+    ctx.err('pr-reply: ${e.message}\n');
     return e.code;
   } finally {
     for (final s in signals) {
@@ -49,6 +58,14 @@ class _Reply {
   _Reply(this.ctx);
 
   final PrContext ctx;
+  late final GitHubConnection connection;
+  late final int number;
+  late final String configuredLogin;
+  late final credentials = Workflow(ctx)
+      .commandEnvironment(connection, configuredLogin);
+
+  Future<GhResult> gh(List<String> args) async =>
+      ctx.gh(hostGhArgs(args, connection.host), environment: await credentials);
   String pr = '';
   String kind = '';
   String repo = '';
@@ -133,18 +150,31 @@ class _Reply {
         }
       case 'resolve':
     }
+    final parsedNumber = int.tryParse(pr);
+    if (parsedNumber == null || parsedNumber <= 0 || '$parsedNumber' != pr) {
+      stop('pr-reply: use a positive PR number', 4);
+    }
+    number = parsedNumber;
+    final settings = await prGitHubSettings(ctx);
+    connection = settings.connection;
+    configuredLogin = settings.login;
     if (repo.isEmpty) {
-      final r = await ctx.gh([
-        'repo',
-        'view',
-        '--json',
-        'owner,name',
-        '--jq',
-        repoViewJq,
-      ]);
-      ctx.relayErr(r);
-      if (r.exitCode != 0) throw PrExit(r.exitCode);
-      repo = ctx.captured(r);
+      repo =
+          (await identityOf(
+                ctx,
+                ctx.cwd,
+                selection: settings.remote,
+                host: connection.host,
+              ))['repo']
+              as String;
+    } else {
+      repo =
+          prRepoSlug(repo, connection.host) ??
+          (throw PairStop(
+            'usage',
+            '--repo needs owner/name on ${connection.host}',
+            code: 4,
+          ));
     }
     final slash = repo.indexOf('/');
     owner = slash < 0 ? repo : repo.substring(0, slash);
@@ -156,8 +186,8 @@ class _Reply {
         final root = args[1];
         await bodyWithMarker(args[2], resolve ? '$thread resolve' : thread);
         await pendingCheck();
-        await revCheck(thread);
-        final posted = await ctx.gh([
+        await verifyItem(thread, root: root);
+        final posted = await gh([
           'api',
           '--method',
           'POST',
@@ -188,18 +218,19 @@ class _Reply {
       case 'comment':
         await bodyWithMarker(args[1], args[0]);
         await pendingCheck();
-        await revCheck(args[0]);
+        await verifyItem(args[0]);
         await passThrough(
-          await ctx.gh(['pr', 'comment', pr, '-R', repo, '--body-file', tmp!]),
+          await gh(['pr', 'comment', pr, '-R', repo, '--body-file', tmp!]),
         );
         await reactOrReport(args[0]);
       case 'react':
         await pendingCheck();
+        await verifyItem(args[0]);
         final code = await addReaction(args[0], args[1]);
         if (code != 0) throw PrExit(code);
       case 'resolve':
         await pendingCheck();
-        await revCheck(args[0]);
+        await verifyItem(args[0]);
         final code = await resolveThread(args[0]);
         if (code != 0) throw PrExit(code);
     }
@@ -237,7 +268,7 @@ class _Reply {
   }
 
   Future<void> pendingCheck() async {
-    final r = await ctx.gh([
+    final r = await gh([
       'api',
       'graphql',
       '-f',
@@ -262,28 +293,64 @@ class _Reply {
     }
   }
 
-  /// With --rev: read the item now and compare its revision with the one judged. A thread longer than one page (100
-  /// comments) cannot be compared: exit 3.
-  Future<void> revCheck(String id) async {
-    if (rev.isEmpty) return;
-    final r = await ctx.gh([
-      'api',
-      'graphql',
-      '-f',
-      'id=$id',
-      '-f',
-      'query=$revQuery',
-      '--jq',
-      revJq,
-    ]);
+  /// Bind the global ID (or numeric review comment) before any mutation.
+  /// A single node read also proves the thread root and, when given, its rev.
+  Future<void> verifyItem(String id, {String? root}) async {
+    final numeric = kind == 'react' && RegExp(r'^[0-9]+$').hasMatch(id);
+    final r = await gh(
+      numeric
+          ? ['api', 'repos/$repo/pulls/comments/$id']
+          : [
+              'api',
+              'graphql',
+              '-f',
+              'id=$id',
+              '-F',
+              'limit=${rev.isEmpty ? 1 : 100}',
+              '-f',
+              'query=$revQuery',
+              '--jq',
+              revJq,
+            ],
+    );
     ctx.relayErr(r);
-    final now = ctx.captured(r);
-    if (r.exitCode != 0 || now.isEmpty) {
-      stop(
-        'pr-reply: cannot read $id to check its revision; nothing was posted',
-        3,
-      );
+    Never unreadable() =>
+        stop('pr-reply: cannot verify $id on $repo#$pr; nothing was posted', 3);
+    if (r.exitCode != 0) unreadable();
+    final Object? value;
+    try {
+      value = jsonDecode(ctx.captured(r));
+    } on FormatException {
+      unreadable();
     }
+    if (value is! Map ||
+        !matchesPull(
+          value[numeric ? 'html_url' : 'url'],
+          connection.host,
+          repo,
+          number,
+        )) {
+      unreadable();
+    }
+    final type = value['type'];
+    final validType = switch (kind) {
+      'thread' || 'resolve' => type == 'PullRequestReviewThread',
+      'comment' => type == 'IssueComment' || type == 'PullRequestReview',
+      'react' =>
+        numeric ||
+            const {
+              'IssueComment',
+              'PullRequestReview',
+              'PullRequestReviewComment',
+            }.contains(type),
+      _ => false,
+    };
+    if (!validType || (root != null && '${value['root']}' != root)) {
+      unreadable();
+    }
+    if (rev.isEmpty) return;
+    final now = value['rev'];
+    if (now is! String || now.isEmpty) unreadable();
     if (now.startsWith('long:')) {
       stop(
         'pr-reply: $id has ${now.substring(5)} comments, more than one read returns, so its revision cannot be '
@@ -332,7 +399,7 @@ class _Reply {
   Future<int> addReaction(String id, String content) async {
     final GhResult r;
     if (RegExp(r'[^0-9]').hasMatch(id)) {
-      r = await ctx.gh([
+      r = await gh([
         'api',
         'graphql',
         '-f',
@@ -345,7 +412,7 @@ class _Reply {
         reactNodeJq,
       ]);
     } else {
-      r = await ctx.gh([
+      r = await gh([
         'api',
         '--method',
         'POST',
@@ -373,7 +440,7 @@ class _Reply {
   }
 
   Future<int> resolveThread(String id) async {
-    final r = await ctx.gh([
+    final r = await gh([
       'api',
       'graphql',
       '-f',

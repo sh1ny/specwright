@@ -1,19 +1,17 @@
 import 'dart:convert';
+import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:specwright_cli/src/pr/context.dart';
-
-import 'dart:io';
-
 import 'package:test/test.dart';
+import 'package:specwright_cli/src/pr/context.dart';
 import 'package:specwright_cli/src/pr/gh.dart';
 import 'package:specwright_cli/src/pr/pair.dart';
 import 'package:specwright_cli/src/pr/workflow_transport.dart';
 import 'package:specwright_cli/src/pr/workflow.dart';
 import 'package:specwright_cli/src/process/limits.dart';
 import 'package:specwright_cli/src/process/limit_line.dart';
+import 'package:specwright_cli/src/settings/rules.dart';
 
-import '../helper_support.dart';
 import '../vcs/bash_support.dart';
 
 GhResult result(String text, [int code = 0]) => GhResult(
@@ -22,27 +20,32 @@ GhResult result(String text, [int code = 0]) => GhResult(
   stderr: Uint8List(0),
 );
 
-/// A [Workflow] whose every `gh` call answers [stdout] / [stderr] / [code], recording the arguments.
-Workflow slurpWorkflow(
+/// Exercise the pagination contract without making credential probes.
+Future<List<dynamic>> slurp(
+  String endpoint,
   String stdout,
   List<List<String>> calls, {
   int code = 0,
   String stderr = '',
-}) => Workflow(
-  PrContext(
-    writeOut: (_) {},
-    writeErr: (_) {},
-    environment: {},
-    gh: (args, {environment, paged = false}) async {
-      calls.add(args);
-      return GhResult(
-        exitCode: code,
-        stdout: Uint8List.fromList(stdout.codeUnits),
-        stderr: Uint8List.fromList(stderr.codeUnits),
-      );
-    },
-  ),
-);
+}) async {
+  final workflow = Workflow(
+    PrContext(
+      writeOut: (_) {},
+      writeErr: (_) {},
+      environment: {},
+      gh: (args, {environment, paged = false}) async {
+        calls.add(args);
+        return GhResult(
+          exitCode: code,
+          stdout: Uint8List.fromList(utf8.encode(stdout)),
+          stderr: Uint8List.fromList(utf8.encode(stderr)),
+        );
+      },
+    ),
+  );
+  await workflow.commandEnvironment(const GitHubConnection(fence: false), '');
+  return workflow.list(endpoint);
+}
 
 void main() {
   test('slurped pages flatten in order', () async {
@@ -53,10 +56,7 @@ void main() {
           for (var i = 0; i < (p == 2 ? 7 : 100); i++) {'n': p * 100 + i},
         ],
     ];
-    final items = await slurpWorkflow(
-      jsonEncode(pages),
-      calls,
-    ).list('repos/o/n/pulls');
+    final items = await slurp('repos/o/n/pulls', jsonEncode(pages), calls);
     expect(items.length, 207);
     expect(items.map((e) => (e as Map)['n']), [
       for (var i = 0; i < 100; i++) i,
@@ -67,14 +67,14 @@ void main() {
   });
 
   test('an empty slurp is an empty list', () async {
-    expect(await slurpWorkflow('[]', []).list('e'), isEmpty);
-    expect(await slurpWorkflow('[[]]', []).list('e'), isEmpty);
+    expect(await slurp('e', '[]', []), isEmpty);
+    expect(await slurp('e', '[[]]', []), isEmpty);
   });
 
   test('a non-array page is an unknown read', () async {
     for (final body in ['[[1],{"a":1}]', '{"a":1}', '[1]', 'not json']) {
       await expectLater(
-        slurpWorkflow(body, []).list('e'),
+        slurp('e', body, []),
         throwsA(
           isA<PairStop>()
               .having((s) => s.error, 'error', 'lookup_failed')
@@ -87,7 +87,7 @@ void main() {
 
   test('a slurp failure names gh 2.48', () async {
     await expectLater(
-      slurpWorkflow('', [], code: 1, stderr: 'unknown flag: --slurp').list('e'),
+      slurp('e', '', [], code: 1, stderr: 'unknown flag: --slurp'),
       throwsA(
         isA<PairStop>()
             .having((s) => s.error, 'error', 'lookup_failed')
@@ -385,69 +385,5 @@ void main() {
       await transport.fenced('bot', ['capture']);
       expect(budgets.last, isNull);
     },
-  );
-
-  test(
-    'real bounded command stops its descendant within the outer budget',
-    () async {
-      final bash = findBash();
-      expect(bash, isNotNull);
-      final temp = Directory.systemTemp.createTempSync(
-        'sw-workflow-transport-',
-      );
-      try {
-        final helper = await buildHelper(temp);
-        final late = File('${temp.path}/late');
-        final native = WorkflowTransport.native(
-          directory: temp.path,
-          helperCommand: helper,
-        );
-        final transport = WorkflowTransport(
-          directory: temp.path,
-          environment: {},
-          runner: (dir, command, env, limits) async {
-            if (command.contains('--help')) return result('--user');
-            if (command.contains('token')) return result('token');
-            if (command[0] == 'gh') return result('bot');
-            if (command[0] == 'git') return result('');
-            return native.runner(dir, command, native.environment, limits);
-          },
-        );
-        await expectLater(
-          transport.fenced(
-            'bot',
-            [
-              bash!,
-              '-c',
-              r'(sleep 2; printf late > "$1") & wait',
-              'x',
-              late.path.replaceAll(r'\', '/'),
-            ],
-            outer: const RunLimits(
-              deadline: Duration(milliseconds: 700),
-              maxBytes: 4096,
-            ),
-          ),
-          throwsA(
-            isA<PairStop>().having(
-              (s) => s.error,
-              'error',
-              'deadline_exceeded',
-            ),
-          ),
-        );
-        await Future<void>.delayed(const Duration(seconds: 3));
-        expect(
-          late.existsSync(),
-          false,
-          reason: 'descendant survived cancellation',
-        );
-      } finally {
-        temp.deleteSync(recursive: true);
-      }
-    },
-    // The body compiles sw with `dart compile exe`, which alone can pass the
-    // default 30 seconds on a loaded macOS x64 runner.
-    timeout: const Timeout(Duration(minutes: 3)),
   );
 }

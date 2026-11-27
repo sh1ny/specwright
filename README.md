@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <img alt="version" src="https://img.shields.io/badge/version-0.40.2-blue">
+  <img alt="version" src="https://img.shields.io/badge/version-0.41.0-blue">
   <img alt="OpenSpec" src="https://img.shields.io/badge/OpenSpec-1.16.0-8A2BE2">
   <img alt="agents" src="https://img.shields.io/badge/agents-Claude%20Code%20%7C%20Codex%20%7C%20OMP-555">
   <a href="./LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-green"></a>
@@ -670,11 +670,12 @@ These commands are in the `sw` binary (`sw --help` lists them); the skills run t
 
 | Command | Does |
 |---|---|
-| `sw as` | Runs a command as one GitHub login: pins the token per process, verifies it, and feeds it to both `gh` and `git push` (HTTPS to github.com only; SSH, prompts and inherited `http.extraHeader` auth are disabled inside it; run git from inside the target repo, since extraHeaders are scrubbed for the current repository only). Safe against a concurrent `gh auth switch`. `sw as --resolve` reads the active github.com account once (ignoring `GH_TOKEN`/`GITHUB_TOKEN`) and prints it as the run login. Inside, `GH_HOST` and the enterprise token variables are unset so `gh` targets github.com, and a github.com URL with userinfo (token, password or bare username) in a remote, push URL, `insteadOf` rule or argument is refused with exit 3, masked, before anything runs. |
+| `sw as` | Explicitly runs a command under the stored login's verified identity on `github.host` (default `github.com`), even when the workflow uses ambient credentials. The helper gives Git the verified token only for HTTPS to that host, disables SSH and prompts, scrubs inherited headers, and refuses URL userinfo with exit 3. Run from inside the target repo. `sw as --resolve` prints the active account on that host, ignoring caller tokens. |
 | `sw pr snapshot` | One GraphQL call → the whole PR as JSON (checks, unresolved threads and resolved ones with an unanswered reviewer comment, unhandled or edited comments, stale `CHANGES_REQUESTED` verdicts, and a `complete` flag when a list was cut off). `--reviewer-config <file>` (written by `sw pr context` and `policy`) adds whether each reviewer has reported on the current head (`reported` / `waiting` / `timed_out`, with `by` and `evidence`), counting reports from the head's push, or from when a snapshot first saw the head if the push is not in the activity log (`head_cutoff` says which). Bodies cut for length are marked `clipped: true`; `--full <id>` prints one item whole. `--wait` polls in-process and wakes once (at once if the snapshot is already incomplete); one watcher per PR: a newer `--wait` on the same PR takes over and the older one exits 4, and a watcher's exit never ends a newer one's ownership; `--wait --until attention` (what watch runs) keeps waiting while the only change is check progress (a CI check still pending, `checks.ci_pending` above 0, no new failing check, merge state not `DIRTY`) and reports the skipped polls as `filtered`; `--logs` appends failed CI logs. |
-| `sw pr` | The deterministic half of ship, feedback, watch and cleanup for one PR or a code/store pair: settings (`context`), PR discovery and linking, fix-round counts, the agent merge with read-back, and the cleanup plan; one JSON document per subcommand. `tier --code <dir>` reads `cheap_tier.enabled` for apply: `{"ok": true, "cheap_tier": bool}`, true only for a boolean true, anything else false with a `note`, and no other setting can change it. |
+| `sw pr` | The deterministic half of ship, feedback, watch and cleanup for one PR or a code/store pair. `policy --repo <owner>/<name> --pr <number> --head <sha> --snapshot code=<file>` reads default-branch merge policy; a pair adds `--store --store-repo <owner>/<name> --store-pr <number> --snapshot store=<file> --reviewed-head store=<sha>`. Use IDs from current discovery; a snapshot for another host, repository or PR cannot authorize policy or feedback. `tier --code <dir>` reads `cheap_tier.enabled` for apply and is true only for a YAML boolean `true`. |
 | `sw review` | All eight commands: `select`, `preflight`, `run`, `record`, `gate`, `waive`, `rounds`, `archive-only`. Native route controls are validated before probes; reviewer output is bounded in memory and fails closed (exit 3, never the next route). Machine-local records retain pre-port paths and fields, including Windows profile-home lookup rather than a customized Bash `HOME`, so existing gates and waivers still work. For state safety, record change names must be single directory components. Native batch launches reject held output pipes instead of returning incomplete output as success. Snapshots preserve safe cyclic symlinks when supported, with target-byte fallbacks otherwise. A missing or mismatched `sw` stops before any reviewer starts. |
 | `sw pr reply` | Replies over REST, checks for a pending review, resolves the thread, optionally adds a 👍/👎 (`--react`), and marks the item handled on GitHub itself. `--rev` binds the reply to the revision that was judged: the item is read again first and nothing is posted if it changed (exit 5), and the marker counts only while the item keeps that revision. `react` answers a follow-up with a reaction only; `--waiting` marks a "waiting on owner" reply, which keeps the item listed; `resolve` retries only a failed resolution. A missing, unreadable or empty body file is refused before any GitHub call, and the temp file is removed on every exit. |
+| PR target selection | Snapshot and reply use the role's configured remote unless you give `--repo`; neither uses `GH_REPO`. A PR URL must match the configured host. Reply proves item ownership before posting, even without `--rev`. Watch claims, head cutoffs and feedback are separate per GitHub host. |
 
 ---
 
@@ -685,11 +686,14 @@ These commands are in the `sw` binary (`sw --help` lists them); the skills run t
 ```yaml
 finish: pr                      # local = merge to main locally, pr = GitHub PR
 # main_branch: main             # omit to detect main / master
+# remote: origin                # optional code remote; setting it explicitly also pins Git pull
 # commit_granularity: task      # task (default) = one commit per task; group = one commit per task group, evidence in Specwright-Task trailers; any other value stops apply
 decision_making: autonomous     # autonomous (default; unset means autonomous) = the agent decides and shows a decision summary | important = important decisions are put to you with options | all = every decision is
 # vcs: git                      # git (default) | jj = branch reads and writes go through a colocated Jujutsu repo | gitbutler = GitButler (code repo, finish: pr only); never inferred from .jj/ or .git/gitbutler/
 
 github:
+  # host: github.com            # hostname only; GitHub Enterprise Server: github.example.com
+  # fence: true                 # default verifies a stored gh login; false uses caller credentials
   login: my-bot-account         # pushes, PRs, replies; empty = the active gh account, resolved once per run and fenced
   review_request:
     body: "@codex review"       # posted once per new PR; empty = none
@@ -730,7 +734,7 @@ pr:
   reviewers:                    # keyed by login, without [bot]; replaces github.review_request
     tagged-bot: { role: required, request: "@tagged-bot review" }   # example: a reviewer that runs only when tagged
     my-review-bot: { role: advisory, timeout: 15m }   # any other login; without request, it reviews on its own
-  # request_as: my-account      # posts the requests; default review_request.login, else github.login, else the run login
+  # request_as: my-account      # posts the requests; default review_request.login, else that repo's bound run login
   merge: user                   # user = you merge on GitHub; agent = watch merges a ready PR (finish: pr, a required reviewer)
   merge_method: merge           # agent merge: merge | squash | rebase
   delete_branch: true           # agent mode: delete the merged remote branch, only at the merged head
@@ -756,6 +760,7 @@ release:                        # opt-in; refused with pr.merge_method: rebase
 - **The one Git write.** The annotated release tag (`specwright-release`) is still created and pushed with Git. Every other write on a jj repository goes through jj, and reads such as `git log` stay as they are.
 - **Your own jj skill is optional.** Specwright never installs a jj skill or a jj configuration. If you keep a personal one (for identity, trailers or push rules), it works beside Specwright; the skills do not need it.
 - **Stores.** `planning_store.vcs` sets the store's backend on its own and does not inherit `vcs`: a jj code repository can have a Git store and the other way round. Each repository needs its own colocated checkout under the same rules.
+- **Network remotes.** Set `remote` for code and `planning_store.remote` for the planning store. Both default independently to `origin`. A named Git remote can select a fork or upstream checkout target; the same repository must be used for PR head and base. Git `fetch-main` fetches the selected branch into `<remote>/<main>`, bypassing custom fetch refspecs for that one refresh. Setting a name explicitly, even `origin`, selects that remote's main for Git pull. Omitting the key preserves the branch upstream for bare pulls.
 
 **GitButler (`vcs: gitbutler`).** Set `vcs: gitbutler` to have the skills write through [GitButler](https://gitbutler.com)'s `but` CLI, so the change branch is applied beside the branches other agents or you have applied, instead of taking over the working tree. It is for the code repository only and needs `finish: pr`.
 
@@ -810,12 +815,15 @@ pr:
 Since 0.13.0 the default branch decides (ADR 0020). Before it archives and before each merge request, watch reads `pr.merge`, `pr.merge_method`, `pr.delete_branch` and the reviewers (`pr.reviewers`, `planning_store.reviewers`) from GitHub, on the default branch and at the head it would merge, never from your checkout. It archives and merges without asking only when main has `pr.merge: agent`, the PR leaves those settings alone, and main's required reviewers reported on that head. A PR that changes them, including one that turns agent merge on for itself, gets the differences listed and is merged only after your yes for that head (asked only when the head has `pr.merge: agent` and its own required reviewers reported); otherwise watch reports ready and stops. When the policy cannot be read, watch merges nothing.
 
 **Releases.** Opt-in with `release.enabled`. The version bump is a tracked task in the change's last task group (`sw release bump --to <version>`, checked with `sw release check`). After the change is on main, `publish` tags the merged main commit with an annotated `v<version>` tag, with notes taken from the archived changes, pushes only that tag and optionally creates the GitHub release. Tags are never moved, deleted or forced, and a rebase-merged release is refused. A store-backed project tags the code repo only.
+
+GitHub publication fetches the selected remote's main into a private ref. `sw release prove-main --main <branch>` returns a proof to pass unchanged to `sw release publish --version <version> --proof <proof>`; direct GitHub publication can obtain its own proof. The proof binds the fetched commit to the configured host and remote. After URL rewrites, fetch and every push must still reach the same GitHub repository as the release. A manually archived planning change contributes notes only after it reaches planning-store main.
 - **BREAKING (0.35.0):** `release.version_files` patterns are JavaScript regexes in Unicode and multiline mode (ADR 0037), so rewrite any pattern with Python-only syntax (`(?P<name>`, `\A`, `\Z`, `(?i)`); such a pattern stops with `bad_version_files`. A line in `openspec/specwright.yaml` that the settings reader would misread (a tab indent, a key given twice) stops release with `bad_settings`, naming the line. Bump refuses a version file that is not valid UTF-8, before writing any file.
 
-**GitHub identity (0.3.0).** Every `gh` call and every git fetch, pull and push to a github.com remote runs through `sw as` as one verified login (ADR 0008). With `github.login` empty, the first step you start resolves the active `gh` account once and hands it to every step it runs (ship, watch, feedback, archive, finish), so another agent's `gh auth switch` cannot redirect the run. A new request in a later session resolves again: if you switch `gh` accounts between sessions, set `github.login`. Remotes on other hosts are not fenced.
-- **BREAKING:** with `github.login` empty, an environment that has only `GH_TOKEN` and no stored `gh` login (CI, containers, cloud agents) now stops before its first GitHub call; environment tokens never pick the login. Run `gh auth login --with-token` (and optionally set `github.login`).
-- **BREAKING:** a github.com remote URL or `insteadOf` rule with userinfo (`https://user:token@github.com/...`, `https://<token>@github.com/...`, even a bare username) makes every fenced command exit 3, since git would use it before the fence's credential. Remove the userinfo; `gh auth login` supplies the credential. Nothing is rewritten for you.
-- An SSH GitHub origin (`git@github.com:...`) cannot be fenced, so the branch gate's main refresh and roadmap status fall back to local refs and say so; use an HTTPS origin to keep them current.
+**GitHub connection.** `github.host` defaults to `github.com`; set it to a hostname such as `github.example.com` for GitHub Enterprise Server. The default `github.fence: true` verifies a stored account on that host and confines the Git credential to HTTPS. Run `gh auth login --hostname github.example.com` for an Enterprise Server account. With `github.login` empty, the first GitHub action fixes the active account for the run; a later account switch does not redirect that run. Remove userinfo from on-host URLs and rewrites: the fence supplies the credential.
+
+For SSH or token-only automation, set `github.fence: false` and leave `github.login`, `planning_store.login`, `github.review_request.login` and `pr.request_as` empty. Git uses its own credential helper or SSH key. For `gh`, use `GH_TOKEN` (or `GITHUB_TOKEN`) on `github.com`, `*.ghe.com`, and `github.localhost`, or `GH_ENTERPRISE_TOKEN` (or `GITHUB_ENTERPRISE_TOKEN`) on GitHub Enterprise Server. Set `GH_HOST` in the caller's environment to the approved hostname, such as `github.example.com`, before running Specwright. If it is unset or empty, tokens are approved only for `github.com`. A token for the selected host's family is refused if the hosts do not match. Supply secrets through the environment, not URLs or settings. Ambient mode uses your own credentials without identity isolation; use a trusted checkout and a single intended identity. A fence refusal never switches to this mode.
+
+`sw pr snapshot` accepts at most one PR number or URL. If you omit it, the current branch name (even `123`) matches only PRs whose head is in the selected repository. The newest open match wins; if there are no open matches, the newest closed or merged match wins. To read a PR from a fork, pass its number or URL explicitly.
 
 `openspec/config.yaml` (template: [`templates/openspec/config.yaml`](templates/openspec/config.yaml)) carries the `context:` lines that make the git skills fire at the right phase.
 
@@ -939,9 +947,11 @@ Files are always staged by name — never `git add -A`, never all of `openspec/`
 
 | Mode | Does | Never |
 |---|---|---|
-| `ship` | Before the change's first PR, check for a pre-ship review pass on the head; push every repo of the change (store first), then create/update the PRs with `--body-file`, post the review request | Push the default branch; open or update a PR when a push failed |
-| `feedback` | One snapshot → judge all items → fix → validate once → one commit → one reply (and 👍/👎) per finding, resolve; acknowledgement follow-ups get a reaction only (and resolve the thread if it was still open) | Resolve needs-human threads; go past `max_fix_rounds` |
-| `watch` | Background wait → wait for every reviewer on the head → feedback first → ignore CI for stale heads → fix all failing checks in one pass → at ready, offer the archive on the branch (an archive-only head gets no new review requests unless `pr.review_after_archive: true`); report stale `CHANGES_REQUESTED` verdicts; with `pr.merge: agent` on the default branch, archive without asking, merge at the ready head and clean up; a PR that changes the merge policy needs your yes (ADR 0020) | Merge (except the opt-in agent merge), rebase, force-push, approve workflow runs, dismiss reviews |
+| `ship` | Determine the PR set, check for a pre-ship review on the first publication, validate and push only expected repos (store first), then open the PRs and request review | Push a default branch; open/update a PR if any planned push failed |
+| `feedback` | Snapshot, judge and handle findings across the expected PRs. A missing planning-store PR target hands the planning branch back for manual sharing | Fix, count rounds or archive an off-host or local-only store in PR mode; resolve needs-human threads |
+| `watch` | Wait for reviews and CI, then apply the archive and merge policy. When the store has no PR target, report the code PR status and “Share the planning branch by hand” instead of pair readiness | Archive or merge on a manual store handoff; rebase, force-push, approve runs, dismiss reviews |
+
+If a separate planning store has no remote on `github.host`, `ship` can still open the code PR. Share and archive the planning branch yourself; automated finish leaves any existing archive edits untouched. After an independent code PR merge, code cleanup is still available. `finish: local` is unchanged. For a later release to include the archived change, bring the store archive onto the store's main branch.
 </details>
 
 <details>

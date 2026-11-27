@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import '../commands/vcs.dart';
+import '../fence/fence.dart' show originalGitEnvironment;
 import 'codec.dart';
 import 'document.dart';
 import 'git_backend.dart' show requireBranch;
@@ -705,17 +706,33 @@ class GitButler {
       'but',
       'pull',
       '--json',
-    ], environment: environment);
+    ], environment: originalGitEnvironment(environment));
     return TextResult(r.exitCode, decodeText(r.stdout), decodeText(r.stderr));
   }
 
-  /// `fenced_but_pull`: `as.sh <login> but pull --json` for a GitHub origin;
-  /// plain `but pull --json` for any other remote.
+  /// Pull under the credential policy for the selected GitButler target.
   Future<String> fencedButPull(String? login) async {
-    final github = isGithubUrl(await remoteUrl(scripts, root));
-    final who = await fenceLogin(scripts, root, github: github, login: login);
+    final connection = s.info.connection;
+    final route = await networkRoute(
+      scripts,
+      root,
+      connection,
+      remote: s.info.remote.name,
+    );
+    final github = route.fenced;
+    final who = await fenceLogin(
+      scripts,
+      root,
+      github: github,
+      login: login,
+      host: connection.host,
+    );
     final result = github
-        ? await runAs(scripts, root, who, ['but', 'pull', '--json'])
+        ? await runAs(scripts, root, who, [
+            'but',
+            'pull',
+            '--json',
+          ], host: connection.host)
         : await _plainPull();
     if (result.code != 0) {
       final said = orElse(result.stderr, result.stdout).trim();
@@ -807,12 +824,15 @@ class GitButler {
     await requirePinnedSettings(scripts, s.request.code, branch);
     final refspec = 'refs/heads/$branch:refs/heads/$branch';
     try {
-      await networkGit(scripts, root, [
-        'push',
-        '--no-follow-tags',
-        'origin',
-        refspec,
-      ], login);
+      await networkGit(
+        scripts,
+        root,
+        ['push', '--no-follow-tags', s.info.remote.name, refspec],
+        login,
+        remote: s.info.remote.name,
+        connection: s.info.connection,
+        expectedRepo: s.request.expectedRepo,
+      );
     } on VcsStop catch (stop) {
       if (stop.error == 'git_network_error' &&
           _pushRejected.hasMatch(stop.message)) {
@@ -832,14 +852,21 @@ class GitButler {
   /// `jj_fetch_main`, as the GitButler backend uses it: a fenced
   /// `git fetch` of main, then the commit `FETCH_HEAD` names.
   Future<String> _fetchMain(String? login) async {
-    await networkGit(scripts, root, [
-      'fetch',
-      if (s.request.quiet) '-q',
-      if (s.request.noTags) '--no-tags',
-      '--refmap=',
-      'origin',
-      'refs/heads/${s.info.main}',
-    ], login);
+    await networkGit(
+      scripts,
+      root,
+      [
+        'fetch',
+        if (s.request.quiet) '-q',
+        if (s.request.noTags) '--no-tags',
+        '--refmap=',
+        s.info.remote.name,
+        'refs/heads/${s.info.main}',
+      ],
+      login,
+      remote: s.info.remote.name,
+      connection: s.info.connection,
+    );
     return (await gitChecked(scripts, root, [
       'rev-parse',
       '--verify',

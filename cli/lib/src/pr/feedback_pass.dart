@@ -10,6 +10,7 @@ import '../vcs/stop.dart';
 import 'context.dart';
 import 'feedback_environment.dart';
 import 'feedback_record.dart';
+import 'identity.dart' show matchesPull;
 import 'pair.dart';
 import 'settings_commands.dart';
 import 'workflow.dart';
@@ -92,15 +93,15 @@ String _judgeText(PassDocument edit, bool exists, String content) {
       : 'pending';
 }
 
-List<PassDocument> _requests(RepoContext context) {
+List<PassDocument> _requests(RepoContext context, String? boundLogin) {
   if (context.requestsDisabled) return [];
   final rr = context.reviewRequest;
+  final poster = context.requestAs.isNotEmpty
+      ? context.requestAs
+      : rr.login.isNotEmpty
+      ? rr.login
+      : boundLogin ?? '';
   if (context.reviewers.isNotEmpty) {
-    final poster = context.requestAs.isNotEmpty
-        ? context.requestAs
-        : rr.login.isNotEmpty
-        ? rr.login
-        : context.login;
     return [
       for (final reviewer in context.reviewers.values)
         if (reviewer.request.isNotEmpty)
@@ -109,10 +110,7 @@ List<PassDocument> _requests(RepoContext context) {
   }
   return rr.body.isNotEmpty && rr.afterFixes
       ? [
-          {
-            'body': rr.body,
-            'poster': rr.login.isEmpty ? context.login : rr.login,
-          },
+          {'body': rr.body, 'poster': poster},
         ]
       : [];
 }
@@ -126,17 +124,16 @@ String _iso(DateTime time) =>
 /// store; plans are derived again from current snapshots and repository
 /// evidence, never persisted as proof of completion.
 class FeedbackPass {
-  FeedbackPass(this.workflow, {FeedbackRecordStore? records, this.readAs})
+  FeedbackPass(this.workflow, {FeedbackRecordStore? records})
     // A field formal would rename the existing records injection parameter.
     // ignore: prefer_initializing_formals
     : _records = records;
   final Workflow workflow;
   FeedbackRecordStore? _records;
-  late final _directories = feedbackDirectory(ctx);
+  late final _directories = feedbackDirectory(ctx, host: workflow.githubHost);
   FeedbackRecordStore get records =>
       _records ??= FeedbackRecordStore(_directories.recordDirectory);
   List<String> get _leftLocks => _records?.leftLocks ?? const [];
-  final void Function(String repo, String login)? readAs;
   PrContext get ctx => workflow.ctx;
   static final _random = Random.secure();
 
@@ -147,6 +144,7 @@ class FeedbackPass {
       '--code-repo': 'code_repo',
       '--change': 'change',
       '--snapshot': '+snapshot',
+      '--branch': 'branch',
       ...extra,
     });
     needArgs(a, ['code', 'code_repo', 'change']);
@@ -700,7 +698,7 @@ class FeedbackPass {
     });
   }
 
-  Future<PassDocument> plan(List<String> argv) async {
+  Future<PassDocument> plan(List<String> argv, {Contexts? boundRoles}) async {
     final args = _args(argv, {'--owner': 'owner'});
     final located = records.locate(args['code_repo']!, args['change']!);
     final value = records.load(located.path);
@@ -738,7 +736,7 @@ class FeedbackPass {
     final store = args['store'] == null || args['store']!.isEmpty
         ? null
         : args['store']!;
-    final contexts = await workflowContexts(ctx, code, store);
+    final contexts = boundRoles ?? await workflow.useRoles(code, store);
     final directories = {'code': code, 'store': store},
         marker = record['marker'];
     final codeGitbutler =
@@ -768,11 +766,49 @@ class FeedbackPass {
                     (key == 'code' ? record['code_repo'] : null))
                 as String?,
     };
-    final storeLogin = contexts.store?.login ?? '';
-    if (slugs['store'] != null &&
-        storeLogin.isNotEmpty &&
-        storeLogin.toLowerCase() != contexts.code.login.toLowerCase()) {
-      readAs?.call(slugs['store']!, storeLogin);
+    final host = workflow.githubHost;
+    Never mismatch(String side) => throw PairStop(
+      'snapshot_target_mismatch',
+      'feedback $side no longer matches this pass on $host; read the current PR and take a fresh snapshot',
+      code: 2,
+    );
+    final roles = {'code': contexts.code, 'store': contexts.store};
+    for (final entry in roles.entries) {
+      final side = entry.key, role = entry.value, saved = _map(prs[entry.key]);
+      final isSource = sources.contains(side);
+      if (role == null || !isSource && !destinations.contains(side)) continue;
+      final expected = await workflow.prTarget(role);
+      if (expected == null ||
+          expected.toLowerCase() != slugs[side]?.toLowerCase()) {
+        mismatch(side);
+      }
+      if (saved.isEmpty) {
+        if (isSource) mismatch(side);
+        continue; // A destination code PR may be opened later in this pass.
+      }
+      final number = saved['number'];
+      final supplied = isSource ? snapshots[side] : null;
+      if (supplied != null &&
+          (supplied['number'] != number ||
+              !matchesPull(supplied['url'], host, expected, number))) {
+        mismatch(side);
+      }
+      if (side == 'store') await workflow.bindStoreLogin(role, expected);
+      final current = await workflow.discover(
+        expected,
+        branch,
+        base: role.main,
+      );
+      final found = _list(current['prs']).map(_map);
+      final pr = found.firstWhere(
+        (p) => p['state'] == 'OPEN',
+        orElse: () => _map(current['newest']),
+      );
+      if (pr['number'] != number ||
+          !matchesPull(pr['url'], host, expected, number) ||
+          supplied != null && supplied['head_oid'] != pr['head_sha']) {
+        mismatch(side);
+      }
     }
     for (final repo in destinations) {
       final directory = directories[repo]!;
@@ -977,7 +1013,9 @@ class FeedbackPass {
     for (final repo in destinations) {
       final pr = _map(prs[repo]),
           config = repo == 'code' ? contexts.code : contexts.store!;
-      final requests = pr.isEmpty ? <PassDocument>[] : _requests(config);
+      final requests = pr.isEmpty
+          ? <PassDocument>[]
+          : _requests(config, await workflow.githubLoginFor(_text(pr['repo'])));
       final row = <String, Object?>{
         'step': 'rerequest',
         'repo': repo,
@@ -1017,6 +1055,15 @@ class FeedbackPass {
     }
     if (adopted != null && pyTruthy(prs['store'])) {
       final codePr = _map(prs['code']), storePr = _map(prs['store']);
+      if (!sources.contains('store') && !destinations.contains('store')) {
+        final role = contexts.store!;
+        final expected = await workflow.prTarget(role);
+        if (expected == null ||
+            expected.toLowerCase() != _text(storePr['repo']).toLowerCase()) {
+          mismatch('store');
+        }
+        await workflow.bindStoreLogin(role, expected);
+      }
       final urls = <String, String>{};
       for (final repo in ['code', 'store']) {
         final pr = _map(prs[repo]);
@@ -1257,7 +1304,7 @@ class FeedbackPass {
     }
   }
 
-  Future<PassDocument> done(List<String> argv) async {
+  Future<PassDocument> done(List<String> argv, {Contexts? boundRoles}) async {
     final args = _args(argv, {'--owner': 'owner'});
     needArgs(args, ['owner']);
     final path = records.locate(args['code_repo']!, args['change']!).path;
@@ -1275,7 +1322,7 @@ class FeedbackPass {
           extra: {'owner': record['owner']},
         );
       }
-      final result = await plan(argv);
+      final result = await plan(argv, boundRoles: boundRoles);
       if (result['delete_record'] != true) {
         throw PairStop(
           'not_complete',
@@ -1337,10 +1384,35 @@ class FeedbackPass {
   Future<Map<String, Object?>> run(List<String> argv) async {
     if (argv.isEmpty) pairUsage('pass write|plan|done|adopt ...');
     try {
+      final options = _args(argv.sublist(1), switch (argv.first) {
+        'write' => const {'--intent': 'intent', '--store-prefix': 'prefix'},
+        'plan' || 'done' => const {'--owner': 'owner'},
+        'adopt' => const {'--owner': 'owner', '--from': 'from'},
+        _ => pairUsage('pass write|plan|done|adopt ...'),
+      });
+      final store = options['store'];
+      final code = options['code']!;
+      final roles = await workflow.useRoles(code, store == '' ? null : store);
+      if (roles.store case final planning?) {
+        if (await workflow.prTarget(planning) == null) {
+          final branch =
+              options['branch'] ??
+              (await ctx.git(code, [
+                'symbolic-ref',
+                '--quiet',
+                '--short',
+                'HEAD',
+              ])).stdout.trim();
+          if (branch.isEmpty) {
+            pairUsage('pass for a local planning store needs --branch');
+          }
+          return {'ok': true, ...workflow.manualHandoff(branch)};
+        }
+      }
       final result = await switch (argv.first) {
         'write' => write(argv.sublist(1)),
-        'plan' => plan(argv.sublist(1)),
-        'done' => done(argv.sublist(1)),
+        'plan' => plan(argv.sublist(1), boundRoles: roles),
+        'done' => done(argv.sublist(1), boundRoles: roles),
         'adopt' => adopt(argv.sublist(1)),
         _ => pairUsage('pass write|plan|done|adopt ...'),
       };

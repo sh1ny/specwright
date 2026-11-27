@@ -111,7 +111,8 @@ class Base(unittest.TestCase):
 
     # ---- environment -------------------------------------------------------------------------------------
     def env(self):
-        e = {k: v for k, v in os.environ.items() if k not in ("GH_TOKEN", "GITHUB_TOKEN", "GH_REPO", "GH_HOST")}
+        e = {k: v for k, v in os.environ.items() if k not in (
+            "GH_TOKEN", "GITHUB_TOKEN", "GH_REPO", "GH_HOST", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN")}
         e.update({"PATH": str(self.tmp / "bin") + os.pathsep + e.get("PATH", ""),
                   "FAKE_GH_STATE": str(self.gh_state), "FAKE_GH_LOG": str(self.gh_log),
                   "SPECWRIGHT_STATE_DIR": str(self.state_dir), "GIT_CONFIG_GLOBAL": os.devnull,
@@ -165,11 +166,25 @@ class Base(unittest.TestCase):
         return self.git(repo, "rev-parse", "HEAD")
 
     def attach_bare(self, repo, slug):
-        """Reach a local bare repo through insteadOf, so `origin` keeps its GitHub-form URL name."""
+        """Run real Git against a local bare repo; the Git shim advertises the test GitHub transport."""
         bare = self.tmp / (Path(repo).name + ".bare.git")
         self.git(self.tmp, "init", "-q", "--bare", "-b", "main", str(bare))
         self.git(repo, "config", f"url.{fixtures.posix(bare)}.insteadOf", f"https://github.com/{slug}.git")
+        self.git(repo, "config", "testfixture.originUrl", f"https://github.com/{slug}.git")
         self.git(repo, "push", "-q", "origin", "main")
+        shim = self.tmp / "bin" / "git"
+        if not shim.exists() and not shim.with_suffix(".exe").exists():
+            fakeexe.write_python_fake(shim, """
+import subprocess, sys
+args = sys.argv[1:]
+real = "REAL_GIT_LITERAL"
+if args[:2] == ["remote", "get-url"] and args[-1] == "origin":
+    view = subprocess.run([real, "config", "--get", "testfixture.originUrl"], capture_output=True)
+    if view.returncode == 0:
+        sys.stdout.buffer.write(view.stdout)
+        sys.exit(0)
+sys.exit(subprocess.call([real, *args]))
+""".replace('"REAL_GIT_LITERAL"', repr(jjenv.real_git())))
         return bare
 
     def tip(self, repo, ref=BRANCH):
@@ -189,7 +204,8 @@ class Base(unittest.TestCase):
 
     def pull(self, slug, n, ref=BRANCH, state="open", merged=None, base="main", owner=None, head_repo=None, body="", sha=None):
         owner = owner or slug.split("/")[0]
-        return {"number": n, "html_url": f"https://github.com/{slug}/pull/{n}", "state": state, "merged_at": merged,
+        host = self.gh().get("host", "github.com")
+        return {"number": n, "html_url": f"https://{host}/{slug}/pull/{n}", "state": state, "merged_at": merged,
                 "title": f"t{n}", "body": body, "created_at": T0,
                 "head": {"ref": ref, "label": f"{owner}:{ref}", "sha": sha or f"{n:040x}",
                          "repo": {"full_name": head_repo or f"{owner}/{slug.split('/')[1]}"}},
@@ -210,6 +226,12 @@ class Base(unittest.TestCase):
 
     def pulls(self, slug):
         return self.gh().get("repos", {}).get(slug, {}).get("pulls", [])
+
+    def with_pr_target(self, snapshot, slug, number):
+        pr = next((p for p in reversed(self.pulls(slug)) if p["number"] == number), None)
+        if pr is None:
+            return {**snapshot, "number": number, "url": f"https://github.com/{slug}/pull/{number}"}
+        return {**snapshot, "number": number, "url": pr["html_url"], "head_oid": pr["head"]["sha"]}
 
     def pushed_at(self, slug, branch, sha, ts):
         st = self.gh()
@@ -321,6 +343,18 @@ class Identity(Base):
             r = self.pp("identity", d)
             self.assertEqual((r["repo"], r["fetch"], r["push"]), ("team/plans", "team/plans", ["team/plans"]), url)
 
+    def test_enterprise_ssh_and_https_identify_same_repo(self):
+        for url in ("git@github.example.com:team/plans.git",
+                    "ssh://git@GITHUB.EXAMPLE.COM.:2222/team/plans.git",
+                    "https://github.example.com/team/plans.git"):
+            with self.subTest(url=url):
+                d = self.make_repo("r" + str(abs(hash(url))), url)
+                self.write(f"{d.name}/openspec/specwright.yaml", "github:\n  host: github.example.com\n")
+                self.git(d, "remote", "set-url", "--push", "origin", "https://github.example.com/Team/Plans.git")
+                r = self.sw_pr("identity", d, cwd=d)
+                self.assertEqual((r["repo"], r["push"]), ("team/plans", ["Team/Plans"]))
+        self.assertEqual(self.gh_calls(), [])
+
     def test_identity_not_github(self):
         d = self.make_repo("local", str(self.tmp / "elsewhere.git"))
         self.assertEqual(self.pp("identity", d, expect=1)["error"], "not-github")
@@ -359,6 +393,14 @@ class Context(Base):
                          {"role": "required", "timeout": 1200, "request": "@codex review", "report": {}})
         self.assertEqual(c["code"]["reviewers"]["kody-ai"], {"role": "advisory", "timeout": 900, "request": "", "report": {}})
         self.assertEqual((c["max_fix_rounds"], c["react"]), (3, True))
+
+    def test_pr_pair_reads_selected_role_remote(self):
+        self.settings("remote: fork\nplanning_store:\n  remote: publish\n")
+        self.git(self.code, "remote", "add", "fork", "git@github.com:team/code-fork.git")
+        self.git(self.store, "remote", "add", "publish", "git@github.com:team/published-plans.git")
+        c = self.pp("context", "--code", self.code, "--store", self.store, "--only", "repos")
+        self.assertEqual((c["code"]["repo"], c["code"]["remote"]), ("team/code-fork", "fork"))
+        self.assertEqual((c["store"]["repo"], c["store"]["remote"]), ("team/published-plans", "publish"))
 
     def test_context_store_inherits_defaults(self):
         self.settings("github:\n  login: sh1ny\npr:\n  validate: \"python -m unittest\"\n"
@@ -728,10 +770,11 @@ class Context(Base):
         for word in ("line 88", "true", "false"):
             self.assertIn(word, r["note"])
 
-    def test_identity_ignores_refused_settings(self):
+    def test_identity_refuses_unreadable_connection_settings(self):
         self.settings("pr:\n\treact: true\n")
-        r = self.pp("identity", self.code)
-        self.assertEqual((r["repo"], r["fetch"], r["_rc"]), (CODE, CODE, 0))
+        r = self.pp("identity", self.code, expect=2)
+        self.assertEqual(r["error"], "bad_setting")
+        self.assertFalse(self.gh_calls())
 
 
 class ContextPin(Base):
@@ -967,6 +1010,250 @@ class Expected(Base):
         r = self.expected()
         self.assertEqual((r["set"], r["ship"]["report"]), (["code"], "code_only"))
 
+    def ship_code_only(self, protocol, *, fenced=False):
+        host = "github.example.com"
+        raw = f"git@{host}:{CODE}.git" if protocol == "ssh" else f"https://{host}/{CODE}.git"
+        target, ignored = (self.tmp / name for name in ("publish.git", "ignored.git"))
+        for bare in (target, ignored):
+            self.git(self.tmp, "init", "-q", "--bare", "-b", "main", str(bare))
+        self.git(self.code, "remote", "set-url", "origin", str(ignored))
+        self.git(self.code, "remote", "add", "publishing", raw)
+        self.git(self.store, "remote", "remove", "origin")
+        auth = "  login: KintsugiBot\n" if fenced else "  fence: false\n"
+        self.commit(self.code, {"openspec/specwright.yaml": f"remote: publishing\ngithub:\n  host: {host}\n{auth}",
+                               "work.txt": "code work\n"}, "feat: code work")
+        store_before = self.tip(self.store)
+        env = {"GH_HOST": "wrong.example" if fenced else host, "GH_REPO": "wrong/repo",
+               "GH_ENTERPRISE_TOKEN": "tok-s" if fenced else "tok-k"}
+        if protocol == "ssh":
+            ssh = self.tmp / "ssh-transport"
+            ssh.write_text('#!/bin/sh\nfor last; do :; done\ncase "$last" in\n'
+                           f'  git-receive-pack*) exec git receive-pack "{target.as_posix()}";;\n'
+                           f'  git-upload-pack*) exec git upload-pack "{target.as_posix()}";;\n'
+                           'esac\nexit 3\n', encoding="utf-8", newline="\n")
+            env.update(GIT_SSH_COMMAND=f'sh "{ssh.as_posix()}"', GIT_SSH_VARIANT="ssh")
+        else:
+            # Keep the real effective HTTPS destination visible to preflight;
+            # the fixture redirects only the actual upload to its bare repo.
+            fakeexe.write_python_fake(self.tmp / "bin" / "git", f"""
+import subprocess, sys
+git = {jjenv.real_git()!r}
+args = sys.argv[1:]
+if args[0] == "push" and "publishing" in args:
+    assert subprocess.check_output([git, "remote", "get-url", "--push", "--all", "publishing"], text=True).strip() == {raw!r}
+    sys.exit(subprocess.call([git, "push", {str(target)!r}, "HEAD:refs/heads/{BRANCH}"]))
+sys.exit(subprocess.call([git, *args]))
+""")
+        state = self.gh()
+        self.save_gh({**state, "host": host, "user": None})
+        plan = self.expected(env=env)
+        self.assertEqual((plan["set"], plan["ship"]["report"]), (["code"], "code_only"))
+        self.assertIn("by hand", plan["ship"]["note"])
+        destination = f'{host}/{plan["code"]["repo"]}'
+        login_flags = ["--login", "KintsugiBot"] if fenced else []
+        push = swcall.run(["vcs", "push", "--repo", str(self.code), "--role", "code", "--branch", BRANCH,
+                           "--expected-repo", destination, *login_flags], cwd=self.code, env={**self.env(), **env})
+        self.assertEqual(push.returncode, 0, push.stdout + push.stderr)
+        self.assertEqual(self.tip(target), self.tip(self.code))
+        self.assertEqual(self.git(ignored, "for-each-ref"), "")
+        self.assertEqual(self.tip(self.store), store_before)
+        body = self.write("body.md", "Project changes.\n")
+        opened = self.pp("ensure-pr", "--repo", plan["code"]["repo"], "--branch", BRANCH, "--base", "main",
+                         "--title", "Project changes", "--body-file", body, cwd=self.code, env=env)
+        self.assertEqual((opened["action"], opened["pr"]["url"]), ("created", f"https://{destination}/pull/1"))
+        watch = self.pp("pair-state", "--code", self.code, "--store", self.store, "--branch", BRANCH, env=env)
+        self.assertEqual((watch["action"], watch["prs"]["code"]["url"]), ("manual_store_handoff", opened["pr"]["url"]))
+        self.assertEqual(self.pulls(STORE), [])
+        self.assertTrue(self.gh_calls())
+        calls = self.gh_calls()
+        auth_calls = [c for c in calls if c["argv"][:2] == ["auth", "token"]]
+        self.assertEqual(bool(auth_calls), fenced)
+        pr_calls = [c for c in calls if c["argv"][0] == "pr" or any("/pulls?" in a for a in c["argv"])]
+        self.assertTrue(pr_calls)
+        for call in pr_calls:
+            self.assertEqual(call["env"]["GH_HOST"], host)
+            self.assertEqual(call["env"]["GH_ENTERPRISE_TOKEN"], "tok-k")
+            self.assertIsNone(call["gh_repo"])
+
+    def test_ship_and_watch_with_ssh_and_token_only(self):
+        self.ship_code_only("ssh")
+
+    def test_ship_on_https_with_caller_token_and_no_stored_login(self):
+        self.ship_code_only("https")
+
+    def test_enterprise_ship_and_watch_keep_host_and_identity(self):
+        self.ship_code_only("https", fenced=True)
+
+    def test_ambient_workflow_rejects_each_named_identity(self):
+        for section in ("  login: test-account\n", "  review_request:\n    login: test-account\n",
+                        "planning_store:\n  login: test-account\n", "pr:\n  request_as: test-account\n"):
+            with self.subTest(section=section):
+                self.write("code/openspec/specwright.yaml", "github:\n  fence: false\n" + section)
+                out = self.expected(expect=2)
+                self.assertEqual(out["error"], "bad_setting", out)
+        self.assertEqual(self.gh_calls(), [])
+
+    def test_expected_fully_local_needs_no_identity(self):
+        for repo in (self.code, self.store):
+            self.git(repo, "remote", "remove", "origin")
+        self.assertEqual(self.expected()["set"], [])
+        self.assertEqual(self.gh_calls(), [])
+
+    def test_expected_mixed_store_hosts_are_never_local(self):
+        off = "https://git.example.org/acme/plans.git"
+        on = f"https://github.com/{STORE}.git"
+        for fetch, push in ((off, on), (on, off)):
+            with self.subTest(fetch=fetch):
+                self.git(self.store, "remote", "set-url", "origin", fetch)
+                self.git(self.store, "remote", "set-url", "--push", "origin", push)
+                self.assertEqual(self.expected(expect=1)["error"], "not-github")
+        self.assertEqual(self.gh_calls(), [])
+
+    def test_expected_uses_selected_project_connection_without_switching_targets(self):
+        project = self.make_repo("project", None)
+        self.write("project/openspec/specwright.yaml",
+                   "github:\n  host: github.example.com\n  fence: false\n"
+                   "remote: publishing\nplanning_store:\n  remote: plans\n")
+        self.write("code/openspec/specwright.yaml",
+                   "github:\n  host: github.example.net\n  login: wrong-account\n")
+        for repo, name, slug in ((self.code, "publishing", CODE), (self.store, "plans", STORE)):
+            self.git(repo, "remote", "add", name, f"git@github.example.com:{slug}.git")
+        self.commit(self.code, {"work": "code\n"}, "code work")
+        self.save_gh({**self.gh(), "host": "github.example.com", "user": None})
+        result = self.sw_pr("expected", "--code", self.code, "--store", self.store, "--branch", BRANCH,
+                            project=project, cwd=self.store,
+                            env={"GH_HOST": "github.example.com", "GH_ENTERPRISE_TOKEN": "tok-k"})
+        self.assertEqual(result["set"], ["store", "code"])
+        self.assertEqual((result["code"]["repo"], result["store"]["repo"]), (CODE, STORE))
+        self.assertEqual((result["code"]["remote"], result["store"]["remote"]), ("publishing", "plans"))
+        calls = self.gh_calls()
+        self.assertTrue(calls)
+        self.assertTrue(all(c["argv"][0] == "api" and c["env"]["GH_HOST"] == "github.example.com"
+                            and c["env"]["GH_ENTERPRISE_TOKEN"] == "tok-k" for c in calls))
+
+    def test_expected_same_canonical_repo_stops_before_discovery(self):
+        self.git(self.store, "remote", "rename", "origin", "published-plans")
+        self.git(self.store, "remote", "set-url", "published-plans", "ssh://git@ssh.github.com:443/ACME/CODE.git")
+        self.write("code/openspec/specwright.yaml", "planning_store:\n  remote: published-plans\n")
+        self.assertEqual(self.expected(expect=1)["error"], "same_repository")
+        self.assertEqual(self.gh_calls(), [])
+
+    def test_expected_ambient_enterprise_pins_host_without_stored_login(self):
+        st = self.gh()
+        st.update(host="github.example.com", user=None)
+        self.save_gh(st)
+        self.write("code/openspec/specwright.yaml", "github:\n  host: github.example.com\n  fence: false\n")
+        self.git(self.code, "remote", "set-url", "origin", f"git@github.example.com:{CODE}.git")
+        self.git(self.store, "remote", "remove", "origin")
+        self.add_pull(CODE, 17)
+        r = self.expected(env={"GH_HOST": "GITHUB.EXAMPLE.COM.", "GH_REPO": "elsewhere/repo",
+                               "GH_ENTERPRISE_TOKEN": "tok-k", "GH_TOKEN": "unrelated-token"})
+        self.assertEqual((r["set"], r["code"]["pr"]["number"]), (["code"], 17))
+        calls = self.gh_calls()
+        self.assertTrue(calls)
+        for call in calls:
+            self.assertEqual(call["argv"][0], "api")
+            self.assertIn("github.example.com", call["argv"])
+            self.assertEqual(call["env"]["GH_ENTERPRISE_TOKEN"], "tok-k")
+            self.assertIsNone(call["env"].get("GH_REPO"))
+
+    def test_expected_missing_handoff_does_not_resolve_accounts(self):
+        self.write("code/openspec/specwright.yaml", "github:\n  login: KintsugiBot\n")
+        answer = self.pp("expected", "--code", self.code, "--store", self.store,
+                         "--branch", BRANCH, "--handoff", expect=3)
+        self.assertEqual(answer["error"], "missing_run_login")
+        self.assertEqual(self.gh_calls(), [])
+
+    def test_fenced_initial_lookup_is_deferred_then_bound(self):
+        args = ("--code", self.code, "--store", self.store, "--branch", BRANCH)
+        self.save_gh({**self.gh(), "user": "sh1ny"})
+        first = self.pp("expected", *args, "--handoff", "--resolve-login", env={"GH_TOKEN": "tok-k"})
+        self.assertEqual((first["run_login"], first["store_login"]), ("sh1ny", "sh1ny"))
+        reads = self.gh_calls()
+        resolve, = [c for c in reads if c["argv"][:4] == ["api", "--hostname", "github.com", "user"]
+                    and c["env"]["GH_TOKEN"] is None]
+        self.assertEqual(resolve["argv"][-2:], ["--jq", ".login"])
+        self.gh_log.unlink()
+        self.save_gh({**self.gh(), "user": "KintsugiBot"})
+        resumed = self.pp("expected", *args, "--handoff", "--run-login", first["run_login"])
+        self.assertEqual((resumed["run_login"], resumed["store_login"]), ("sh1ny", "sh1ny"))
+        calls = [c for c in self.gh_calls() if c["argv"][0] == "api"]
+        self.assertTrue(calls)
+        self.assertEqual({c["env"]["GH_TOKEN"] for c in calls}, {"tok-s"})
+
+    def test_expected_discovers_only_after_account_resolution(self):
+        self.save_gh({**self.gh(), "user": None})
+        answer = self.expected(expect=3, env={"GH_TOKEN": "tok-k"})
+        self.assertEqual(answer["error"], "no_credential")
+        for text in ("github.com", "gh auth login", "github.login", "environment tokens"):
+            self.assertIn(text, answer["message"])
+        self.assertFalse(any("pulls?" in " ".join(c["argv"]) for c in self.gh_calls()))
+
+    def test_expected_refuses_off_host_code_remote_before_push(self):
+        self.git(self.code, "remote", "set-url", "origin", "https://git.example.org/acme/code.git")
+        self.assertEqual(self.expected(expect=1)["error"], "not-github")
+        self.assertEqual(self.gh_calls(), [])
+
+    def test_expected_refuses_required_code_target_before_publication(self):
+        self.git(self.code, "remote", "remove", "origin")
+        self.commit(self.code, {"code.txt": "updated\n"}, "work")
+        for store_publishable in (True, False):
+            with self.subTest(store_publishable=store_publishable):
+                if not store_publishable:
+                    self.git(self.store, "remote", "remove", "origin")
+                r = self.expected(expect=1)
+                self.assertEqual(r["error"], "not-github")
+                self.assertIn("selected remote 'origin'", r["message"])
+        self.assertEqual(self.gh_calls(), [])
+
+    def test_expected_refuses_failed_code_commit_count(self):
+        self.git(self.code, "branch", "-D", "main")
+        r = self.expected(expect=1)
+        self.assertEqual(r["error"], "git_error")
+        self.assertIn("cannot count", r["message"])
+        self.assertEqual(self.gh_calls(), [])
+
+    def test_expected_distinguishes_refused_url_reads_from_absence(self):
+        fakeexe.write_python_fake(self.tmp / "bin" / "git", f"""
+import subprocess, sys
+from pathlib import Path
+a = sys.argv[1:]
+if Path.cwd().name == "store" and a == ["remote", "get-url", "--push", "--all", "origin"]:
+    sys.exit(2)
+sys.exit(subprocess.call([{jjenv.real_git()!r}, *a]))
+""")
+        r = self.expected(expect=1)
+        self.assertEqual(r["error"], "remote_unreadable")
+        self.assertIn("push URLs", r["message"])
+        self.assertEqual(self.gh_calls(), [])
+
+    def test_transport_only_leaves_clean_and_preedited_store_untouched(self):
+        argv = ("expected", "--transport-only", "--code", self.code, "--store", self.store, "--branch", BRANCH)
+        self.assertEqual(self.pp(*argv)["action"], "publishable")
+        self.git(self.store, "remote", "remove", "origin")
+        self.save_gh({**self.gh(), "user": None})
+        active = f"openspec/changes/{CHANGE}/specs/greeting/spec.md"
+        original = {active: "Pending delta\n", SPEC_MAIN: "Stable main spec\n"}
+        self.commit(self.store, original, "docs: add active planning change")
+        self.assertFalse((self.store / ARCHIVE).exists())
+        self.gh_log.unlink(missing_ok=True)
+        for edited in (False, True):
+            with self.subTest(edited=edited):
+                if edited:
+                    self.write(f"store/{SPEC_ARCHIVED}", "preexisting archive edit\n")
+                before = self.git(self.store, "status", "--porcelain=v1", "--untracked-files=all")
+                head = self.tip(self.store)
+                r = self.pp(*argv)
+                self.assertEqual((r["action"], r["branch"]), ("manual_store_handoff", BRANCH))
+                self.assertEqual(self.git(self.store, "status", "--porcelain=v1", "--untracked-files=all"), before)
+                self.assertEqual(self.tip(self.store), head)
+                for path, text in original.items():
+                    self.assertEqual((self.store / path).read_text(encoding="utf-8"), text)
+                self.assertEqual((self.store / ARCHIVE).exists(), edited)
+                if edited:
+                    self.assertEqual((self.store / SPEC_ARCHIVED).read_text(encoding="utf-8"), "preexisting archive edit\n")
+        self.assertEqual(self.gh_calls(), [])
+
     def test_expected_gains_code_pr_after_code_commit(self):
         self.assertEqual(self.expected()["set"], ["store"])
         self.commit(self.code, {"greet.py": "x = 1\n"}, "fix(add-greeting): address review feedback")
@@ -1045,6 +1332,79 @@ class Ship(Base):
         self.assertIn(f"<!-- specwright:link code {c['pr']['url']} -->", store_markers[0]["body"])
         self.assertEqual(self.markers(CODE, c["pr"]["number"]), [], "the description already links the store PR")
 
+    def enterprise_publish_world(self):
+        code = self.make_repo("code", None)
+        store = self.make_repo("store", None)
+        self.git(code, "remote", "add", "publishing", f"relay:{CODE}.git")
+        self.git(code, "checkout", "-q", "-b", BRANCH)
+        tip = self.commit(code, {"openspec/specwright.yaml":
+                          "remote: publishing\ngithub:\n  host: github.example.com\n  login: KintsugiBot\n"}, "work")
+        bare, other = (self.tmp / n for n in ("target.git", "other.git"))
+        for repo in (bare, other):
+            self.git(self.tmp, "init", "-q", "--bare", "-b", "main", str(repo))
+        self.save_gh({**self.gh(), "host": "github.example.com"})
+        trace = self.tmp / "push.json"
+        environ = {"PUSH_LOG": str(trace),
+                   "PUSH_CODE": str(bare), "PUSH_OTHER": str(other),
+                   "GIT_CONFIG_COUNT": "2", "GIT_CONFIG_KEY_0": "url.https://github.example.com/.insteadOf",
+                   "GIT_CONFIG_VALUE_0": "relay:", "GIT_CONFIG_KEY_1": "url.https://github.example.com/.pushInsteadOf",
+                   "GIT_CONFIG_VALUE_1": "relay:"}
+        fakeexe.write_python_fake(self.tmp / "bin" / "git", """
+import json, os, subprocess, sys
+from pathlib import Path
+e = os.environ
+real = "REAL_GIT_LITERAL"
+a = sys.argv[1:]
+if a[0] == "push":
+    fetch = subprocess.check_output([real, "remote", "get-url", "publishing"], text=True).strip()
+    pushes = subprocess.check_output([real, "remote", "get-url", "--push", "--all", "publishing"], text=True).splitlines()
+    Path(e["PUSH_LOG"]).write_text(json.dumps([fetch, pushes, e.get("GH_ENTERPRISE_TOKEN")]), encoding="utf-8")
+    destination = e["PUSH_CODE"] if pushes == ["https://github.example.com/acme/code.git"] else e["PUSH_OTHER"]
+    sys.exit(subprocess.call([real, "push", destination, "HEAD:refs/heads/feat/add-greeting"]))
+sys.exit(subprocess.call([real, *a]))
+""".replace('"REAL_GIT_LITERAL"', repr(jjenv.real_git())))
+        return code, store, bare, other, tip, trace, environ
+
+    def guarded_push(self, code, slug, env):
+        return swcall.run(["vcs", "push", "--repo", str(code), "--role", "code", "--branch", BRANCH,
+                           "--login", self.login, "--expected-repo", f"github.example.com/{slug}"],
+                          cwd=code, env={**self.env(), **env})
+
+    def test_fenced_ship_keeps_indexed_rewrites_and_gh_target(self):
+        code, store, bare, other, tip, trace, env = self.enterprise_publish_world()
+        plan = self.pp("expected", "--code", code, "--store", store, "--branch", BRANCH, cwd=code, env=env)
+        self.assertEqual(plan["set"], ["code"])
+        slug = plan["code"]["repo"]
+        pushed = self.guarded_push(code, slug, env)
+        self.assertEqual(pushed.returncode, 0, pushed.stdout + pushed.stderr)
+        self.assertEqual(json.loads(trace.read_text(encoding="utf-8")),
+                         [f"https://github.example.com/{CODE}.git", [f"https://github.example.com/{CODE}.git"], "tok-k"])
+        self.assertEqual(self.git(bare, "rev-parse", f"refs/heads/{BRANCH}"), tip)
+        self.assertEqual(self.git(other, "for-each-ref"), "")
+        f = self.write("ship-body.md", "Change.\n")
+        opened = self.pp("ensure-pr", "--repo", slug, "--branch", BRANCH, "--base", "main",
+                         "--title", "Example", "--body-file", f, cwd=code, env=env)
+        self.assertEqual(opened["pr"]["url"], f"https://github.example.com/{CODE}/pull/1")
+        creates = [c for c in self.gh_calls() if c["argv"][:2] == ["pr", "create"]]
+        self.assertEqual(len(creates), 1)
+        self.assertIn(f"github.example.com/{CODE}", creates[0]["argv"])
+        self.assertEqual(creates[0]["env"]["GH_ENTERPRISE_TOKEN"], "tok-k")
+
+    def test_fenced_ship_refuses_effective_target_change(self):
+        code, store, bare, other, _, trace, env = self.enterprise_publish_world()
+        plan = self.pp("expected", "--code", code, "--store", store, "--branch", BRANCH, cwd=code, env=env)
+        # The final map still names a GitHub host, but names a different repository.
+        for index, kind in enumerate(("insteadOf", "pushInsteadOf")):
+            env[f"GIT_CONFIG_KEY_{index}"] = f"url.https://github.example.com/acme/other.git.{kind}"
+            env[f"GIT_CONFIG_VALUE_{index}"] = f"relay:{CODE}.git"
+        refused = self.guarded_push(code, plan["code"]["repo"], env)
+        self.assertEqual(refused.returncode, 3, refused.stdout + refused.stderr)
+        self.assertEqual(json.loads(refused.stdout)["error"], "pr_destination_changed")
+        self.assertFalse(trace.exists())
+        for repo in (bare, other):
+            self.assertEqual(self.git(repo, "for-each-ref"), "")
+        self.assertFalse(any(c["argv"][:2] == ["pr", "create"] for c in self.gh_calls()))
+
     def test_link_existing_code_pr_by_comment(self):
         self.add_pull(CODE, 7, body="Hand-written description, no link.")
         self.add_pull(STORE, 2)
@@ -1121,6 +1481,13 @@ class Ship(Base):
         r = self.ensure(STORE, "t", "b", expect=1)
         self.assertEqual(r["error"], "already_merged")
         self.assertEqual(len(self.pulls(STORE)), 1)
+
+    def test_ensure_pr_refuses_created_url_from_another_host(self):
+        self.save_gh({**self.gh(), "pr_create_response": f"https://github.example.com/{CODE}/pull/1"})
+        result = self.ensure(CODE, "t", "b", expect=1)
+        self.assertEqual(result["error"], "create_failed")
+        self.assertIn("discover before trying again", result["message"])
+        self.assertEqual(len(self.pulls(CODE)), 1)
 
     def assert_calls_scoped(self):
         """Every gh call ran with no GH_REPO, and each repository call names its repository."""
@@ -1199,6 +1566,15 @@ class PairState(Base):
                                  {"login": "kody-ai", "role": "advisory", "timeout": 900, "state": "waiting"}])
         s.update(over)
         return s
+
+    def test_pair_state_requires_snapshot_host_to_match_discovery(self):
+        self.add_pull(STORE, 1)
+        current = self.snap(STORE)
+        wrong = {**current, "url": current["url"].replace("github.com/", "github.example.com/")}
+        refused = self.state(store=wrong)
+        self.assertEqual(refused["ready"], {"store": False}, refused)
+        self.assertTrue(any(s.startswith("refresh:pr:") for s in refused["blocking"]["store"]), refused)
+        self.assertEqual(self.state(store=current)["action"], "ready")
 
     def test_pair_state_carry_over_readies_an_archive_head(self):
         self.add_pull(STORE, 1)
@@ -1311,12 +1687,12 @@ class PairState(Base):
         self.commit(self.code, {"greet.py": "x = 1\n"}, "feat(add-greeting): task 1.1")
         self.add_pull(CODE, 1)
         r = self.state(code=self.snap(CODE))
-        self.assertEqual((r["set"], r["action"], r["share_store_by_hand"]), (["code"], "ready", True))
+        self.assertEqual((r["set"], r["action"], r["branch"]), (["code"], "manual_store_handoff", BRANCH))
 
     def test_pair_state_empty_set_does_not_watch(self):
         self.git(self.store, "remote", "remove", "origin")
         r = self.state()
-        self.assertEqual((r["set"], r["action"]), ([], "no_watch"))
+        self.assertEqual((r["set"], r["action"], r["branch"]), ([], "manual_store_handoff", BRANCH))
 
     def test_pair_state_split_hands_off(self):
         self.commit(self.code, {"greet.py": "x = 1\n"}, "feat(add-greeting): task 1.1")
@@ -1353,6 +1729,18 @@ class PairState(Base):
         self.add_pull(STORE, 1)
         r = self.state(store=self.snap(STORE))
         self.assertEqual((r["action"], r["missing"]), ("ship", ["code"]))
+
+    def test_pair_state_local_store_never_ready_with_green_code(self):
+        self.git(self.store, "remote", "remove", "origin")
+        self.commit(self.code, {"x.txt": "code\n"}, "work")
+        self.assertEqual(self.state()["action"], "ship")
+        self.add_pull(CODE, 1)
+        r = self.state(code=self.snap(CODE))
+        self.assertEqual((r["action"], r["branch"]), ("manual_store_handoff", BRANCH))
+        self.assertTrue(r["stop_waits"])
+        self.assertFalse(r["archive"])
+        self.assertFalse(r["rerequest"])
+        self.assertEqual(r["states"], {"code": "OPEN"})
 
 
 # =======================================================================================================
@@ -1493,80 +1881,37 @@ class Rounds(Base):
         self.assertTrue(fenced, "the store read must run `sw as` from inside the store")
         self.assertEqual({c["argv"][-1] for c in fenced}, {"KintsugiBot"}, "the run login is the ambient (fenced) login")
 
-    def test_rounds_store_login_kept_with_non_github_push_url(self):
-        # PR #82: the store fetches from github.com but pushes elsewhere; rounds still reads it as planning_store.login,
-        # taken from the fetch URL, not as the code login or the ambient one (both KintsugiBot here)
-        self.write("code/openspec/specwright.yaml", "github:\n  login: KintsugiBot\nplanning_store:\n  login: sh1ny\n")
-        self.git(self.store, "remote", "set-url", "--push", "origin", "https://git.example.com/o/s.git")
-        self.dead_store_remote()
-        self.pp("rounds", "--code", self.code, "--store", self.store, "--branch", BRANCH, cwd=self.code, expect=None)
-        here = os.path.normcase(os.path.realpath(self.store))
-        users = {c["argv"][-1] for c in self.gh_calls() if c["argv"][:2] == ["auth", "token"] and "--user" in c["argv"]
-                 and os.path.normcase(os.path.realpath(c["cwd"])) == here}
-        self.assertEqual(users, {"sh1ny"}, "the store must be read as planning_store.login, not the code or ambient login")
+    def test_rounds_mixed_store_targets_stop_before_any_credential(self):
+        self.git(self.store, "remote", "set-url", "--push", "origin", "https://git.example.com/acme/plans.git")
+        self.commit(self.store, {"a.md": "1\n"}, self.FIX)
+        r = self.pp("rounds", "--code", self.code, "--store", self.store, "--branch", BRANCH, expect=1)
+        self.assertEqual(r["error"], "not-github")
+        self.assertEqual(self.gh_calls(), [])
 
-    def test_rounds_under_as_sh_reads_non_github_store_with_user_git(self):
-        # PR #82: pair-wide commands run under `sw as`; a store on another host is read with the user's own git
-        # (their GIT_SSH_COMMAND, prompts, helpers), not the outer fence's SSH block, and never sees the fence's token
-        self.git(self.store, "remote", "set-url", "origin", "ssh://git@git.example.com/o/s.git")
+    def test_rounds_off_host_store_hands_off_without_reading_history(self):
+        self.git(self.store, "remote", "set-url", "origin", "ssh://git@github.example.com/acme/plans.git")
         self.commit(self.store, {"a.md": "1\n"}, self.FIX)
         seen = self.tmp / "ssh-seen.txt"
-        ssh = self.write("user-ssh.sh", f'#!/bin/sh\necho "token=${{GH_TOKEN:-unset}}" >> "{fixtures.posix(seen)}"\nexit 1\n')
-        e = {**self.env(), "GIT_SSH_COMMAND": f"sh {fixtures.posix(ssh)}"}
-        r = swcall.run(["as", "KintsugiBot", swcall.argv([])[0], "pr", "rounds", "--code", str(self.code),
-                        "--store", str(self.store), "--branch", BRANCH], cwd=self.code, env=e)
-        self.assertIs(json.loads(r.stdout)["ok"], True, r.stdout + r.stderr)
-        self.assertNotIn("SSH is disabled", r.stdout + r.stderr, "the store read ran inside the outer fence")
-        self.assertTrue(seen.exists(), "the user's GIT_SSH_COMMAND did not run for the non-GitHub store")
-        self.assertEqual(set(seen.read_text(encoding="utf-8").split()), {"token=unset"}, "the fence's token reached the non-GitHub remote")
+        ssh = self.write("user-ssh.sh", f'#!/bin/sh\necho called >> "{fixtures.posix(seen)}"\nexit 1\n')
+        trace = self.tmp / "rounds-git.log"
+        env = {"GIT_TRACE": fixtures.posix(trace), "GIT_SSH_COMMAND": f"sh {fixtures.posix(ssh)}"}
+        r = self.pp("rounds", "--code", self.code, "--store", self.store, "--branch", BRANCH, env=env)
+        self.assertEqual((r["action"], r["branch"]), ("manual_store_handoff", BRANCH))
+        self.assertNotIn("rounds", r)
+        self.assertNotRegex(trace.read_text(encoding="utf-8"), r"built-in: git (log|ls-remote|fetch)\b")
+        self.assertFalse(seen.exists())
+        self.assertEqual(self.gh_calls(), [])
 
-    def rounds_enterprise_store(self, env):
-        """rounds under `sw as` with a non-GitHub store whose remote answers 401, so its `gh auth git-credential` helper is
-        asked; the fake gh logs the helper call's environment. The remote is plain http through a proxy that is the 401
-        server (an https remote would not reach the helper without a TLS server)."""
-        class Rec(BaseHTTPRequestHandler):
-            def do_GET(self):
-                self.send_response(401)
-                self.send_header("WWW-Authenticate", 'Basic realm="ghe"')
-                self.send_header("Content-Length", "0")
-                self.end_headers()
-
-            def log_message(self, *a):
-                pass
-
-        server = HTTPServer(("127.0.0.1", 0), Rec)
-        t = threading.Thread(target=server.serve_forever, daemon=True)
-        t.start()
-        self.addCleanup(t.join, 5)
-        self.addCleanup(server.server_close)
-        self.addCleanup(server.shutdown)
-        self.git(self.store, "remote", "set-url", "origin", "http://ghe.example/o/s.git")
-        self.git(self.store, "config", "http.proxy", f"http://127.0.0.1:{server.server_port}")
-        self.git(self.store, "config", "credential.helper", "!gh auth git-credential")
+    def test_pass_off_host_store_hands_off_before_reading_snapshots(self):
+        self.git(self.store, "remote", "remove", "origin")
         self.commit(self.store, {"a.md": "1\n"}, self.FIX)
-        e = {**self.env(), "NO_PROXY": "", "no_proxy": "", **env}
-        r = swcall.run(["as", "KintsugiBot", swcall.argv([])[0], "pr", "rounds", "--code", str(self.code),
-                        "--store", str(self.store), "--branch", BRANCH], cwd=self.code, env=e)
-        helper = [c for c in self.gh_calls() if c["argv"][:2] == ["auth", "git-credential"]]
-        self.assertTrue(helper, f"the store's credential helper never ran: {r.stdout}{r.stderr}")
-        return helper
-
-    def test_rounds_non_github_store_gets_enterprise_vars(self):
-        # fix-m2-gaps D5: `sw as` unsets the enterprise variables for its own fence, but the unfenced read of a non-GitHub
-        # store gets the caller's back, so a helper such as `gh auth git-credential` finds its host and token
-        helper = self.rounds_enterprise_store({"GH_HOST": "ghe.example", "GH_ENTERPRISE_TOKEN": "ent-1",
-                                               "GITHUB_ENTERPRISE_TOKEN": "ent-2"})
-        for c in helper:
-            self.assertEqual((c["env"]["GH_HOST"], c["env"]["GH_ENTERPRISE_TOKEN"], c["env"]["GITHUB_ENTERPRISE_TOKEN"]),
-                             ("ghe.example", "ent-1", "ent-2"))
-            self.assertIsNone(c["env"]["GH_TOKEN"], "the fence's token must not reach a non-GitHub remote")
-
-    def test_rounds_non_github_store_without_enterprise_vars(self):
-        # variables the caller never set stay unset in the unfenced read, never an empty string
-        helper = self.rounds_enterprise_store({})
-        for c in helper:
-            self.assertEqual((c["env"]["GH_HOST"], c["env"]["GH_ENTERPRISE_TOKEN"], c["env"]["GITHUB_ENTERPRISE_TOKEN"]),
-                             (None, None, None))
+        r = self.pp("pass", "plan", "--code", self.code, "--store", self.store,
+                    "--code-repo", CODE, "--change", CHANGE, "--branch", BRANCH,
+                    "--snapshot", "store=file-does-not-exist.json")
+        self.assertEqual((r["action"], r["branch"]), ("manual_store_handoff", BRANCH))
+        self.assertNotIn("rows", r)
+        self.assertFalse(self.state_dir.exists())
+        self.assertEqual(self.gh_calls(), [])
 
     def test_trailing_dot_store_remote_is_fenced(self):
         # fix-m2-gaps D4: https://github.com./o/s.git is GitHub: read through `sw as` from inside the store, never unfenced
@@ -1609,9 +1954,8 @@ class Rounds(Base):
         self.assertNotIn("SECRETtok", json.dumps(r))
         self.assertEqual(seen, [], "no request may reach the server")
 
-    def test_rounds_store_token_url_with_non_github_push_url_exits_3(self):
-        # PR #82: the store fetches from github.com but pushes elsewhere; the fetch URL alone decides the fence, so the
-        # token in it is still refused, never sent by a plain-git read
+    def test_rounds_refuses_mixed_store_urls_before_sending_a_token(self):
+        # A GitHub fetch URL does not make an off-host push destination safe.
         seen = []
 
         class Rec(BaseHTTPRequestHandler):
@@ -1635,8 +1979,9 @@ class Rounds(Base):
         self.git(self.store, "remote", "set-url", "--push", "origin", "https://git.example.com/o/s.git")
         self.git(self.store, "config", "http.proxy", f"http://127.0.0.1:{server.server_port}")
         self.commit(self.store, {"a.md": "1\n"}, self.FIX)
-        r = self.pp("rounds", "--code", self.code, "--store", self.store, "--branch", BRANCH, cwd=self.code, expect=3)
-        self.assertFalse(r["ok"])
+        r = self.pp("rounds", "--code", self.code, "--store", self.store, "--branch", BRANCH, cwd=self.code, expect=1)
+        self.assertEqual((r["ok"], r["error"]), (False, "not-github"))
+        self.assertEqual(self.gh_calls(), [])
         self.assertNotIn("remote_unreadable", r)
         self.assertNotIn("SECRETtok", json.dumps(r))
         self.assertEqual(seen, [], "no request may reach the server")
@@ -1704,17 +2049,26 @@ class PassBase(Base):
         out = self.pp("pass", "write", *self.common(), "--intent", f, expect=expect)
         if out.get("ok"):
             self.owner = out["owner"]  # the id `pass write` returns; plan and done carry it
+            for ref in (intent or self.intent(findings, rnd))["prs"].values():
+                if ref is None:
+                    continue
+                slug, n = ref["repo"], ref["number"]
+                if not any(p["number"] == n for p in self.gh().get("repos", {}).get(slug, {}).get("pulls", [])):
+                    self.add_pull(slug, n, sha=self.tip(self.code if slug == CODE else self.store))
         return out
 
     def record_path(self):
         return self.state_dir / "feedback" / record_key(CODE, CHANGE)
 
-    def plan(self, code=None, store=None, sub="plan", expect=0):
-        args = ["pass", sub, *self.common()]
+    def plan(self, code=None, store=None, sub="plan", expect=0, preserve_target=False, flags=()):
+        args = ["pass", sub, *self.common(), *flags]
         if getattr(self, "owner", None):
             args += ["--owner", self.owner]
-        for name, s in (("code", code), ("store", store)):
-            args += ["--snapshot", f"{name}={self.write_json(f'{name}-snap.json', s if s is not None else snap())}"]
+        for name, s, slug, n in (("code", code, CODE, 5), ("store", store, STORE, 3)):
+            doc = dict(s if s is not None else snap())
+            if not preserve_target or s is None:
+                doc = self.with_pr_target(doc, slug, n)
+            args += ["--snapshot", f"{name}={self.write_json(f'{name}-snap.json', doc)}"]
         return self.pp(*args, expect=expect)
 
     @staticmethod
@@ -1739,6 +2093,53 @@ class PassBase(Base):
 
 
 class PassPlan(PassBase):
+    def test_store_only_feedback_cannot_rebind_a_missing_handoff(self):
+        self.settings("github:\n  login: KintsugiBot\nplanning_store:\n  login: sh1ny\n")
+        self.write_record([self.finding(source="store", dest="store")])
+        self.gh_log.unlink(missing_ok=True)
+        result = self.plan(store=snap(threads=[thread()]), flags=("--handoff",), expect=3)
+        self.assertEqual(result["error"], "missing_run_login", result)
+        self.assertEqual(self.gh_calls(), [])
+        self.assertTrue(self.record_path().is_file())
+
+    def test_feedback_uses_explicit_store_login_over_handed_code_login(self):
+        self.settings("github:\n  login: KintsugiBot\nplanning_store:\n  login: KintsugiBot\n")
+        self.write_record([self.finding(source="store", dest="store")])
+        state = self.gh()
+        state["repos"][STORE]["readers"] = ["KintsugiBot"]
+        self.save_gh(state)
+        self.gh_log.unlink(missing_ok=True)
+        plan = self.plan(store=snap(threads=[thread()]), flags=("--run-login", "sh1ny", "--handoff"))
+        self.assertEqual(self.row(plan, "fix_commit", "store")["state"], "todo")
+        reads = [c for c in self.gh_calls() if c["argv"][0] == "api" and any(f"repos/{STORE}/" in a for a in c["argv"])]
+        self.assertTrue(reads, "feedback did not check the private store PR")
+        self.assertEqual({c["env"]["GH_TOKEN"] for c in reads}, {"tok-k"})
+
+    def test_feedback_record_is_isolated_by_host(self):
+        self.write_record([self.finding()])
+        public = self.record_path()
+        original = public.read_bytes()
+        for directory, slug in ((self.code, CODE), (self.store, STORE)):
+            self.git(directory, "config", "testfixture.originUrl", f"https://github.example.com/{slug}.git")
+        self.commit(self.code, {"openspec/specwright.yaml":
+                    "github:\n  host: github.example.com\n  fence: false\n"}, "chore: use another GitHub host")
+        out = self.write_record([self.finding()], rnd=3)
+        self.assertTrue(out["ok"], out)
+        enterprise = self.state_dir / "hosts" / "github.example.com" / "feedback" / public.name
+        self.assertEqual(json.loads(enterprise.read_text(encoding="utf-8"))["round"], 3)
+        self.assertEqual(public.read_bytes(), original)
+
+    def test_feedback_refuses_same_head_from_other_host_or_pr(self):
+        self.write_record([self.finding()])
+        before = self.record_path().read_bytes()
+        for host, number in (("github.example.com", 5), ("github.com", 99)):
+            with self.subTest(host=host, number=number):
+                evidence = snap(threads=[thread()], head_oid=self.tip(self.code), number=number,
+                                url=f"https://{host}/{CODE}/pull/{number}")
+                result = self.plan(code=evidence, expect=2, preserve_target=True)
+                self.assertEqual(result["error"], "snapshot_target_mismatch", result)
+                self.assertEqual(self.record_path().read_bytes(), before)
+
     def test_pass_plan_routes_spec_fix_to_store(self):
         # a reviewer on the code PR asks for a spec change: the fix lands in the store, the reply goes to the code PR
         w = self.write_record([self.finding()])
@@ -1820,6 +2221,25 @@ class PassPlan(PassBase):
         p = self.plan(code=snap(threads=[thread()]), store=snap(threads=[thread("T2")]))
         self.assertEqual(self.row(p, "rerequest", "store")["state"], "done")
         self.assertEqual(self.row(p, "rerequest", "code")["state"], "todo")
+
+    def test_feedback_request_defaults_to_bound_role_login(self):
+        self.settings("github:\n  login: KintsugiBot\nplanning_store:\n  login: KintsugiBot\n"
+                      "pr:\n  reviewers:\n    chatgpt-codex-connector: {role: required, request: '@codex review'}\n")
+        self.write_record([self.finding("F1", dest="store"), self.finding("F2", dest="code", item="T2", source="store")])
+        self.fix_code()
+        self.fix_store()
+        self.push_all()
+        for slug, repo in ((CODE, self.code), (STORE, self.store)):
+            self.pushed_at(slug, BRANCH, self.tip(repo), "2026-10-08T12:00:00Z")
+        self.add_comment(CODE, 5, "@codex review", "sh1ny", 2001, created_at="2026-10-08T12:00:01Z")
+        self.add_comment(STORE, 3, "@codex review", "KintsugiBot", 2002, created_at="2026-10-08T12:00:01Z")
+
+        plan = self.plan(code=snap(threads=[thread()]), store=snap(threads=[thread("T2")]),
+                         flags=("--run-login", "sh1ny", "--handoff"))
+
+        for side, poster in (("code", "sh1ny"), ("store", "KintsugiBot")):
+            row = self.row(plan, "rerequest", side)
+            self.assertEqual((row["requests"][0]["poster"], row["state"]), (poster, "done"))
 
     def test_pass_plan_commit_found_by_trailer(self):
         self.write_record([self.finding("F1", dest="code", source="code", edits=[{"file": "greet.py", "contains": ["strip()"]}])])
@@ -2044,7 +2464,9 @@ class PassPlan(PassBase):
         self.plan(store=snap(threads=[]), sub="done", expect=1)
         self.assertTrue(self.record_path().exists())
         # once ship opened the code PR, the pass re-requests review on it and then completes
-        self.add_pull(STORE, 3, body=f"Code PR: https://github.com/{CODE}/pull/7")  # ship linked the pair (step 5)
+        st = self.gh()
+        st["repos"][STORE]["pulls"][0]["body"] = f"Code PR: https://github.com/{CODE}/pull/7"
+        self.save_gh(st)
         self.add_pull(CODE, 7, body=f"Store PR: https://github.com/{STORE}/pull/3")
         p = self.plan(store=snap(threads=[]))
         self.assertEqual(self.row(p, "push", "code")["state"], "done")
@@ -2171,7 +2593,9 @@ class PassPlan(PassBase):
         store_pull = self.pull(STORE, 3)
         if store_url:
             store_pull["html_url"] = store_url
-        self.seed_pulls(STORE, [store_pull])
+        st = self.gh()
+        st["repos"][STORE]["pulls"] = [store_pull]
+        self.save_gh(st)
         self.add_pull(CODE, 7)
         self.pushed_at(CODE, BRANCH, self.tip(self.code), "2026-10-08T12:00:00Z")
         self.add_comment(CODE, 7, "@codex review", "KintsugiBot", 2003, created_at="2026-10-08T12:00:03Z")
@@ -2331,8 +2755,8 @@ class PassPlan(PassBase):
         self.write_record([self.finding()])
         self.fix_store()
         self.push_all()
-        p = self.pp("pass", "plan", *self.common(), "--snapshot", f"code={self.write_json('code-snap.json', snap(threads=[thread()]))}",
-                    "--snapshot", f"store={self.write_json('store-snap.json', snap())}", env={"GH_TOKEN": "tok-k"})
+        del self.owner
+        p = self.plan(code=snap(threads=[thread()]))
         rr = self.row(p, "rerequest", "store")
         self.assertEqual(rr["state"], "todo")
         self.assertIn("push_time", rr)
@@ -2352,7 +2776,8 @@ class PassPlan(PassBase):
         self.assertFalse(self.record_path().exists())
 
     def test_pass_write_accepts_a_well_formed_intent(self):
-        r = self.write_record([self.finding()], intent={**self.intent([self.finding()]), "prs": {"code": {"repo": CODE, "number": 5}}})
+        finding = self.finding(dest="code")
+        r = self.write_record([finding], intent={**self.intent([finding]), "prs": {"code": {"repo": CODE, "number": 5}}})
         self.assertTrue(r["ok"])
         self.assertTrue(self.record_path().exists())
         self.assertTrue(self.plan()["ok"])
@@ -2505,14 +2930,13 @@ class PassOwnership(PassBase):
         return self.pp(*args, expect=expect)
 
     def test_record_keys_do_not_alias_hyphenated_identities(self):
-        s = self.write_json("s.json", snap())
         for repo, rnd in (("acme-tools/widget", 2), ("acme/tools-widget", 3)):
-            f = self.write_json("intent.json", self.intent([self.finding()], rnd))
+            f = self.write_json("intent.json", self.intent([], rnd))
             self.cmd_for("write", repo, "--intent", f)
         names = sorted(p.name for p in (self.state_dir / "feedback").iterdir())
         self.assertEqual(names, sorted([record_key("acme-tools/widget", "fix-login"), record_key("acme/tools-widget", "fix-login")]))
         for repo, rnd in (("acme-tools/widget", 2), ("acme/tools-widget", 3)):
-            p = self.cmd_for("plan", repo, "--snapshot", f"code={s}", "--snapshot", f"store={s}")
+            p = self.cmd_for("plan", repo)
             self.assertEqual((p["record"], p["round"]), (True, rnd), repo)
 
     def test_legacy_record_is_moved_to_the_new_key(self):
@@ -2536,10 +2960,16 @@ class PassOwnership(PassBase):
         self.settings("github:\n  login: KintsugiBot\npr:\n  max_fix_rounds: 2\n")
         repo = "o" * 39 + "/" + "r" * 100
         base = ["--code", self.code, "--store", self.store, "--code-repo", repo]
-        s = self.write_json("s.json", snap(threads=[]))
-        snaps = ["--snapshot", f"code={s}", "--snapshot", f"store={s}"]
+        self.git(self.code, "remote", "set-url", "origin", f"https://github.com/{repo}.git")
+        self.git(self.code, "config", "testfixture.originUrl", f"https://github.com/{repo}.git")
+        bare_url = fixtures.posix(self.tmp / "code.bare.git")
+        self.git(self.code, "config", f"url.{bare_url}.insteadOf", f"https://github.com/{repo}.git")
+        self.add_pull(repo, 5, sha=self.tip(self.code))
+        s = self.write_json("s.json", self.with_pr_target(snap(threads=[]), repo, 5))
+        snaps = ["--snapshot", f"code={s}"]
         for change in ("c" * 80, "d" * 120):  # the second: its 0.1.9 file name is itself too long for the file system
             intent = self.intent([self.finding("F1", dest="code", edits=[{"file": "greet.py", "contains": ["strip()"]}], react=None)])
+            intent["prs"]["code"]["repo"] = repo
             intent.update(change=change, code_repo=repo)
             w = self.pp("pass", "write", *base, "--change", change, "--intent", self.write_json("intent.json", intent))
             path = self.state_dir / "feedback" / record_key(repo, change)
@@ -2698,20 +3128,31 @@ class StoreTransport(PassBase):
     bare repository. The store's own config has no insteadOf, and an unreachable http.proxy, so a git that does not
     go through the shim (which is how `sw pr` reaches the store today) cannot read it."""
 
-    SHIM = """#!/bin/sh
-real="$SHIM_REAL_GIT"
-case "$1" in ls-remote|fetch) ;; *) exec "$real" "$@" ;; esac
-url=$("$real" remote get-url origin 2>/dev/null) || exec "$real" "$@"
-case $url in *github.com/acme/plans*) ;; *) exec "$real" "$@" ;; esac
-cred=$(printf 'protocol=https\\nhost=github.com\\n\\n' | "$real" credential fill 2>/dev/null) || cred=
-pw=$(printf '%s\\n' "$cred" | sed -n 's/^password=//p' | tr -d '\\r')
-echo "$1 ${pw:+with-credential}" >> "$SHIM_LOG"
-if [ "$pw" != "$SHIM_STORE_TOKEN" ]; then
-  echo "fatal: Authentication failed for '$url'" >&2
-  exit 128
-fi
-exec "$real" -c "url.$SHIM_BARE.insteadOf=$url" "$@"
-"""
+    SHIM = '''
+import os, subprocess, sys
+from pathlib import Path
+real = os.environ["SHIM_REAL_GIT"]
+args = sys.argv[1:]
+if args[:2] == ["remote", "get-url"] and args[-1] == "origin":
+    view = subprocess.run([real, "config", "--get", "testfixture.originUrl"], capture_output=True)
+    if view.returncode == 0:
+        sys.stdout.buffer.write(view.stdout)
+        sys.exit(0)
+if args[:1] in (["ls-remote"], ["fetch"]):
+    r = subprocess.run([real, "remote", "get-url", "origin"], capture_output=True, text=True)
+    url = r.stdout.strip()
+    if r.returncode == 0 and "github.com/acme/plans" in url:
+        cred = subprocess.run([real, "credential", "fill"], input="protocol=https\\nhost=github.com\\n\\n",
+                              capture_output=True, text=True)
+        pw = next((line.partition("=")[2] for line in cred.stdout.splitlines() if line.startswith("password=")), "")
+        message = "store " + pw if os.environ.get("SHIM_LOG_IDENTITIES") else args[0] + (" with-credential" if pw else "")
+        with Path(os.environ["SHIM_LOG"]).open("a", encoding="utf-8") as stream:
+            stream.write(message + "\\n")
+        if cred.returncode != 0 or pw != os.environ["SHIM_STORE_TOKEN"]:
+            sys.exit("fatal: Authentication failed")
+        args = ["-c", "url." + os.environ["SHIM_BARE"] + ".insteadOf=" + url, *args]
+sys.exit(subprocess.call([real, *args]))
+'''
 
     def private_store(self, login, fix="store"):
         """The store reads only as `login`'s token; `login` is planning_store.login, the code login is KintsugiBot."""
@@ -2725,9 +3166,7 @@ exec "$real" -c "url.$SHIM_BARE.insteadOf=$url" "$@"
         self.git(self.store, "config", "--unset", f"url.{fixtures.posix(bare)}.insteadOf")
         self.git(self.store, "config", "http.proxy", "http://127.0.0.1:9")
         self.shim_log = self.tmp / "git-shim.log"
-        self.write("bin/git", self.SHIM)
-        os.chmod(self.tmp / "bin" / "git", 0o755)
-        fakeexe.add_launcher(self.tmp / "bin" / "git", exe=True)  # sw starts git by PATHEXT name on Windows (D9)
+        fakeexe.write_python_fake(self.tmp / "bin" / "git", self.SHIM)
         self.extra_env.update({"SHIM_REAL_GIT": fixtures.posix(shutil.which("git")), "SHIM_LOG": fixtures.posix(self.shim_log),
                                "SHIM_STORE_TOKEN": "tok-s", "SHIM_BARE": fixtures.posix(bare)})
 
@@ -2735,9 +3174,7 @@ exec "$real" -c "url.$SHIM_BARE.insteadOf=$url" "$@"
         return self.pp("rounds", "--code", self.code, "--store", self.store, "--branch", BRANCH, expect=expect)
 
     def plan_store(self, expect=0):
-        return self.pp("pass", "plan", *self.common(),
-                       "--snapshot", f"code={self.write_json('code-snap.json', snap(threads=[thread()]))}",
-                       "--snapshot", f"store={self.write_json('store-snap.json', snap())}", env={"GH_TOKEN": "tok-k"}, expect=expect)
+        return self.plan(code=snap(threads=[thread()]), expect=expect)
 
     def shim_calls(self):
         return self.shim_log.read_text(encoding="utf-8").splitlines() if self.shim_log.exists() else []
@@ -2766,7 +3203,6 @@ exec "$real" -c "url.$SHIM_BARE.insteadOf=$url" "$@"
     # plain `git` that a shim cannot intercept on Windows, so its origin is an ext:: remote (insteadOf in the repo's
     # config) whose command accepts only the code login's token from GH_TOKEN. The script runs with GH_TOKEN set to that
     # token, as the skill runs it under `sw as`.
-    SHIM_LOGGED = SHIM.replace('echo "$1 ${pw:+with-credential}" >> "$SHIM_LOG"', 'echo "store $pw" >> "$SHIM_LOG"')
     EXT = """#!/bin/sh
 echo "code ${GH_TOKEN:-none}" >> "$SHIM_LOG"
 if [ "$GH_TOKEN" != "$1" ]; then
@@ -2783,8 +3219,7 @@ exec git "${3#git-}" "$2"
         self.sha = self.fix_code()
         if push_code:
             self.push_all(self.code)
-        self.write("bin/git", self.SHIM_LOGGED)
-        os.chmod(self.tmp / "bin" / "git", 0o755)
+        self.extra_env["SHIM_LOG_IDENTITIES"] = "1"
         bare = self.tmp / "code.bare.git"
         self.git(self.code, "config", "--unset", f"url.{fixtures.posix(bare)}.insteadOf")
         self.git(self.code, "config", "protocol.ext.allow", "always")
@@ -2833,6 +3268,7 @@ class PassRepoLocal(Base):
         self.commit(self.code, {"greet.py": "def greet(n):\n    return n\n", "openspec/specwright.yaml":
                                 "github:\n  login: KintsugiBot\npr:\n  max_fix_rounds: 2\n"}, "feat(add-greeting): task 1.1")
         self.git(self.code, "push", "-q", "origin", BRANCH)
+        self.add_pull(CODE, 5, sha=self.tip(self.code))
         self.owner = None
 
     def common(self):
@@ -2859,7 +3295,8 @@ class PassRepoLocal(Base):
         args = ["pass", sub, *self.common()]
         if self.owner:
             args += ["--owner", self.owner]
-        args += ["--snapshot", f"code={self.write_json('code-snap.json', code if code is not None else snap())}"]
+        snapshot = self.with_pr_target(code if code is not None else snap(), CODE, 5)
+        args += ["--snapshot", f"code={self.write_json('code-snap.json', snapshot)}"]
         return self.pp(*args, expect=expect)
 
     def fix_code(self, rnd=2):
@@ -2973,9 +3410,12 @@ class Cleanup(Base):
     def cmds(entry):
         return [c["cmd"] for c in entry["commands"]]
 
-    def fenced_pull(self, login):
-        """The fenced pull cleanup-plan emits: `<sw> as` runs git pull as the login that reads the repo (D4)."""
-        return [self.sw_head(), "--project", str(self.code).replace("\\", "/"), "as", login, "git", "pull", "--ff-only"]
+    def fenced_pull(self, login, role):
+        """Use VCS so the pull classifies the upstream after switching to main."""
+        code = Path(self.code).resolve().as_posix()
+        repo = Path(self.code if role == "code" else self.store).resolve().as_posix()
+        return [self.sw_head(), "--project", code, "vcs", "pull", "--repo", repo, "--role", role,
+                "--code", code, "--branch", "main", "--login", login]
 
     @staticmethod
     def sw_head():
@@ -2996,7 +3436,7 @@ class Cleanup(Base):
         for repo in ("code", "store"):
             e = p[repo]
             self.assertTrue(e["merged"])
-            self.same_cmds(self.cmds(e)[:2], [["git", "checkout", "main"], self.fenced_pull("KintsugiBot")])
+            self.same_cmds(self.cmds(e)[:2], [["git", "checkout", "main"], self.fenced_pull("KintsugiBot", repo)])
             self.same_cmds([self.cmds(e)[2]], [self.check_cmd(e, "a" * 40 if repo == "code" else self.tip(self.store))])
             self.assertEqual(len(e["commands"]), 3)
             self.assertEqual(e["delete"], ["git", "branch", "-D", BRANCH])
@@ -3035,7 +3475,7 @@ class Cleanup(Base):
         self.assertIn("--force", delete)
         self.assertEqual(e["commands"][0]["cwd"], str(self.code).replace("\\", "/"))
         s = p["store"]
-        self.same_cmds(self.cmds(s)[:2], [["git", "checkout", "main"], self.fenced_pull("KintsugiBot")])
+        self.same_cmds(self.cmds(s)[:2], [["git", "checkout", "main"], self.fenced_pull("KintsugiBot", "store")])
         self.assertEqual(s["delete"], ["git", "branch", "-D", BRANCH])
 
     def test_cleanup_plan_pull_runs_through_as_sh(self):
@@ -3044,16 +3484,16 @@ class Cleanup(Base):
         # each repo's login from context: the store's planning_store.login, else the code login
         self.write("code/openspec/specwright.yaml", "github:\n  login: sh1ny\nplanning_store:\n  login: KintsugiBot\n")
         p = self.plan()
-        self.same_cmds(self.cmds(p["code"])[1:2], [self.fenced_pull("sh1ny")])
-        self.same_cmds(self.cmds(p["store"])[1:2], [self.fenced_pull("KintsugiBot")])
+        self.same_cmds(self.cmds(p["code"])[1:2], [self.fenced_pull("sh1ny", "code")])
+        self.same_cmds(self.cmds(p["store"])[1:2], [self.fenced_pull("KintsugiBot", "store")])
         self.write("code/openspec/specwright.yaml", "github:\n  login: sh1ny\n")  # the store inherits the code login
         p = self.plan()
-        self.same_cmds(self.cmds(p["store"])[1:2], [self.fenced_pull("sh1ny")])
+        self.same_cmds(self.cmds(p["store"])[1:2], [self.fenced_pull("sh1ny", "store")])
         # no login at all: the ambient (fenced) login, never a plain pull
         self.write("code/openspec/specwright.yaml", "pr:\n  max_fix_rounds: 2\n")
         p = self.plan()
         for repo in ("code", "store"):
-            self.same_cmds(self.cmds(p[repo])[1:2], [self.fenced_pull("KintsugiBot")])
+            self.same_cmds(self.cmds(p[repo])[1:2], [self.fenced_pull("KintsugiBot", repo)])
             self.assertTrue(all(c["cwd"] == p[repo]["dir"] for c in p[repo]["commands"]))
 
     def test_ambient_login_read_once_per_run(self):
@@ -3064,7 +3504,8 @@ class Cleanup(Base):
         if self.gh_log.exists():
             self.gh_log.unlink()
         self.plan()
-        ambient = [c for c in self.gh_calls() if c["argv"][:2] == ["api", "user"] and not (c.get("env") or {}).get("GH_TOKEN")]
+        ambient = [c for c in self.gh_calls() if c["argv"][:4] == ["api", "--hostname", "github.com", "user"]
+                   and not c["env"].get("GH_TOKEN")]
         self.assertEqual(len(ambient), 1, f"the ambient login was read {len(ambient)} times")
 
     def test_cleanup_plan_split(self):
@@ -3085,13 +3526,15 @@ class Cleanup(Base):
         # the code side was cleaned up on an earlier run; now the store PR merged too
         self.git(self.code, "checkout", "-q", "main")
         self.git(self.code, "branch", "-D", BRANCH)
+        self.git(self.store, "remote", "rename", "origin", "plans")
+        self.write("code/openspec/specwright.yaml", "planning_store:\n  remote: plans\n")
         self.add_pull(CODE, 5, state="closed", merged=self.merged)
         self.add_pull(STORE, 2, state="closed", merged=self.merged, sha=self.tip(self.store))
         p = self.plan()
         self.assertTrue(p["code"]["merged"], "the merged code PR still counts; it is not missing")
         self.assertFalse(p["code"]["branch_exists"])
         self.assertEqual(p["code"]["commands"], [])
-        self.same_cmds(self.cmds(p["store"])[:2], [["git", "checkout", "main"], self.fenced_pull("KintsugiBot")])
+        self.same_cmds(self.cmds(p["store"])[:2], [["git", "checkout", "main"], self.fenced_pull("KintsugiBot", "store")])
         self.same_cmds([self.cmds(p["store"])[2]], [self.check_cmd(p["store"], self.tip(self.store))])
         self.assertEqual(p["store"]["delete"], ["git", "branch", "-D", BRANCH])
         self.assertEqual(p["keep"], [])
@@ -3114,7 +3557,7 @@ class Cleanup(Base):
         p = self.plan()
         for repo, head in (("code", "b" * 40), ("store", "c" * 40)):
             e = p[repo]
-            self.same_cmds(self.cmds(e), [["git", "checkout", "main"], self.fenced_pull("KintsugiBot"), self.check_cmd(e, head)])
+            self.same_cmds(self.cmds(e), [["git", "checkout", "main"], self.fenced_pull("KintsugiBot", repo), self.check_cmd(e, head)])
             self.assertEqual(e["delete"], ["git", "branch", "-D", BRANCH])  # run only when branch-check says delete: true
             self.assertNotIn("force_delete", e)
             self.assertNotIn("force_delete_allowed", e)
@@ -3919,8 +4362,8 @@ class ItemIssues(Base):
         st.setdefault("repos", {}).setdefault(slug, {})["issue_list"] = issues
         self.save_gh(st)
 
-    def item_issues(self, repo, *items, expect=0, env=None):
-        args = ["item-issues", "--repo", repo]
+    def item_issues(self, repo, *items, expect=0, env=None, login=None):
+        args = ["item-issues", "--repo", repo, *(["--run-login", login] if login else [])]
         for i in items:
             args += ["--item", i]
         return self.pp(*args, env={**self.TOKEN, **(env or {})}, expect=expect)
@@ -3947,7 +4390,7 @@ class ItemIssues(Base):
         r = self.item_issues(CODE, "A", "B")
         self.assertEqual((r["found"], r["missing"]), ({"A": 3}, ["B"]), "an item is matched only in its own repository")
         self.assertEqual(self.issue_reads(STORE), [])
-        r = self.item_issues(STORE, "B", env={"GH_TOKEN": "tok-s"})
+        r = self.item_issues(STORE, "B", login="sh1ny")
         self.assertEqual(r["found"], {"B": 5})
         reads = self.issue_reads(STORE)
         self.assertEqual(len(reads), 1)
@@ -4165,20 +4608,24 @@ class PolicyBase(Base):
     def policy(self, *extra, expect=0, **kw):
         """Passes the snapshots policy requires (codex reported at the head) unless the test names its own."""
         extra = list(extra)
+        if "--pr" not in extra:
+            extra += ["--pr", "1"]
+        if "--store" in extra and "--store-repo" not in extra:
+            extra += ["--store-repo", STORE, "--store-pr", "1"]
         if not any(str(x).startswith("code=") for x in extra):
             extra += ["--snapshot", "code=" + str(self.psnap("default-code", self.HEAD, ["chatgpt-codex-connector"]))]
         if "--store" in extra and not any(str(x).startswith("store=") for x in extra):
-            extra += ["--snapshot", "store=" + str(self.psnap("default-store", self.HEAD, ["chatgpt-codex-connector"])),
+            extra += ["--snapshot", "store=" + str(self.psnap("default-store", self.HEAD, [CODEX], repo=STORE)),
                       "--reviewed-head", "store=" + self.HEAD]
         return self.pp("policy", "--repo", CODE, "--head", self.HEAD, *extra, env=self.TOKEN, expect=expect, **kw)
 
-    def psnap(self, name, head, reported=(), waiting=(), config=None):
+    def psnap(self, name, head, reported=(), waiting=(), config=None, repo=CODE):
         """A snapshot file shaped as pr-snapshot.sh writes it: the head, the reviewers with their state and `reviewer_config`,
         the digest of the config the wait ran with. config: a list of reviewer entries (rv) whose digest it carries, a digest
         string, or False for a snapshot without one. Default: the set of the default settings, codex alone."""
         rs = [{"login": l, "role": "required", "timeout": 1200, "state": "reported"} for l in reported]
         rs += [{"login": l, "role": "required", "timeout": 1200, "state": "waiting"} for l in waiting]
-        obj = {"head_oid": head, "number": 1, "url": f"https://github.com/{CODE}/pull/1", "reviewers": rs}
+        obj = {"head_oid": head, "number": 1, "url": f"https://github.com/{repo}/pull/1", "reviewers": rs}
         if config is not False:
             obj["reviewer_config"] = config if isinstance(config, str) else config_digest(*(config if config is not None else [rv(CODEX)]))
         return self.write_json(f"{name}.json", obj)
@@ -4194,6 +4641,28 @@ class PolicyBase(Base):
 
 class Policy(PolicyBase):
     """policy: the merge policy read from GitHub's default branch and the head, never the work tree (trust-main-merge-policy D1-D4)."""
+
+    def test_policy_refuses_same_head_from_other_host_or_pr(self):
+        self.seed_both(self.AGENT, self.AGENT)
+        path = self.psnap("same-head", self.HEAD, [CODEX])
+        original = json.loads(path.read_text(encoding="utf-8"))
+        for host, number in (("github.example.com", 1), ("github.com", 9)):
+            with self.subTest(host=host, number=number):
+                evidence = {**original, "number": number, "url": f"https://{host}/{CODE}/pull/{number}"}
+                wrong = self.write_json("foreign.json", evidence)
+                result = self.policy("--pr", "1", "--snapshot", f"code={wrong}", expect=2)
+                self.assertEqual(result["error"], "snapshot_target_mismatch", result)
+                self.assertFalse(self.gh_calls())
+
+    def test_direct_policy_binds_configured_login_before_repository_reads(self):
+        self.seed_both(self.AGENT, self.AGENT)
+        code = self.make_repo("code", f"https://github.com/{CODE}.git")
+        self.write(f"code/{self.PATH}", "github:\n  login: sh1ny\n")
+        r = self.policy(cwd=code)  # caller `tok-k` and stored active account are not sh1ny
+        self.assertTrue(r["ok"], r)
+        reads = [c for c in self.gh_calls() if any(x.startswith("repos/") for x in c["argv"])]
+        self.assertTrue(reads)
+        self.assertEqual({c["env"].get("GH_TOKEN") for c in reads}, {"tok-s"})
 
     def test_same_policy_no_drift_main_values(self):
         self.seed_both(self.AGENT, self.AGENT)
@@ -4495,7 +4964,7 @@ class Policy(PolicyBase):
         store = r["reported"]["main"]["store"]
         self.assertEqual((store["ok"], store["rules_mismatch"]), (False, True))
         self.assertTrue(r["reported"]["main"]["code"]["ok"])
-        own = "store=" + str(self.psnap("own", self.HEAD, [], config=[]))
+        own = "store=" + str(self.psnap("own", self.HEAD, [], config=[], repo=STORE))
         r = self.policy("--store", "--snapshot", own, "--reviewed-head", "store=" + self.HEAD)
         store = r["reported"]["main"]["store"]
         self.assertEqual((store["ok"], store["rules_mismatch"]), (False, False), "an empty set has no required reviewer")
@@ -4545,7 +5014,7 @@ class PolicyReviewers(PolicyBase):
         st = f"{7:040x}"
         code_set = [rv(CODEX), rv("code-bot")]
         r = self.policy("--store", "--snapshot", "code=" + str(self.psnap("c", self.HEAD, [self.CODEX, "code-bot"], config=code_set)),
-                        "--snapshot", "store=" + str(self.psnap("st", st, ["store-bot"], config=[rv("store-bot")])),
+                        "--snapshot", "store=" + str(self.psnap("st", st, ["store-bot"], config=[rv("store-bot")], repo=STORE)),
                         "--reviewed-head", f"store={st}")
         self.assertTrue(r["reported"]["main"]["store"]["ok"], r["reported"])
         self.assertTrue(r["reported"]["main"]["code"]["ok"], r["reported"])
@@ -4617,7 +5086,7 @@ class PolicyReviewers(PolicyBase):
         systmp.mkdir()
         self.seed_both(self.AGENT, self.AGENT)
         env = {"SPECWRIGHT_STATE_DIR": str(blocker / "state"), "TMP": str(systmp), "TEMP": str(systmp), "TMPDIR": str(systmp)}
-        r = self.pp("policy", "--repo", CODE, "--head", self.HEAD, "--snapshot", "code=" + str(self.psnap("s", self.HEAD, [self.CODEX])),
+        r = self.pp("policy", "--repo", CODE, "--pr", "1", "--head", self.HEAD, "--snapshot", "code=" + str(self.psnap("s", self.HEAD, [self.CODEX])),
                     env={**self.TOKEN, **env})
         path = Path(r["reviewer_config"]["main"]["code"])
         self.assertEqual(path.read_bytes(), config_bytes(rv(self.CODEX)))

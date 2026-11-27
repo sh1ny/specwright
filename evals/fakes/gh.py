@@ -29,7 +29,7 @@ Hostile-network injection (bound-pr-scripts), matched against the joined argv li
   (evals/pr-pair/record_markdown.py) imports markdown_key from this module.
 Issue lists: per repo "issue_list": [{"number", "state", "body", "pull_request": {...}}] backs `api repos/<o>/<n>/issues?state=all&per_page=100`
   (state filter default open, `all` for both; pages as for pulls; --jq as elsewhere), a pull_request key marking a PR.
-A call (other than --help) whose host is not github.com (--hostname, else a non-empty GH_HOST) fails: the fake knows only github.com.
+A call (other than --help) whose host does not match the test state's `host` (default github.com) fails.
 
 Merge and refs (add-agent-merge). Per repo: "branches": {"feat/x": "<sha>"} (branch heads), "protected_branches": [names]
 (DELETE refused, 422), "allowed_methods": ["merge","squash","rebase"] (default all), "merge_queue": true (merge refused, 405).
@@ -51,7 +51,7 @@ Optional per-repo "readers": [logins] - only they may call `api repos/<o>/<n>/..
 Optional per-repo "activity": [{"ref": "refs/heads/b", "after": "<sha>", "timestamp": "..."}]
 backs `api repos/<o>/<n>/activity?ref=...` (the push-time lookup).
 Covers: auth token (and its --help, which names --user), api (user, pulls list/get, activity,
-issue comments list/create/patch), pr create/view/comment/edit, repo view,
+issue comments list/create/patch), pr create/list/view/comment/edit, repo view,
 release view <tag> [--json tagName,name,body,url [--jq]] / release create <tag> [--verify-tag] [-t title] [-F notes-file | -n notes]
 (add-release-workflow). Anything else exits 2.
 Releases: per repo "releases": {"<tag>": {"tag_name", "name", "body", "created_at"}}; "remote_tags": ["v0.5.0", ...] declares
@@ -410,12 +410,17 @@ def repo_of(opts, st):
         r = m.group(1) if m else None
     if not r:
         raise Fail("no repository: pass --repo or set GH_REPO")
-    r = r.split("github.com/")[-1].strip("/")
+    r = r.strip("/")
+    if r.count("/") == 2:
+        host, r = r.split("/", 1)
+        if host != st.get("host", "github.com"):
+            raise Fail(f"fake gh: unsupported repository host {host}")
     return r, st.setdefault("repos", {}).setdefault(r, {})
 
 
-def pull_url(slug, n):
-    return f"{HOST}/{slug}/pull/{n}"
+def pull_url(slug, n, st=None):
+    host = (st or {}).get("host", "github.com")
+    return f"https://{host}/{slug}/pull/{n}"
 
 
 def find_pull(slug, repo, ref):
@@ -458,13 +463,17 @@ def http_date(iso):
 def new_comment(st, slug, num, text, user):
     st["next_id"] = st.get("next_id", 1000) + 1
     c = {"id": st["next_id"], "node_id": f"IC_{st['next_id']}", "body": text, "user": {"login": user}, "created_at": now(st),
-         "html_url": f"{pull_url(slug, num)}#issuecomment-{st['next_id']}"}
+         "html_url": f"{pull_url(slug, num, st)}#issuecomment-{st['next_id']}"}
     st["repos"][slug].setdefault("comments", {}).setdefault(str(num), []).append(c)
     return c
 
 
 def whoami(st):
-    tok = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
+    host = st.get("host", "github.com")
+    if host == "github.com" or host.endswith((".ghe.com", ".github.localhost")) or host == "github.localhost":
+        tok = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
+    else:
+        tok = os.environ.get("GH_ENTERPRISE_TOKEN") or os.environ.get("GITHUB_ENTERPRISE_TOKEN")
     if tok:
         for login, t in st.get("tokens", {}).items():
             if t == tok:
@@ -643,7 +652,7 @@ def add_thread_comment(st, slug, number, thread_id, author, body, at=None):
     t = next(t for t in _pull(st, slug, number)["threads"] if t["id"] == thread_id)
     dbid = _new_id(st)
     c = {"id": f"PRRC_{dbid}", "databaseId": dbid, "author": author, "body": body, "createdAt": at or now(st),
-         "lastEditedAt": None, "url": f"{pull_url(slug, number)}#discussion_r{dbid}"}
+         "lastEditedAt": None, "url": f"{pull_url(slug, number, st)}#discussion_r{dbid}"}
     t["comments"].append(c)
     return c
 
@@ -659,7 +668,7 @@ def add_pr_comment(st, slug, number, author, body, at=None):
 def add_review(st, slug, number, author, body, state="COMMENTED", at=None):
     dbid = _new_id(st)
     r = {"id": f"PRR_{dbid}", "databaseId": dbid, "author": author, "body": body, "state": state,
-         "submittedAt": at or now(st), "lastEditedAt": None, "url": f"{pull_url(slug, number)}#pullrequestreview-{dbid}"}
+         "submittedAt": at or now(st), "lastEditedAt": None, "url": f"{pull_url(slug, number, st)}#pullrequestreview-{dbid}"}
     _pull(st, slug, number).setdefault("reviews", []).append(r)
     return r
 
@@ -883,7 +892,13 @@ def cmd_graphql_evidence(st, q, fields):
         found = find_item(st, fields.get("id", ""))
         if not found or not _readable(st, found[0], viewer):
             return {"data": {"node": None}}
-        return {"data": {"node": _render_item(st, found[2], found[3], viewer)}}
+        slug, pull, kind, item, _ = found
+        node = _render_item(st, kind, item, viewer)
+        if pull and kind != "issue_comment" and "pullRequest { url }" in q:
+            node["pullRequest"] = {"url": pull["html_url"]}
+            if kind == "thread" and fields.get("limit"):
+                node["comments"]["nodes"] = node["comments"]["nodes"][:int(fields["limit"])]
+        return {"data": {"node": node}}
     return None
 
 
@@ -1057,6 +1072,14 @@ def cmd_api(st, args):
         c = add_thread_comment(st, slug, pull["number"], thread["id"], viewer, fields.get("body", ""))
         return emit({"id": c["databaseId"], "node_id": c["id"], "html_url": c["url"], "body": c["body"], "user": {"login": viewer},
                      "created_at": c["createdAt"], "in_reply_to_id": thread["comments"][0]["databaseId"]}, expr)
+    m = re.fullmatch(r"pulls/comments/(\d+)", rest)
+    if m and method == "GET":
+        for p in repo.get("pulls", []):
+            for t in p.get("threads", []):
+                for c in t["comments"]:
+                    if c["databaseId"] == int(m.group(1)):
+                        return emit({"id": c["databaseId"], "html_url": c["url"]}, expr)
+        raise http_fail(404, "Not Found")
     m = re.fullmatch(r"pulls/comments/(\d+)/reactions", rest)
     if m and method == "POST":
         viewer = whoami(st)
@@ -1096,7 +1119,7 @@ def cmd_pr(st, args):
     sub, args = (args[:1] or [""])[0], args[1:]
     V = {"--repo": "repo", "-R": "repo", "--body": "body", "-b": "body", "--body-file": "body-file", "-F": "body-file",
          "--title": "title", "-t": "title", "--base": "base", "-B": "base", "--head": "head", "-H": "head",
-         "--json": "json", "--jq": "jq", "-q": "jq"}
+         "--json": "json", "--jq": "jq", "-q": "jq", "--state": "state", "-s": "state"}
     o, pos = parse(args, V, ("--draft", "-d", "--web", "--edit-last"))
     slug, repo = repo_of(o, st)
     if sub == "create":
@@ -1110,12 +1133,22 @@ def cmd_pr(st, args):
                for p in pulls):
             raise Fail(f'a pull request for branch "{ref}" into branch "{one(o, "base", "main")}" already exists')
         n = max([p["number"] for p in pulls] + [0]) + 1
-        pulls.append({"number": n, "html_url": pull_url(slug, n), "state": "open", "merged_at": None,
+        pulls.append({"number": n, "html_url": pull_url(slug, n, st), "state": "open", "merged_at": None,
                       "title": one(o, "title", ""), "body": body_of(o) or "",
                       "head": {"ref": ref, "label": f"{owner}:{ref}", "sha": f"{n:040x}",
                                "repo": {"full_name": f"{owner}/{slug.split('/')[1]}"}},
                       "base": {"ref": one(o, "base") or repo.get("default_branch", "main")}})
-        return print(pull_url(slug, n))
+        return print(st.get("pr_create_response", pull_url(slug, n, st)))
+    if sub == "list":
+        head, state = one(o, "head"), one(o, "state", "open")
+        fields = one(o, "json", "").split(",")
+        pulls = sorted(repo.get("pulls", []), key=lambda p: p["number"], reverse=True)
+        rows = []
+        for p in pulls:
+            view = graphql_view(p, slug)
+            if (not head or view["headRefName"] == head) and (state == "all" or view["state"].lower() == state):
+                rows.append({k: view[k] for k in fields if k in view})
+        return emit(rows[:30], one(o, "jq"))
     if sub == "view":
         p = find_pull(slug, repo, pos[0] if pos else "")
         if "json" in o:
@@ -1212,7 +1245,7 @@ def cmd_release(st, args):
         if rel is None:
             raise Fail("release not found")
         full = {"tagName": rel["tag_name"], "name": rel.get("name", ""), "body": rel.get("body", ""),
-                "url": f"{HOST}/{slug}/releases/tag/{tag}"}
+                "url": f"https://{st.get('host', 'github.com')}/{slug}/releases/tag/{tag}"}
         if "json" in o:
             return emit({k: full[k] for k in one(o, "json").split(",") if k in full}, one(o, "jq"))
         return print(f"title:\t{full['name']}\ntag:\t{tag}\nurl:\t{full['url']}\n--\n{full['body']}")
@@ -1222,7 +1255,7 @@ def cmd_release(st, args):
         raise Fail(f"a release with the same tag name already exists: {tag}")
     notes = read_file(one(o, "notes-file")) if "notes-file" in o else one(o, "notes", "")
     releases[tag] = {"tag_name": tag, "name": one(o, "title", tag), "body": notes, "created_at": now(st)}
-    print(f"{HOST}/{slug}/releases/tag/{tag}")
+    print(f"https://{st.get('host', 'github.com')}/{slug}/releases/tag/{tag}")
 
 
 def host_of(argv):
@@ -1232,6 +1265,9 @@ def host_of(argv):
             return argv[i + 1]
         if a.startswith("--hostname="):
             return a.partition("=")[2]
+    for i, a in enumerate(argv[:-1]):
+        if a in ("--repo", "-R") and argv[i + 1].count("/") == 2:
+            return argv[i + 1].split("/", 1)[0]
     return os.environ.get("GH_HOST") or "github.com"
 
 
@@ -1249,8 +1285,12 @@ def main(argv):
             before = json.dumps(st)
         inject_failure(st, argv)
         hostile(st, argv)
-        if host_of(argv) != "github.com" and "--help" not in argv:
-            raise Fail(f"fake gh: host {host_of(argv)} is not supported (only github.com)", 1)
+        if argv == ["--version"]:
+            print("gh version 2.63.0")
+            return 0
+        host = st.get("host", "github.com")
+        if host_of(argv) != host and "--help" not in argv:
+            raise Fail(f"fake gh: host {host_of(argv)} is not supported (only {host})", 1)
         cmds = {"auth": cmd_auth, "api": cmd_api, "pr": cmd_pr, "repo": cmd_repo, "release": cmd_release, "run": cmd_run}
         if not argv or argv[0] not in cmds:
             raise Fail(f"fake gh: unsupported command: {' '.join(argv)}", 2)

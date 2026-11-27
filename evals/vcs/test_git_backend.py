@@ -189,10 +189,11 @@ class TestGitBackend(VcsTestCase):
 
     def test_git_fetch_call_site_forms(self):
         self.prepare_origin()
+        target = ["--refmap=", "origin", "+refs/heads/main:refs/remotes/origin/main"]
         expected = [
-            (("--quiet",), ["fetch", "-q", "origin", "main"]),
-            (("--no-tags",), ["fetch", "--no-tags", "origin", "main"]),
-            ((), ["fetch", "origin", "main"]),
+            (("--quiet",), ["fetch", "-q", *target]),
+            (("--no-tags",), ["fetch", "--no-tags", *target]),
+            ((), ["fetch", *target]),
         ]
         for index, (options, argv) in enumerate(expected):
             self.shim.log_path.unlink(missing_ok=True)

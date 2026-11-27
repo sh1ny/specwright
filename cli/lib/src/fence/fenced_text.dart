@@ -5,6 +5,7 @@ import '../vcs/codec.dart';
 import '../vcs/text_result.dart';
 import '../vcs/tool_runner.dart';
 import 'fence.dart';
+import 'urls.dart';
 
 /// `as.sh <login> <command...>` (or `as.sh --resolve`) run in this process in
 /// [repo]: [runFence] with the bounded `gh` lookups of `sw as` ([runGh]), the
@@ -27,10 +28,12 @@ import 'fence.dart';
 Future<TextResult> fencedText(
   String repo,
   List<String> argv, {
+  String host = defaultGitHubHost,
   Map<String, String>? environment,
   GhCall? gh,
   GitCall? git,
   Launch? launch,
+  Future<void> Function(Map<String, String>? environment)? beforeLaunch,
   List<String>? helperCommand,
 }) async {
   final out = StringBuffer();
@@ -38,19 +41,20 @@ Future<TextResult> fencedText(
   final code = await runFence(
     argv,
     environment: environment ?? Map<String, String>.of(Platform.environment),
+    host: host,
     gh:
         gh ??
         (ghArgs, e) =>
             runGh(repo, ghArgs, environment: e, helperCommand: helperCommand),
     git: git ?? (command, e) => runTool(repo, command, environment: e),
-    launch:
-        launch ??
-        (command, e) async {
-          final r = await runTool(repo, command, environment: e);
-          out.write(decodeText(r.stdout));
-          err.write(decodeText(r.stderr));
-          return r.exitCode;
-        },
+    launch: (command, e) async {
+      if (beforeLaunch != null) await beforeLaunch(e);
+      if (launch != null) return launch(command, e);
+      final r = await runTool(repo, command, environment: e);
+      out.write(decodeText(r.stdout));
+      err.write(decodeText(r.stderr));
+      return r.exitCode;
+    },
     out: out.write,
     err: err.write,
   );

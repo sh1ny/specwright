@@ -242,8 +242,9 @@ void refuseOlderUntagged(
   Releases rel,
   Set<String> published,
   Set<String> local,
-  String version,
-) {
+  String version, {
+  String remote = 'origin',
+}) {
   final me = parseSemver(version);
   final older = [
     for (final u in untaggedSinceLatest(
@@ -260,7 +261,7 @@ void refuseOlderUntagged(
   if (older.isEmpty) return;
   throw ReleaseStop(
     'older_untagged',
-    'older version(s) not published (no tag on origin): ${older.join(', ')}; '
+    'older version(s) not published (no tag on $remote): ${older.join(', ')}; '
         'publish ${older.first} (tag ${tagFor(template, older.first)}) before $version',
     extra: {'versions': older},
   );
@@ -306,21 +307,53 @@ Future<void> requireReleaseShape(ReleaseGit git, String sha) async {
   );
 }
 
-/// The main branch name: the setting, else `main`, else `master`, whichever
-/// exists locally; the first name when none does.
-Future<String> detectMain(ReleaseGit git, String? mainBranch) async {
-  final names = [mainBranch ?? 'main', if (mainBranch == null) 'master'];
-  for (final n in names) {
+/// The configured name, otherwise the first visible branch of `main`, `master`.
+/// Local history reads do not use tracking refs.
+Future<String> detectMain(
+  ReleaseGit git,
+  String? mainBranch, {
+  String? trackingRemote,
+}) async {
+  if (mainBranch != null) return mainBranch;
+  for (final n in const ['main', 'master']) {
     if (await git.succeeds([
-      'show-ref',
-      '--verify',
-      '--quiet',
-      'refs/heads/$n',
-    ])) {
+          'show-ref',
+          '--verify',
+          '--quiet',
+          'refs/heads/$n',
+        ]) ||
+        trackingRemote != null &&
+            await git.succeeds([
+              'show-ref',
+              '--verify',
+              '--quiet',
+              'refs/remotes/$trackingRemote/$n',
+            ])) {
       return n;
     }
   }
-  return names.first;
+  return 'main';
+}
+
+Future<String> releaseMainBranch(
+  ReleaseGit git,
+  ReleaseSettings settings,
+  String? requested,
+) async {
+  final target = await git.bindTarget();
+  final main = await detectMain(
+    git,
+    settings.mainBranch,
+    trackingRemote: target?.slug == null ? null : git.remote,
+  );
+  if (requested != null && requested != main) {
+    throw ReleaseStop(
+      'release_main_mismatch',
+      'release must use main branch $main, not $requested',
+      code: 2,
+    );
+  }
+  return main;
 }
 
 /// The version the primary file reads at [commit] as a `String`; null when

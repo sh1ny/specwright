@@ -94,6 +94,7 @@ class NoShell(unittest.TestCase):
         self.assertTrue(self.real_bash, "the fixtures need bash")
         self.project = self.root / "project"  # the project every call names: its VERSION is sw's own
         swcall.stamp(self.project)
+        (self.project / "openspec" / "specwright.yaml").write_text("github:\n  fence: false\n", encoding="utf-8")
         self.build_finish_repo()
         self.gh_dir = self.root / "gh-bin"
         self.gh_dir.mkdir()

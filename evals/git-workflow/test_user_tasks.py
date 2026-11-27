@@ -233,7 +233,8 @@ class ArchiveAndMergeWaitForUser(unittest.TestCase):
         c = read(CONFIG)
         self.assertRegex(flat(c), r"(?i)an unticked `\[user\]` task stops the archive.{0,200}; a ticked one does not stop it", "the gate is not limited to an unticked task")
         # the gate sits on the DEFERRED archive line, before the finish line
-        i, j, k = c.find("VERDICT: DEFERRED"), c.find("unticked `[user]`"), c.find("Invoke the 'specwright-finish'")
+        i, j = c.find("VERDICT: DEFERRED"), c.find("unticked `[user]`")
+        k = c.find("Invoke the 'specwright-finish' skill immediately after the OpenSpec archive workflow completes")
         self.assertTrue(0 < i < j < k, "the `[user]` rule is not on the DEFERRED archive line, before the finish line")
 
     def test_finish_checks_archived_user_tasks(self):

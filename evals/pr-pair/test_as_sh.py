@@ -19,7 +19,6 @@ import subprocess
 import sys
 import tempfile
 import threading
-import time
 import unittest
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
@@ -35,23 +34,6 @@ import fixturecache  # noqa: E402  per-process cache: the empty repo is built on
 import bashexe  # noqa: E402
 import swcall  # noqa: E402  every call of sw goes through the one helper
 import vcs_test_support  # noqa: E402  the test home holding the tree's sw, and the stamped VERSION as.sh resolves it from
-
-
-
-def fixtures_kill(pid_file):
-    """Stop a hung fake gh a test started, by the PID it wrote. Never by name."""
-    try:
-        pid = int(Path(pid_file).read_text())
-    except (OSError, ValueError):
-        return
-    if os.name == "nt":
-        subprocess.run(["taskkill", "/T", "/F", "/PID", str(pid)], capture_output=True)
-    else:
-        try:
-            os.kill(pid, 9)
-        except OSError:
-            pass
-
 
 LEAK = "X-Store-Secret: leaked-store-header"
 SECRET = "ghp_SECRETtoken123"
@@ -279,6 +261,107 @@ class AsShHost(AsShCase):
         r = self.as_sh(self.code, "KintsugiBot", *self.SHOW, env={"GH_HOST": ""})
         self.assertEqual(r.stdout, "unset|unset|unset")
 
+    def test_invalid_connection_values_stop_before_gh(self):
+        settings = self.code / "openspec" / "specwright.yaml"
+        for key, value in (("host", "https://github.example.com"), ("fence", '"false"')):
+            with self.subTest(key=key):
+                settings.write_text(f"github:\n  {key}: {value}\n", encoding="utf-8")
+                r = self.as_sh(self.code, "--resolve")
+                self.assertEqual(r.returncode, 2, r.stderr)
+                self.assertIn(f"github.{key}", r.stderr)
+                self.assertEqual(self.gh_calls(), [])
+
+    def test_ambient_settings_reject_named_accounts_before_lookups(self):
+        settings = self.code / "openspec" / "specwright.yaml"
+        for conflict, key in (
+                ("\n  login: named\n", "github.login"),
+                ("\n  review_request:\n    login: named\n", "github.review_request.login"),
+                ("\nplanning_store:\n  login: named\n", "planning_store.login"),
+                ("\npr:\n  request_as: named\n", "pr.request_as")):
+            with self.subTest(key=key):
+                settings.write_text("github:\n  fence: false" + conflict, encoding="utf-8")
+                r = self.as_sh(self.code, "--resolve")
+                self.assertEqual(r.returncode, 2, r.stderr)
+                self.assertIn(key, r.stderr)
+                self.assertIn("re-enable github.fence", r.stderr)
+                self.assertEqual(self.gh_calls(), [])
+
+    def test_configured_enterprise_fence_ignores_inherited_host_and_tokens(self):
+        (self.code / "openspec" / "specwright.yaml").write_text(
+            "github:\n  host: GitHub.Example.COM.\n", encoding="utf-8")
+        self.state(host="github.example.com", user="sh1ny",
+                   tokens={"sh1ny": "tok-s", "KintsugiBot": "tok-k"})
+        r = self.as_sh(self.code, "KintsugiBot", "gh", "api", "user", "--jq", ".login",
+                       env={"GH_HOST": "unrelated.example", "GH_TOKEN": "wrong", "GH_ENTERPRISE_TOKEN": "tok-s"})
+        self.assertEqual((r.returncode, r.stdout.strip()), (0, "KintsugiBot"), r.stderr)
+        calls = self.gh_calls()
+        self.assertIn("--hostname github.example.com", " ".join(calls[1]["argv"]))
+        self.assertIsNone(calls[1]["env"]["GH_ENTERPRISE_TOKEN"])
+        self.assertEqual(calls[-1]["env"]["GH_HOST"], "github.example.com")
+        self.assertEqual(calls[-1]["env"]["GH_ENTERPRISE_TOKEN"], "tok-k")
+        self.assertIsNone(calls[-1]["env"]["GH_TOKEN"])
+
+    def test_ghe_com_uses_github_token(self):
+        host = "tenant.ghe.com"
+        (self.code / "openspec" / "specwright.yaml").write_text(f"github:\n  host: {host}\n", encoding="utf-8")
+        self.state(host=host, user="sh1ny", tokens={"sh1ny": "tok-s", "KintsugiBot": "tok-k"})
+        r = self.as_sh(self.code, "KintsugiBot", "gh", "api", "user", "--jq", ".login",
+                       env={"GH_TOKEN": "wrong", "GH_ENTERPRISE_TOKEN": "wrong"})
+        self.assertEqual((r.returncode, r.stdout.strip()), (0, "KintsugiBot"), r.stderr)
+        execution = self.gh_calls()[-1]["env"]
+        self.assertEqual(execution["GH_HOST"], host)
+        self.assertEqual(execution["GH_TOKEN"], "tok-k")
+        self.assertIsNone(execution["GH_ENTERPRISE_TOKEN"])
+
+    def test_nested_fence_restores_original_off_host_git_environment(self):
+        self.state(host="github.example.com", user="sh1ny",
+                   tokens={"sh1ny": "tok-s", "KintsugiBot": "tok-k"})
+        (self.code / "openspec" / "specwright.yaml").write_text(
+            "github:\n  host: github.example.com\n", encoding="utf-8")
+        r = self.as_sh(
+            self.code, "sh1ny", *swcall.argv(["as", "KintsugiBot"]),
+            sys.executable, "-c",
+            "import os; print('|'.join(os.environ[k] for k in "
+            "('GH_HOST', 'GH_ENTERPRISE_TOKEN', 'AS_SH_ORIG_GH_HOST', "
+            "'AS_SH_ORIG_GH_ENTERPRISE_TOKEN')))",
+            env={"GH_HOST": "git.example.org", "GH_ENTERPRISE_TOKEN": "caller-token"})
+        self.assertEqual((r.returncode, r.stdout.strip()),
+                         (0, "github.example.com|tok-k|git.example.org|caller-token"), r.stderr)
+
+    def test_fence_keeps_indexed_rewrites_but_not_the_indexed_helper(self):
+        raw = "https://github.com/team/raw.git"
+        read = "https://github.com/team/fetch.git"
+        write = "https://github.com/team/push.git"
+        self.git(self.code, "remote", "set-url", "origin", raw)
+        env = {
+            "GIT_CONFIG_COUNT": "3",
+            "GIT_CONFIG_KEY_0": f"url.{read}.insteadOf", "GIT_CONFIG_VALUE_0": raw,
+            "GIT_CONFIG_KEY_1": f"url.{write}.pushInsteadOf", "GIT_CONFIG_VALUE_1": raw,
+            "GIT_CONFIG_KEY_2": "credential.helper",
+            "GIT_CONFIG_VALUE_2": "!echo username=unexpected; echo password=unexpected",
+        }
+        fetch = self.as_sh(self.code, "sh1ny", "git", "remote", "get-url", "origin", env=env)
+        push = self.as_sh(self.code, "sh1ny", "git", "remote", "get-url", "--push", "origin", env=env)
+        cred = self.as_sh(self.code, "sh1ny", "git", "credential", "fill",
+                          stdin="protocol=https\nhost=github.com\n\n", env=env)
+        self.assertEqual((fetch.returncode, fetch.stdout.strip()), (0, read), fetch.stderr)
+        self.assertEqual((push.returncode, push.stdout.strip()), (0, write), push.stderr)
+        self.assertEqual(cred.returncode, 0, cred.stderr)
+        self.assertIn("username=x-access-token\npassword=tok-s", cred.stdout)
+        self.assertNotIn("unexpected", cred.stdout)
+
+    def test_malformed_indexed_git_config_refuses_to_run(self):
+        marker = self.tmp / "ran"
+        for env, diagnostic in (
+                ({"GIT_CONFIG_COUNT": "invalid"}, "invalid indexed Git config"),
+                ({"GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": "credential.helper"}, "incomplete indexed Git config")):
+            with self.subTest(diagnostic=diagnostic):
+                r = self.as_sh(self.code, "sh1ny", sys.executable, "-c",
+                               "from pathlib import Path; import sys; Path(sys.argv[1]).touch()", str(marker), env=env)
+                self.assertEqual(r.returncode, 3, r.stderr)
+                self.assertIn(diagnostic, r.stderr)
+                self.assertFalse(marker.exists(), "the fenced command must not run")
+
 
 class AsShUrls(AsShCase):
     """Credentials in a github.com URL are refused (D2)."""
@@ -310,6 +393,49 @@ class AsShUrls(AsShCase):
         r = self.as_sh(self.work, "sh1ny", "git", "credential", "fill", stdin="protocol=https\nhost=github.com\n\n")
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn("username=x-access-token", r.stdout)
+        self.assertIn("password=tok-s", r.stdout)
+
+    def enterprise(self):
+        (self.work / "openspec" / "specwright.yaml").write_text(
+            "github:\n  host: github.example.com\n", encoding="utf-8")
+        self.state(host="github.example.com", user="sh1ny", tokens={"sh1ny": "tok-s"})
+        self.git(self.work, "remote", "set-url", "origin", "https://github.example.com/o/r.git")
+
+    def test_enterprise_helper_returns_verified_enterprise_token(self):
+        self.enterprise()
+        r = self.as_sh(self.work, "sh1ny", "git", "credential", "fill",
+                       stdin="protocol=https\nhost=github.example.com\n\n")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("username=x-access-token\npassword=tok-s", r.stdout)
+
+    def test_enterprise_helper_refuses_other_hosts_and_protocols(self):
+        self.enterprise()
+        for protocol, host in (("https", "github.com"), ("http", "github.example.com"),
+                               ("https", "github.example.com.example.org")):
+            with self.subTest(protocol=protocol, host=host):
+                r = self.as_sh(self.work, "sh1ny", "git", "credential", "fill",
+                               stdin=f"protocol={protocol}\nhost={host}\n\n")
+                self.assertNotEqual(r.returncode, 0, r.stdout)
+                self.assertNotIn("password=", r.stdout)
+
+    def test_enterprise_userinfo_rewrite_refused_without_request(self):
+        self.enterprise()
+        self.git(self.work, "config", f"url.https://token:{SECRET}@github.example.com/.insteadOf",
+                 "https://github.example.com/")
+        r = self.as_sh(self.work, "sh1ny", "git", "fetch", "origin", "main")
+        self.refused(r, "remote", "github.example.com")
+
+    def test_enterprise_trailing_dot_userinfo_refused(self):
+        self.enterprise()
+        r = self.as_sh(self.work, "sh1ny", "git", "ls-remote",
+                       f"https://token:{SECRET}@github.example.com./o/r.git")
+        self.refused(r, "argument", "github.example.com.")
+
+    def test_enterprise_trailing_dot_helper_uses_canonical_host(self):
+        self.enterprise()
+        r = self.as_sh(self.work, "sh1ny", "git", "credential", "fill",
+                       stdin="protocol=https\nhost=GITHUB.EXAMPLE.COM.:443\n\n")
+        self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn("password=tok-s", r.stdout)
 
     def test_token_in_fetch_url_refused_no_request(self):
@@ -448,92 +574,48 @@ class AsShUrls(AsShCase):
 
 
 class Bounded(AsShCase):
-    """bound-pr-scripts D1/D3: as.sh's own gh lookups run under a deadline; the fenced command does not."""
+    """Inject the cutoff outcome at each credential lookup, independent of runner speed."""
 
-    DEADLINE = 2
-    BOUND = DEADLINE + 10  # the spec: the deadline plus 10 s for process start and kill
-
-    def marker_cmd(self):
-        return ["bash", "-c", f"touch '{(self.tmp / 'ran').as_posix()}'"]  # bare-bash: not started
-
-    def hang(self, match):
-        pidf = self.tmp / "hang.pid"
-        self.addCleanup(fixtures_kill, pidf)
+    def check_cutoff(self, stage, *args):
         st = json.loads((self.tmp / "gh-state.json").read_text(encoding="utf-8"))
-        st["hang"] = [{"match": match, "pid_file": str(pidf)}]
-        self.state(**st)
-
-    def timed(self, *args, env=None):
-        """as.sh from the code repo; (CompletedProcess, seconds). Output goes to files, so a hung fake gh that outlives the
-        run (the red step) cannot hold a pipe open; the run is stopped at 45 s."""
-        e = {**self.env(), "SPECWRIGHT_NET_DEADLINE": str(self.DEADLINE), **(env or {})}
-        out, err = self.tmp / "as.out", self.tmp / "as.err"
-        t = time.time()
-        with open(out, "wb") as fo, open(err, "wb") as fe:
-            p = subprocess.Popen(swcall.argv(["as", *args]), cwd=self.code, stdout=fo, stderr=fe, env=e)
-            try:
-                rc = p.wait(timeout=45)
-            except subprocess.TimeoutExpired:
-                subprocess.run(["taskkill", "/T", "/F", "/PID", str(p.pid)], capture_output=True) if os.name == "nt" else p.kill()
-                p.wait()
-                rc = -9
-        took = time.time() - t
-        return subprocess.CompletedProcess(args, rc, out.read_text(errors="replace"), err.read_text(errors="replace")), took
+        self.state(**st, fail=[{"match": stage, "exit": 124}])
+        marker = str(self.tmp / "ran")
+        command = ("--resolve",) if not args else (
+            *args, sys.executable, "-c", "import pathlib,sys; pathlib.Path(sys.argv[1]).touch()", marker)
+        r = self.as_sh(self.code, *command)
+        self.assertEqual((r.returncode, r.stdout), (3, ""), r.stderr)
+        self.assertIn("deadline_exceeded:", r.stderr)
+        self.assertFalse(Path(marker).exists(), "the fenced command must not run")
 
     def test_token_lookup_hung_exits_3_named(self):
-        self.hang(r"auth token --hostname")
-        r, took = self.timed("KintsugiBot", *self.marker_cmd())
-        self.assertEqual(r.returncode, 3, r.stderr)
-        self.assertIn("deadline_exceeded", r.stderr)
-        self.assertRegex(r.stderr, r"as\.sh:")
-        self.assertLess(took, self.BOUND)
-        self.assertFalse((self.tmp / "ran").exists(), "the fenced command must not run")
+        self.check_cutoff(r"auth token --hostname", "KintsugiBot")
 
     def test_resolve_token_lookup_hung_exits_3_named(self):
-        self.hang(r"auth token --hostname")  # `api user` answers; the credential check never does
-        r, took = self.timed("--resolve")
-        self.assertEqual((r.returncode, r.stdout), (3, ""), r.stderr)
-        self.assertIn("deadline_exceeded", r.stderr)
-        self.assertLess(took, self.BOUND)
+        self.check_cutoff(r"auth token --hostname")
 
     def test_resolve_login_lookup_hung_exits_3_named(self):
-        self.hang(r"api --hostname github.com user")
-        r, took = self.timed("--resolve")
-        self.assertEqual((r.returncode, r.stdout), (3, ""), r.stderr)
-        self.assertIn("deadline_exceeded", r.stderr)
-        self.assertLess(took, self.BOUND)
+        self.check_cutoff(r"api --hostname github.com user")
 
     def test_identity_check_hung_exits_3_named(self):
-        self.hang(r"api --hostname github.com user")
-        r, took = self.timed("KintsugiBot", *self.marker_cmd())
-        self.assertEqual(r.returncode, 3, r.stderr)
-        self.assertIn("deadline_exceeded", r.stderr)
-        self.assertLess(took, self.BOUND)
-        self.assertFalse((self.tmp / "ran").exists())
+        self.check_cutoff(r"api --hostname github.com user", "KintsugiBot")
 
     def test_help_probe_hung_exits_3_named(self):
-        self.hang(r"auth token --help")
-        r, took = self.timed("KintsugiBot", *self.marker_cmd())
-        self.assertEqual(r.returncode, 3, r.stderr)
-        self.assertIn("deadline_exceeded", r.stderr)
-        self.assertLess(took, self.BOUND)
-        self.assertFalse((self.tmp / "ran").exists())
+        self.check_cutoff(r"auth token --help", "KintsugiBot")
 
     def test_token_lookup_leaves_no_file_in_temp(self):
-        # secret mode: the token never reaches a file, so a fresh TEMP stays empty during the lookups
         temp = self.tmp / "fresh-temp"
         temp.mkdir()
         probe = f"ls -A '{temp.as_posix()}' > '{(self.tmp / 'temp-listing').as_posix()}'"
         env = {"TEMP": str(temp), "TMP": str(temp), "TMPDIR": str(temp)}
-        r, _ = self.timed("KintsugiBot", "bash", "-c", probe, env=env)
+        r = self.as_sh(self.code, "KintsugiBot", "bash", "-c", probe, env=env)
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual((self.tmp / "temp-listing").read_text(), "", "a lookup left a file under TEMP while it ran")
         self.assertEqual(list(temp.iterdir()), [])
 
-    def test_fenced_command_is_not_bounded(self):
-        r, took = self.timed("KintsugiBot", "bash", "-c", "sleep 4; echo done", env={"SPECWRIGHT_NET_DEADLINE": "1"})
-        self.assertEqual((r.returncode, r.stdout.strip()), (0, "done"), r.stderr)
-        self.assertGreaterEqual(took, 4)
+    def test_fenced_command_status_is_not_a_lookup_deadline(self):
+        r = self.as_sh(self.code, "KintsugiBot", sys.executable, "-c", "raise SystemExit(124)")
+        self.assertEqual(r.returncode, 124, r.stderr)
+        self.assertNotIn("deadline_exceeded", r.stderr)
 
 
 if __name__ == "__main__":

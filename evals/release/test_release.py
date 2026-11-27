@@ -12,7 +12,6 @@ import os
 import subprocess
 import sys
 import tempfile
-import time
 import unittest
 from pathlib import Path
 
@@ -1256,8 +1255,7 @@ CODE_SLUG = "acme/code"
 
 
 class GhFlow(Flow):
-    """A `gh` fake on PATH backed by evals/fakes/gh.py, and a code repo whose origin looks like github.com but reaches a
-    local bare repository through `url.<bare>.insteadOf`.
+    """A fake `gh` on PATH and a Git test transport that serves GitHub URLs from local bare repositories.
 
     The fake is written with fakeexe.write_fake as an `.exe` on Windows (it receives `%` and quotes in `--jq` and templates,
     which a `.cmd` refuses), so `sw` finds it. It logs every call to FAKE_GH_LOG; a publish or a store-backed read that
@@ -1279,19 +1277,23 @@ class GhFlow(Flow):
         return out
 
     def env(self):
-        e = {k: v for k, v in os.environ.items() if k not in ("GH_TOKEN", "GITHUB_TOKEN", "GH_REPO", "GH_HOST")}
-        e.update({"PATH": str(self.tmp / "bin") + os.pathsep + e.get("PATH", ""), "FAKE_GH_STATE": str(self.gh_state),
-                  "FAKE_GH_LOG": str(self.gh_log), "GH_REPO": "someone/else"})  # an inherited GH_REPO must not reach gh
+        e = {k: v for k, v in os.environ.items() if k not in (
+            "GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN", "GH_REPO", "GH_HOST")}
+        e.update({"PATH": os.pathsep.join((str(self.tmp / "bin"), str(fx.transport_git(self.tmp).parent), e.get("PATH", ""))),
+                  "FAKE_GH_STATE": str(self.gh_state), "FAKE_GH_LOG": str(self.gh_log),
+                  "GH_REPO": "someone/else"})  # an inherited GH_REPO must not reach gh
         return fx.sw_env(e)
 
     def save(self):
         self.gh_state.write_text(json.dumps(self.state), encoding="utf-8")
 
     def connect(self):
-        """origin keeps a GitHub-form URL (release.sh derives the gh repo from it); git reaches the local bare repo."""
+        """Serve the canonical GitHub URL from the test's bare endpoint."""
         url = f"https://github.com/{CODE_SLUG}.git"
         fx.git(self.work, "config", "remote.origin.url", url)
-        fx.git(self.work, "config", f"url.{(self.tmp / 'origin.git').as_posix()}.insteadOf", url)
+        fx.route_github_git(self.tmp, url, self.tmp / "origin.git")
+        settings = self.work / "openspec/specwright.yaml"
+        settings.write_text(settings.read_text(encoding="utf-8") + "github:\n  fence: false\n", encoding="utf-8")
         return self.tmp / "origin.git"
 
     def gh_calls(self):
@@ -1320,6 +1322,49 @@ class TestStoreNotes(GhFlow):
         code, doc, raw = self.release("status", "--version", version, "--store", str(store), *extra, env=self.env())
         self.assertEqual(code, expect, raw)
         return doc
+
+    def test_release_notes_resolve_independent_named_remotes(self):
+        self.code()
+        fx.git(self.work, "remote", "rename", "origin", "publishing")
+        store = fx.make_store(self.tmp)
+        old = fx.git(store, "rev-parse", "HEAD")
+        fx.git(store, "update-ref", "refs/remotes/origin/main", old)
+        fx.git(store, "switch", "-qc", "plans-main")
+        fx.archive_in_store(store, "add-x", "Selected planning main.")
+        plans = self.tmp / "plans.git"
+        fx.git(self.tmp, "init", "-q", "--bare", "-b", "plans-main", str(plans))
+        fx.git(store, "remote", "add", "plans", str(plans))
+        fx.git(store, "push", "-q", "plans", "plans-main")
+        settings = self.work / "openspec/specwright.yaml"
+        settings.write_text(settings.read_text(encoding="utf-8") +
+                            "remote: publishing\nplanning_store:\n  remote: plans\n  main_branch: plans-main\n",
+                            encoding="utf-8")
+        sha = fx.squash_merge(self.work, "add-x", "0.4.2", 90)
+        fx.git(self.work, "push", "-q", "publishing", "main")
+        self.pull(90, "add-x", sha)
+        self.state["repos"][CODE_SLUG]["remote_tags"] = ["v0.4.2"]
+        self.save()
+        code, doc, raw = self.release("publish", "--version", "0.4.2", "--store", str(store), env=self.env())
+        self.assertEqual(code, 0, raw)
+        self.assertIn("Selected planning main.", doc["notes"])
+        self.assertEqual(doc["store"]["main"], "plans/plans-main")
+        self.assertTrue(any(f"repos/{CODE_SLUG}/pulls?state=closed&base=main&" in a
+                            for c in self.gh_calls() for a in c["argv"]))
+
+    def test_release_notes_exclude_archive_only_on_manual_share_branch(self):
+        self.code()
+        store = fx.make_store(self.tmp)
+        fx.git(store, "switch", "-qc", "feat/add-x")
+        fx.archive_in_store(store, "add-x", "A branch-only archive.")
+        sha = fx.squash_merge(self.work, "add-x", "0.4.2", 90)
+        fx.push(self.work)
+        self.pull(90, "add-x", sha)
+        self.save()
+        code, doc, raw = self.release("publish", "--version", "0.4.2", "--store", str(store), env=self.env())
+        self.assertEqual(code, 0, raw)
+        self.assertNotIn("A branch-only archive.", doc["notes"])
+        self.assertEqual(doc["store"]["main"], "main")
+        self.assertEqual(fx.git(store, "tag", "-l"), "")
 
     def test_other_prefix_is_not_proof(self):
         # add-x's branch is feat/add-x, so a merged docs/add-x PR is no proof; fix-y's branch is bugfix/fix-y.
@@ -1381,6 +1426,7 @@ class TestStoreNotes(GhFlow):
         self.code()
         store = fx.make_store(self.tmp, [("add-x", "X reason.", False)])
         sha = fx.squash_merge(self.work, "add-x", "0.4.2", 90)
+        fx.push(self.work)
         self.pull(90, "add-x", sha)
         doc = self.store_status(store, "0.4.2")
         self.assertEqual(Path(doc["tag_repo"]).resolve(), self.work.resolve())
@@ -1437,6 +1483,7 @@ class PubFlow(GhFlow):
         self.bare = self.connect()
         fx.push(self.work)
         self.rc = fx.squash_merge(self.work, "add-x", "0.5.0", 7)
+        fx.push(self.work)
 
     def publish(self, version="0.5.0", *extra, env=None):
         self.save()
@@ -1465,6 +1512,234 @@ class PubFlow(GhFlow):
 
     def contents(self, tag=None):
         return fx.git(self.work, "tag", "-l", "--format=%(contents)", tag or self.TAG)
+
+
+class TestReleaseProof(PubFlow):
+    def prove(self, env=None):
+        self.save()
+        return self.release("prove-main", "--main", "main", env=env or self.env())
+
+    def redirect_tracking(self):
+        fx.push(self.work)
+        fx.git(self.work, "config", "remote.origin.fetch", "+refs/heads/*:refs/custom/published/*")
+        fx.git(self.work, "update-ref", "refs/remotes/origin/main", self.base)
+
+    def test_feature_branch_cannot_be_used_as_release_main(self):
+        fx.git(self.work, "update-ref", "refs/heads/feature", self.rc)
+        fx.git(self.work, "push", "-q", "origin", "refs/heads/feature:refs/heads/feature")
+        fx.git(self.work, "update-ref", "refs/heads/main", self.base, self.rc)
+        fx.git(self.work, "push", "-q", "--force", "origin", "refs/heads/main:refs/heads/main")
+        for command, flags in [("prove-main", ["--main", "feature"]),
+                               ("publish", ["--version", "0.5.0", "--base", "feature"])]:
+            code, doc, raw = self.release(command, *flags, env=self.env())
+            self.assertEqual((code, doc["error"]), (2, "release_main_mismatch"), raw)
+        self.assertEqual(fx.git(self.work, "tag", "-l"), "")
+        self.assertEqual(fx.git(self.bare, "tag", "-l"), "")
+        self.assertEqual(self.gh_calls(), [])
+
+    def test_off_host_publish_refuses_history_not_on_local_main(self):
+        fx.git(self.work, "remote", "set-url", "origin", str(self.bare))
+        fx.git(self.work, "reset", "--hard", self.base)
+        fx.git(self.work, "merge", "--no-ff", "-s", "ours", "-m", "Merge without the bump", self.rc)
+        code, doc, raw = self.publish("0.5.0", "--main", self.rc)
+        self.assertEqual((code, doc.get("error")), (2, "release_main_mismatch"), raw)
+        self.assertEqual(fx.git(self.work, "tag", "-l"), "")
+        self.assertEqual(fx.git(self.bare, "tag", "-l"), "")
+        self.assertEqual(self.gh_calls(), [])
+
+    def test_github_release_refuses_off_host_fetch_and_push_rewrite(self):
+        mirror = self.tmp / "unexpected-mirror.git"
+        fx.git(self.tmp, "clone", "-q", "--bare", str(self.bare), str(mirror))
+        url = f"https://github.com/{CODE_SLUG}.git"
+        fx.git(self.work, "config", f"url.{mirror.as_posix()}.insteadOf", url)
+        self.assertEqual(fx.git(self.work, "remote", "get-url", "origin"), mirror.as_posix())
+        self.state["repos"][CODE_SLUG]["remote_tags"] = [self.TAG]
+        for command, args in (("prove-main", ()), ("publish", ("--version", "0.5.0"))):
+            with self.subTest(command=command):
+                self.save()
+                code, doc, raw = self.release(command, *args, env=self.env())
+                self.assertEqual((code, doc.get("error")), (1, "push_url_mismatch"), raw)
+        for repo in (self.work, self.bare, mirror):
+            self.assertEqual(fx.git(repo, "tag", "-l"), "")
+        self.assertEqual(self.gh_calls(), [])
+
+    def test_release_main_can_be_detected_from_selected_remote_tracking_branch(self):
+        fx.git(self.work, "remote", "rename", "origin", "publishing")
+        fx.git(self.work, "push", "-q", "publishing", "main:master")
+        fx.git(self.work, "checkout", "-q", "--detach")
+        fx.git(self.work, "branch", "-D", "main")
+        settings = self.work / "openspec/specwright.yaml"
+        settings.write_text(settings.read_text(encoding="utf-8") + "\nremote: publishing\n", encoding="utf-8")
+        self.assertEqual(fx.git(self.work, "rev-parse", "refs/remotes/publishing/master"), self.rc)
+        fx.git(self.work, "update-ref", "-d", "refs/remotes/publishing/main")
+        self.save()
+        code, proof, raw = self.release("prove-main", "--main", "master", env=self.env())
+        self.assertEqual(code, 0, raw)
+        self.assertEqual((proof["main_branch"], proof["commit"]), ("master", self.rc))
+
+    def test_release_proof_rejected_after_main_branch_changes(self):
+        code, proof, raw = self.prove()
+        self.assertEqual(code, 0, raw)
+        fx.git(self.work, "branch", "new-main", self.base)
+        settings = self.work / "openspec/specwright.yaml"
+        settings.write_text(settings.read_text(encoding="utf-8") + "\nmain_branch: new-main\n", encoding="utf-8")
+        code, doc, raw = self.publish("0.5.0", "--proof", proof["proof"])
+        self.assertEqual((code, doc["error"]), (1, "release_target_changed"), raw)
+        self.assertEqual(fx.git(self.work, "tag", "-l"), "")
+        self.assertEqual(fx.git(self.bare, "tag", "-l"), "")
+        self.assertEqual(self.gh_calls(), [])
+
+    def test_fetched_proof_cannot_be_reused_without_its_checkout_receipt(self):
+        code, proof, raw = self.prove()
+        self.assertEqual(code, 0, raw)
+        other = self.tmp / "another-checkout"
+        fx.git(self.work, "worktree", "add", "--detach", str(other), self.rc)
+        settings = self.work / "openspec/specwright.yaml"
+        fx.write(other, "openspec/specwright.yaml", settings.read_text(encoding="utf-8"))
+        stamp = "openspec/.specwright/VERSION"
+        fx.write(other, stamp, (self.work / stamp).read_text(encoding="utf-8"))
+        code, doc, raw = self.release("publish", "--version", "0.5.0", "--proof", proof["proof"],
+                                      cwd=other, env=self.env())
+        self.assertEqual((code, doc["error"]), (1, "release_proof_missing"), raw)
+        self.assertEqual(fx.git(self.work, "tag", "-l"), "")
+        self.assertEqual(fx.git(self.bare, "tag", "-l"), "")
+        self.assertEqual(self.gh_calls(), [])
+
+    def test_release_proof_ignores_stale_standard_tracking_ref(self):
+        self.redirect_tracking()
+        fx.git(self.work, "update-ref", "refs/heads/main", self.base, self.rc)
+        code, doc, raw = self.publish()
+        self.assertEqual(code, 0, raw)
+        self.assertEqual(doc["release_commit"], self.rc)
+        self.assertEqual(fx.git(self.bare, "rev-parse", f"{self.TAG}^{{commit}}"), self.rc)
+        self.assertEqual(fx.git(self.work, "rev-parse", "refs/remotes/origin/main"), self.base)
+        self.assertEqual(fx.git(self.work, "for-each-ref", "refs/custom/published", "refs/specwright/release"), "")
+
+    def test_release_proof_keeps_its_own_commit_across_other_fetch(self):
+        self.redirect_tracking()
+        other = self.tmp / "other.git"
+        fx.git(self.tmp, "init", "-q", "--bare", "-b", "main", str(other))
+        second = fx.squash_merge(self.work, "add-y", "0.6.0", 8)
+        fx.git(self.work, "push", "-q", str(other), "refs/heads/main:refs/heads/main")
+        flag = self.tmp / "another-fetch-completed"
+        fakeexe.write_python_fake(self.tmp / "bin" / "git", f"""
+import subprocess, sys
+from pathlib import Path
+args = sys.argv[1:]
+git = {str(fx.transport_git(self.tmp))!r}
+result = subprocess.call([git, *args])
+if result == 0 and args[0] == "fetch" and any(":refs/specwright/release/" in s for s in args):
+    subprocess.run([git, "fetch", {str(other)!r}, "refs/heads/main"], check=True)
+    Path({str(flag)!r}).touch()
+sys.exit(result)
+""")
+        code, proof, raw = self.prove()
+        self.assertEqual(code, 0, raw)
+        self.assertTrue(flag.exists(), "the second completed fetch must run before proof is returned")
+        self.assertEqual(fx.git(self.work, "rev-parse", "FETCH_HEAD"), second)
+        self.assertEqual(proof["commit"], self.rc)
+        self.assertEqual((proof["main_branch"], fx.git(self.work, "rev-parse", "refs/remotes/origin/main")),
+                         ("main", self.base))
+        self.assertEqual(fx.git(self.work, "rev-parse", "refs/heads/main"), second)
+        self.assertEqual(fx.git(self.work, "for-each-ref", "refs/specwright/release", "refs/tags"), "")
+        code, doc, raw = self.publish("0.5.0", "--proof", proof["proof"])
+        self.assertEqual(code, 0, raw)
+        self.assertEqual(doc["release_commit"], self.rc)
+        self.assertNotIn("add-y", doc["notes"])
+
+    def test_release_proof_rejected_after_remote_changes(self):
+        self.redirect_tracking()
+        code, proof, raw = self.prove()
+        self.assertEqual(code, 0, raw)
+        other = self.tmp / "other.git"
+        fx.git(self.tmp, "init", "-q", "--bare", "-b", "main", str(other))
+        fx.git(self.work, "remote", "set-url", "origin", str(other))
+        code, doc, raw = self.publish("0.5.0", "--proof", proof["proof"])
+        self.assertEqual((code, doc["error"]), (1, "release_target_changed"), raw)
+        self.assertEqual(fx.git(self.work, "tag", "-l"), "")
+        self.assertEqual(fx.git(other, "tag", "-l"), "")
+        self.assertEqual(self.gh_calls(), [])
+
+    def use_enterprise(self, *, fence=False):
+        host, name = "github.example.com", "publishing"
+        bare = self.tmp / "publishing.git"
+        fx.git(self.tmp, "init", "-q", "--bare", "-b", "main", str(bare))
+        url = f"https://{host}/{CODE_SLUG}.git" if fence else f"git@{host}:{CODE_SLUG}.git"
+        fx.git(self.work, "remote", "add", name, url)
+        fx.route_github_git(self.tmp, url, bare)
+        fx.git(self.work, "push", "-q", name, "main")
+        settings = self.work / "openspec/specwright.yaml"
+        source = settings.read_text(encoding="utf-8").split("github:\n", 1)[0]
+        settings.write_text(source + f"remote: {name}\ngithub:\n  host: {host}\n"
+                            + ("  login: KintsugiBot\n" if fence else "  fence: false\n"), encoding="utf-8")
+        self.state.update(host=host)
+        self.state["repos"][CODE_SLUG]["remote_tags"] = [self.TAG]
+        return host, bare, url
+
+    def test_publish_release_targets_enterprise_host(self):
+        host, bare, _ = self.use_enterprise()
+        env = {**self.env(), "GH_HOST": host, "GH_ENTERPRISE_TOKEN": "tok"}
+        code, doc, raw = self.publish(env=env)
+        self.assertEqual(code, 0, raw)
+        self.assertEqual(doc["release_url"], f"https://{host}/{CODE_SLUG}/releases/tag/{self.TAG}")
+        self.assertEqual(fx.git(bare, "rev-parse", f"{self.TAG}^{{commit}}"), self.rc)
+        self.assertEqual(fx.git(self.bare, "tag", "-l"), "")
+        self.assertTrue(self.gh_calls())
+        self.assertTrue(all(c["env"]["GH_HOST"] == host and c["env"]["GH_ENTERPRISE_TOKEN"] == "tok"
+                            and c["gh_repo"] is None for c in self.gh_calls()))
+        calls_before = len(self.creates())
+        self.state = json.loads(self.gh_state.read_text(encoding="utf-8"))
+        fx.git(self.work, "tag", "-d", self.TAG)
+        code, resumed, raw = self.publish(env=env)
+        self.assertEqual(code, 0, raw)
+        self.assertEqual((resumed["tag_local"], resumed["tag_remote"], resumed["github_release"]),
+                         ("fetched", "existing", "existing"))
+        self.assertEqual(len(self.creates()), calls_before)
+        self.assertEqual(fx.git(self.bare, "tag", "-l"), "")
+
+    def test_publish_refuses_ambient_token_for_unapproved_host_before_writing(self):
+        host, bare, _ = self.use_enterprise()
+        env = {**self.env(), "GH_HOST": "elsewhere.example.com", "GH_ENTERPRISE_TOKEN": "tok"}
+        code, doc, raw = self.publish(env=env)
+        self.assertEqual((code, doc.get("error")), (3, "ambient_token_host_mismatch"), raw)
+        self.assertIn(host, doc["message"])
+        self.assertEqual(self.gh_calls(), [])
+        for repo in (self.work, bare):
+            self.assertEqual(fx.git(repo, "tag", "-l"), "")
+
+    def test_publish_refuses_named_remote_push_to_fork(self):
+        host, bare, _ = self.use_enterprise()
+        fork = self.tmp / "fork.git"
+        fx.git(self.tmp, "init", "-q", "--bare", "-b", "main", str(fork))
+        url = f"https://{host}/fork/code.git"
+        fx.git(self.work, "config", "remote.publishing.pushurl", url)
+        fx.route_github_git(self.tmp, url, fork)
+        code, doc, raw = self.publish()
+        self.assertEqual((code, doc["error"]), (1, "push_url_mismatch"), raw)
+        self.assertIn("publishing fetches", doc["message"])
+        for repo in (self.work, bare, fork, self.bare):
+            self.assertEqual(fx.git(repo, "tag", "-l"), "")
+        self.assertEqual(self.gh_calls(), [])
+
+    def test_publish_refuses_rewrite_to_other_enterprise_repo(self):
+        host, _, url = self.use_enterprise()
+        fx.git(self.work, "config", f"url.https://{host}/other/code.git.insteadOf", url)
+        code, doc, raw = self.publish()
+        self.assertEqual((code, doc["error"]), (1, "push_url_mismatch"), raw)
+        self.assertIn("other/code", doc["message"])
+        self.assertEqual(fx.git(self.work, "tag", "-l"), "")
+        self.assertEqual(self.gh_calls(), [])
+
+    def test_fenced_release_uses_verified_enterprise_token_not_ambient(self):
+        host, bare, _ = self.use_enterprise(fence=True)
+        env = {**self.env(), "GH_ENTERPRISE_TOKEN": "ambient-wrong-token"}
+        code, doc, raw = self.publish(env=env)
+        self.assertEqual(code, 0, raw)
+        self.assertEqual(fx.git(bare, "rev-parse", f"{self.TAG}^{{commit}}"), self.rc)
+        release_calls = [c for c in self.gh_calls() if c["argv"][0] == "release"]
+        self.assertTrue(release_calls)
+        self.assertTrue(all(c["env"]["GH_ENTERPRISE_TOKEN"] == "tok" and c["env"]["GH_HOST"] == host
+                            for c in release_calls))
 
 
 class TestPublish(PubFlow):
@@ -1535,7 +1810,7 @@ class TestPublish(PubFlow):
         fork = self.tmp / "fork.git"
         fx.git(self.tmp, "init", "-q", "--bare", str(fork))
         fx.git(self.work, "config", "remote.origin.pushurl", "https://github.com/someone/fork.git")
-        fx.git(self.work, "config", f"url.{fork.as_posix()}.insteadOf", "https://github.com/someone/fork.git")
+        fx.route_github_git(self.tmp, "https://github.com/someone/fork.git", fork)
         code, doc, raw = self.publish()
         self.assertEqual(code, 1, raw)
         self.assertEqual(doc["error"], "push_url_mismatch")
@@ -1553,7 +1828,6 @@ class TestPublish(PubFlow):
     def test_rewrite_to_another_github_repo_stops(self):
         # insteadOf turns acme/ into me/: the tag would go to me/code while the release names acme/code. Publish stops
         # before any network read.
-        fx.git(self.work, "config", "--unset", f"url.{self.bare.as_posix()}.insteadOf")
         fx.git(self.work, "config", "url.https://github.com/me/.insteadOf", "https://github.com/acme/")
         code, doc, raw = self.publish()
         self.assertEqual(code, 1, raw)
@@ -1639,6 +1913,7 @@ class TestSectionedPublish(PubFlow):
         self.seed_tag()
         files = change_files("bad-y", section("Y.", added=["A"]).replace("### Added", "### Security"))
         fx.squash_merge(self.work, "bad-y", "0.5.1", 8, extra_files=files)
+        fx.push(self.work)
 
     def test_invalid_section_falls_back_with_warning(self):
         self.bad_release()
@@ -1731,7 +2006,8 @@ class TestGithubRelease(PubFlow):
         code, doc, raw = self.publish()
         self.assertEqual(code, 0, raw)
         self.assertEqual(doc["github_release"], "disabled")
-        self.assertEqual(self.gh_calls(), [])
+        self.assertFalse([c for c in self.gh_calls() if c["argv"][0] == "release"])
+        self.gh_log.unlink(missing_ok=True)
         # origin off github.com: the tag is pushed, no release is attempted
         fx.git(self.work, "tag", "-d", self.TAG)
         fx.git(self.bare, "tag", "-d", self.TAG)
@@ -1746,7 +2022,6 @@ class TestGithubRelease(PubFlow):
     def test_shorthand_rewritten_to_github_creates_release(self):
         # origin is a non-GitHub shorthand that insteadOf expands to github.com: git reaches GitHub, so the release is
         # created there and not skipped as not_github. A fake ssh serves the github.com URL from the local bare repo.
-        fx.git(self.work, "config", "--unset", f"url.{self.bare.as_posix()}.insteadOf")
         fx.git(self.work, "config", "remote.origin.url", "corp:acme/code")
         fx.git(self.work, "config", "url.ssh://git@github.com/.insteadOf", "corp:")
         ssh = self.tmp / "fake-ssh"
@@ -1764,50 +2039,46 @@ class TestGithubRelease(PubFlow):
 
 
 class TestBoundedNetwork(PubFlow):
-    """Publish's network commands run under a deadline and a byte bound; a cut-off write is decided by a read-back."""
+    """A write is observed before the byte bound fires; no scheduling or wall-clock comparisons."""
 
-    DEADLINE = 5  # for the tests where a hook or the fake gh must get its work done before the cut-off, on a loaded machine
-    LIMIT = 40  # seconds a red test may take before it fails instead of hanging the suite
+    def install_git(self, *, winner=None, fail_readback=False, retarget=None, flood_read=False):
+        self.git_log = self.tmp / "git-network.jsonl"
+        self.event = self.tmp / "push-acknowledged"
+        fakeexe.write_python_fake(self.tmp / "bin" / "git", f"""
+import json, subprocess, sys
+from pathlib import Path
+git = {str(fx.transport_git(self.tmp))!r}
+args = sys.argv[1:]
+event = Path({str(self.event)!r})
+if args[0] in ("ls-remote", "fetch", "push"):
+    with Path({str(self.git_log)!r}).open("a", encoding="utf-8") as f:
+        f.write(json.dumps(args) + chr(10))
+if args[0] == "ls-remote" and {flood_read!r}:
+    sys.stdout.write("x" * 300000)
+    sys.exit(0)
+if args[0] == "ls-remote" and {fail_readback!r} and event.exists():
+    sys.exit(1)
+if args[0] != "push":
+    sys.exit(subprocess.call([git, *args]))
+winner = {winner!r}
+if winner:
+    subprocess.run([git, "-C", {str(self.bare)!r}, "update-ref", "refs/tags/{self.TAG}", winner], check=True)
+else:
+    subprocess.run([git, *args], check=True)
+retarget = {str(retarget) if retarget else None!r}
+if retarget:
+    subprocess.run([git, "remote", "set-url", "origin", retarget], check=True)
+event.touch()
+sys.stdout.write("x" * 300000)
+""")
 
-    def setUp(self):
-        super().setUp()
-        self.beat = self.tmp / "beat"
-        self.hang = self.tmp / "hang.sh"  # beats a counter for at most 30 s: a process that was not stopped keeps it moving
-        self.script(self.hang, f"i=0\nwhile [ $i -lt 100 ]; do echo $i > '{self.beat.as_posix()}'; sleep 0.3; i=$((i+1)); done\n")
+    def run_publish(self, *extra):
+        return self.publish("0.5.0", *extra, env={**self.env(), "SPECWRIGHT_NET_MAX_BYTES": "100000"})
 
-    # a pre-receive hook may not update refs inside git's quarantine environment; another clone's push did not run in it
-    UNQUARANTINE = "unset GIT_QUARANTINE_PATH GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES\n"
-
-    def script(self, path, body):
-        path.write_text("#!/bin/sh\n" + body, encoding="utf-8", newline="\n")
-        path.chmod(0o755)
-
-    def hook(self, name, body):
-        self.script(self.bare / "hooks" / name, body)
-
-    def run_publish(self, *extra, env=None, deadline=None):
-        """publish under SPECWRIGHT_NET_DEADLINE (DEADLINE seconds) and a timeout of its own; returns (code, doc, raw, seconds)."""
-        self.save()
-        e = {**self.env(), "SPECWRIGHT_NET_DEADLINE": str(deadline or self.DEADLINE), **(env or {})}
-        t0 = time.time()
-        try:
-            r = fx.swcall.run(["release", "publish", "--version", "0.5.0", *extra], cwd=self.work, env=fx.sw_env(e), timeout=self.LIMIT)
-        except subprocess.TimeoutExpired:
-            self.fail(f"publish still running after {self.LIMIT} s: a bound did not stop it")
-        try:
-            doc = json.loads(r.stdout)
-        except ValueError:
-            doc = None
-        return r.returncode, doc, r.stdout + r.stderr, time.time() - t0
-
-    def assertNothingRunning(self):
-        time.sleep(1.0)
-        first = self.beat.read_text() if self.beat.exists() else None
-        time.sleep(1.0)
-        self.assertEqual(first, self.beat.read_text() if self.beat.exists() else None, "a hung process was left running")
+    def calls(self):
+        return [json.loads(line) for line in self.git_log.read_text(encoding="utf-8").splitlines()]
 
     def other_object(self, commit):
-        """A tag object at `commit` that exists in origin's object store (under a non-tag ref) and not in the work tree."""
         fx.git(self.work, "tag", "-a", "other-clone", "-m", "another clone notes", commit)
         obj = self.obj("other-clone")
         fx.git(self.work, "push", "-q", "origin", "refs/tags/other-clone:refs/holder/other")
@@ -1816,106 +2087,86 @@ class TestBoundedNetwork(PubFlow):
 
     def test_untagged_within_deadline_names_no_limit(self):
         self.save()
-        r = fx.swcall.run(["release", "untagged"], cwd=self.work, env={**self.env(), "SPECWRIGHT_NET_DEADLINE": "30"}, timeout=self.LIMIT)
-        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        doc = json.loads(r.stdout)
+        code, doc, raw = self.release("untagged", env=self.env())
+        self.assertEqual(code, 0, raw)
         self.assertEqual([u["version"] for u in doc["untagged"]], ["0.5.0"])
-        self.assertNotIn("deadline_exceeded", r.stdout + r.stderr)
-        self.assertNotIn("response_too_large", r.stdout + r.stderr)
 
-    def test_publish_hung_ls_remote_deadline_exceeded(self):
-        fx.git(self.work, "config", "remote.origin.uploadpack", f"sh {self.hang.as_posix()}")
-        code, doc, raw, took = self.run_publish(deadline=1)
-        self.assertEqual(code, 3, raw)
-        self.assertEqual((doc["ok"], doc["error"]), (False, "deadline_exceeded"), raw)
+    def test_publish_oversized_tag_read_stops_before_writes(self):
+        self.install_git(flood_read=True)
+        code, doc, raw = self.run_publish()
+        self.assertEqual((code, doc["error"]), (3, "response_too_large"), raw)
         self.assertIn("git ls-remote", doc["message"])
-        self.assertLess(took, 1 + 10)
         self.assertEqual(fx.git(self.work, "tag", "-l"), "")
         self.assertEqual(fx.git(self.bare, "tag", "-l"), "")
         self.assertEqual(self.gh_calls(), [])
-        self.assertNothingRunning()
 
     def test_publish_oversized_pr_read_response_too_large(self):
         store = fx.make_store(self.tmp, [("add-x", "X reason.", False)])
         self.state["flood"] = [{"match": "api --paginate", "bytes": 300000}]
-        code, doc, raw, _ = self.run_publish("--store", str(store),
-                                             env={"SPECWRIGHT_NET_MAX_BYTES": "100000", "SPECWRIGHT_NET_DEADLINE": "30"})
-        self.assertEqual(code, 3, raw)
-        self.assertEqual((doc["ok"], doc["error"]), (False, "response_too_large"), raw)
+        code, doc, raw = self.run_publish("--store", str(store))
+        self.assertEqual((code, doc["error"]), (3, "response_too_large"), raw)
         self.assertIn("gh api", doc["message"])
         self.assertEqual(fx.git(self.work, "tag", "-l"), "")
         self.assertEqual(fx.git(self.bare, "tag", "-l"), "")
         self.assertEqual(self.creates(), [])
 
     def test_push_cut_off_after_landing_counts_done(self):
-        self.hook("post-receive", f"sh '{self.hang.as_posix()}'\n")  # the ref is updated, then the push never ends
-        code, doc, raw, took = self.run_publish()
+        self.install_git()
+        code, doc, raw = self.run_publish()
         self.assertEqual(code, 0, raw)
+        self.assertTrue(self.event.exists())
         self.assertEqual((doc["tag_local"], doc["tag_remote"], doc["github_release"]), ("created", "pushed", "created"))
-        self.assertEqual(fx.git(self.bare, "rev-parse", f"{self.TAG}^{{commit}}"), self.rc)
         self.assertEqual(fx.git(self.bare, "rev-parse", self.TAG), self.obj())
         self.assertEqual(len(self.creates()), 1)
-        self.assertNothingRunning()
+        verbs = [a[0] for a in self.calls()]
+        self.assertIn("ls-remote", verbs[verbs.index("push") + 1:])
 
     def test_push_cut_off_other_tag_object_is_tag_mismatch(self):
         other = self.other_object(self.rc)
-        self.hook("pre-receive", f"{self.UNQUARANTINE}git update-ref refs/tags/{self.TAG} {other}\nsh '{self.hang.as_posix()}'\n")
-        code, doc, raw, _ = self.run_publish()
-        self.assertEqual(code, 1, raw)
-        self.assertEqual((doc["ok"], doc["error"]), (False, "tag_mismatch"), raw)
+        self.install_git(winner=other)
+        code, doc, raw = self.run_publish()
+        self.assertEqual((code, doc["error"]), (1, "tag_mismatch"), raw)
         self.assertIn(other[:12], doc["message"])
         self.assertIn(self.obj()[:12], doc["message"])
         self.assertEqual(self.gh_calls(), [])
-        self.assertNothingRunning()
 
     def test_push_cut_off_other_commit_is_tag_conflict(self):
-        other = self.other_object(self.base)
-        self.hook("pre-receive", f"{self.UNQUARANTINE}git update-ref refs/tags/{self.TAG} {other}\nsh '{self.hang.as_posix()}'\n")
-        code, doc, raw, _ = self.run_publish()
-        self.assertEqual(code, 1, raw)
-        self.assertEqual((doc["ok"], doc["error"]), (False, "tag_conflict"), raw)
+        self.install_git(winner=self.other_object(self.base))
+        code, doc, raw = self.run_publish()
+        self.assertEqual((code, doc["error"]), (1, "tag_conflict"), raw)
         self.assertIn(self.base, doc["message"])
         self.assertIn(self.rc, doc["message"])
         self.assertEqual(self.gh_calls(), [])
-        self.assertNothingRunning()
 
     def test_release_create_cut_off_not_found(self):
-        """The cut-off must hit `gh release create` and nothing earlier. With one publish under the 5 s bound, the bound also
-        covers the real `git push` of the tag (and the `ls-remote` reads before it), so on a loaded machine a slow push is cut
-        off first: the run stops with a push limit, not with the release create's, and the assertions below fail (#211). So
-        a first publish runs under the normal bound with `release create` failing: it pushes the tag and stops with
-        release_create_failed. The cut-off run then finds the local and the remote tag done, and only `ls-remote` reads and
-        `gh release view` come before the hung `release create`: the 5 s bound can only reach the call under test. Without
-        the first run the test fails as reported only when the tag push is slow; nothing here measures time."""
-        self.state["fail"] = [{"match": "release create", "stderr": "gh: connection reset"}]
-        code, doc, raw = self.publish()
-        self.assertEqual((code, doc["error"]), (3, "release_create_failed"), raw)
-        self.assertIn(self.TAG, fx.git(self.bare, "tag", "-l"))
-        del self.state["fail"]
-        self.gh_log.unlink()
-        self.state["hang"] = [{"match": "release create", "pid_file": str(self.tmp / "gh.pid")}]
-        code, doc, raw, took = self.run_publish()
-        self.assertEqual(code, 3, raw)
-        self.assertEqual((doc["ok"], doc["error"]), (False, "deadline_exceeded"), raw)
+        self.state["flood"] = [{"match": "release create", "bytes": 300000}]
+        code, doc, raw = self.run_publish()
+        self.assertEqual((code, doc["error"]), (3, "response_too_large"), raw)
         self.assertIn("gh release create", doc["message"])
         self.assertIn("on origin", doc["message"])
-        self.assertIn("re-run", doc["message"])
-        self.assertIn(self.TAG, fx.git(self.bare, "tag", "-l"))
-        self.assertTrue([c for c in self.gh_calls() if c["argv"][:2] == ["release", "view"]])  # the read-back
+        self.assertEqual(fx.git(self.bare, "tag", "-l"), self.TAG)
+        self.assertEqual([c["argv"][1] for c in self.gh_calls()], ["view", "create", "view"])
         self.assertEqual(self.releases(), {})
 
     def test_push_cut_off_read_back_fails_state_unknown(self):
-        fail = self.tmp / "fail.sh"
-        self.script(fail, "echo 'fatal: remote unreachable' >&2\nexit 1\n")
-        self.hook("post-receive", f"unset GIT_DIR\ngit -C '{self.work.as_posix()}' config remote.origin.uploadpack 'sh {fail.as_posix()}'\n"
-                  f"sh '{self.hang.as_posix()}'\n")
-        code, doc, raw, _ = self.run_publish()
-        self.assertEqual(code, 3, raw)
-        self.assertEqual((doc["ok"], doc["error"], doc.get("state")), (False, "deadline_exceeded", "unknown"), raw)
-        self.assertIn("unknown", doc["message"])
+        self.install_git(fail_readback=True)
+        code, doc, raw = self.run_publish()
+        self.assertEqual((code, doc["error"], doc.get("state")), (3, "response_too_large", "unknown"), raw)
+        self.assertTrue(self.event.exists())
         self.assertIn("git push", doc["message"])
         self.assertEqual(self.gh_calls(), [])
-        self.assertNothingRunning()
+
+    def test_publish_readback_does_not_follow_retargeted_remote(self):
+        other = self.tmp / "other.git"
+        fx.git(self.tmp, "init", "-q", "--bare", "-b", "main", str(other))
+        self.install_git(retarget=other)
+        code, doc, raw = self.run_publish()
+        self.assertEqual((code, doc["error"], doc.get("state")), (3, "release_target_changed", "unknown"), raw)
+        self.assertTrue(self.event.exists())
+        self.assertEqual(self.calls()[-1][0], "push")
+        self.assertEqual(fx.git(other, "tag", "-l"), "")
+        self.assertEqual(fx.git(self.bare, "tag", "-l"), self.TAG)
+        self.assertEqual(self.gh_calls(), [])
 
 
 class TestThisRepo(Base):

@@ -21,7 +21,27 @@ String kindOf(List<String> args) {
   if (text.contains('resolveReviewThread')) return 'resolve';
   if (text.contains('/reactions')) return 'react-rest';
   if (text.contains('/replies')) return 'post';
+  if (text.contains('/pulls/comments/')) return 'item-rest';
   return 'other';
+}
+
+GhResult nodeAnswer(
+  List<String> args, [
+  String rev = '5@2026-11-01T10:00:00Z',
+]) {
+  final id = args.firstWhere((arg) => arg.startsWith('id=')).substring(3);
+  return answer(
+    jsonEncode({
+      'type': id.startsWith('T')
+          ? 'PullRequestReviewThread'
+          : id.startsWith('PRRC')
+          ? 'PullRequestReviewComment'
+          : 'IssueComment',
+      'url': 'https://github.com/o/n/pull/7',
+      'root': 55,
+      'rev': rev,
+    }),
+  );
 }
 
 void main() {
@@ -36,15 +56,23 @@ void main() {
     f.onGh = (args) {
       final kind = kindOf(args);
       final custom = overrides[kind];
-      if (custom != null) return custom(args);
+      if (custom != null) {
+        final result = custom(args);
+        return kind == 'rev' && result.exitCode == 0
+            ? nodeAnswer(args, utf8.decode(result.stdout).trim())
+            : result;
+      }
       return switch (kind) {
         'repo' => answer('o/n\n'),
         'pending' => answer('0\n'),
-        'rev' => answer('5@2026-11-01T10:00:00Z\n'),
+        'rev' => nodeAnswer(args),
         'post' => answer('https://github.com/o/n/pull/7#r1\n'),
         'comment' => answer('https://github.com/o/n/pull/7#issuecomment-1\n'),
         'resolve' => answer('resolved: true\n'),
         'react-node' => answer('reacted: THUMBS_UP\n'),
+        'item-rest' => answer(
+          '{"html_url":"https://github.com/o/n/pull/7#r55"}',
+        ),
         'react-rest' => answer('reacted: +1\n'),
         _ => throw StateError('unexpected gh call $args'),
       };
@@ -278,7 +306,7 @@ void main() {
         }
         return switch (kindOf(args)) {
           'pending' => answer('0\n'),
-          'rev' => answer('5@2026-11-01T10:00:00Z\n'),
+          'rev' => nodeAnswer(args),
           'post' => answer('https://github.com/o/n/pull/7#r1\n'),
           'resolve' => answer('resolved: true\n'),
           'react-rest' => answer('reacted: +1\n'),
@@ -331,7 +359,7 @@ void main() {
     });
 
     test(
-      'with no --rev there is no re-read and the marker has no rev',
+      'without --rev a read proves ownership and the marker has no rev',
       () async {
         f.onGh = (args) {
           if (kindOf(args) == 'post') {
@@ -345,6 +373,7 @@ void main() {
           }
           return switch (kindOf(args)) {
             'pending' => answer('0\n'),
+            'rev' => nodeAnswer(args),
             'post' => answer('url\n'),
             _ => throw StateError('$args'),
           };
@@ -353,7 +382,7 @@ void main() {
           await reply(['7', 'thread', 'T', '55', body.path, '--repo', 'o/n']),
           0,
         );
-        expect(kinds(), ['pending', 'post', 'pending']);
+        expect(kinds(), ['pending', 'rev', 'post', 'pending']);
       },
     );
 
@@ -368,7 +397,11 @@ void main() {
             endsWith('<!-- specwright:waiting T -->\n'),
           );
         }
-        return kindOf(args) == 'pending' ? answer('0\n') : answer('url\n');
+        return switch (kindOf(args)) {
+          'pending' => answer('0\n'),
+          'rev' => nodeAnswer(args),
+          _ => answer('url\n'),
+        };
       };
       expect(
         await reply([
@@ -498,7 +531,7 @@ void main() {
         ]),
         1,
       );
-      expect(kinds(), ['pending', 'post']);
+      expect(kinds(), ['pending', 'rev', 'post']);
       expect(f.stderr, 'HTTP 422\n');
     });
 
@@ -530,6 +563,7 @@ void main() {
         }
         return switch (kindOf(args)) {
           'pending' => answer('0\n'),
+          'rev' => nodeAnswer(args),
           'comment' => answer('https://x/1\n'),
           'react-node' => answer('reacted: THUMBS_DOWN\n'),
           _ => throw StateError('$args'),
@@ -548,8 +582,8 @@ void main() {
         ]),
         0,
       );
-      expect(kinds(), ['pending', 'comment', 'react-node']);
-      expect(f.ghCalls[1].sublist(0, 6), [
+      expect(kinds(), ['pending', 'rev', 'comment', 'react-node']);
+      expect(f.ghCalls[2].sublist(0, 6), [
         'pr',
         'comment',
         '7',
@@ -564,7 +598,7 @@ void main() {
   group('react and resolve', () {
     test('react alone checks the pending review and reacts', () async {
       expect(await reply(['7', 'react', 'PRRC_1', '+1', '--repo', 'o/n']), 0);
-      expect(kinds(), ['pending', 'react-node']);
+      expect(kinds(), ['pending', 'rev', 'react-node']);
       expect(f.tempCalls, isEmpty);
     });
 
@@ -592,24 +626,10 @@ void main() {
   });
 
   group('the repository', () {
-    test('is looked up when --repo is not given, after the checks', () async {
+    test('uses the selected Git remote when --repo is not given', () async {
       expect(await reply(['7', 'resolve', 'T']), 0);
-      expect(f.ghCalls.first, [
-        'repo',
-        'view',
-        '--json',
-        'owner,name',
-        '--jq',
-        repoViewJq,
-      ]);
-      expect(f.ghCalls[1].contains('owner=o'), isTrue);
-      expect(f.ghCalls[1].contains('name=n'), isTrue);
-    });
-
-    test('a failed lookup stops with gh\'s status', () async {
-      answers({'repo': (_) => answer('', exit: 1, stderr: 'no repo\n')});
-      expect(await reply(['7', 'resolve', 'T']), 1);
-      expect(f.stderr, 'no repo\n');
+      expect(kinds(), ['pending', 'rev', 'resolve']);
+      expect(f.ghCalls.first, containsAllInOrder(['owner=o', 'name=n']));
     });
   });
 
@@ -645,7 +665,7 @@ void main() {
         ]),
         2,
       );
-      expect(kinds(), ['pending', 'post', 'pending']);
+      expect(kinds(), ['pending', 'rev', 'post', 'pending']);
     });
   });
 
@@ -679,7 +699,7 @@ void main() {
       expect(await withRev(), 3);
       expect(
         f.stderr,
-        'boom\npr-reply: cannot read T to check its revision; nothing was posted\n',
+        'boom\npr-reply: cannot verify T on o/n#7; nothing was posted\n',
       );
     });
 
@@ -750,6 +770,7 @@ void main() {
 
     setUp(() {
       work = Directory.systemTemp.createTempSync('sw-reply-line-');
+      writeAmbientSettings(work);
       bin = Directory('${work.path}\\bin')..createSync();
     });
     tearDown(() => work.deleteSync(recursive: true));

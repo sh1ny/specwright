@@ -17,7 +17,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import test_as_sh as tas  # noqa: E402
-from test_as_sh import ROOT, fixtures_kill, bashexe  # noqa: E402
+from test_as_sh import ROOT, bashexe  # noqa: E402
 
 sys.path.append(str(ROOT / "evals" / "cli"))
 import swharness  # noqa: E402
@@ -242,12 +242,24 @@ class TestGhRepo(ShimCase):
         self.assert_no_gh_repo()
 
 
+def stop_fake_process(pid_file):
+    """Stop only a hung fake started by this test, by the PID it wrote."""
+    try:
+        pid = int(pid_file.read_text())
+        if os.name == "nt":
+            subprocess.run(["taskkill", "/T", "/F", "/PID", str(pid)], capture_output=True)
+        else:
+            os.kill(pid, signal.SIGKILL)
+    except (OSError, ValueError):
+        pass
+
+
 class TestShimProcess(ShimCase):
     DEADLINE = 2
 
     def hang(self, match):
         pidf = self.tmp / "hang.pid"
-        self.addCleanup(fixtures_kill, pidf)
+        self.addCleanup(stop_fake_process, pidf)
         st = json.loads((self.tmp / "gh-state.json").read_text(encoding="utf-8"))
         st["hang"] = [{"match": match, "pid_file": str(pidf)}]
         self.state(**st)

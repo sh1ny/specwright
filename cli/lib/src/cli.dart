@@ -19,6 +19,7 @@ import 'fence/as_command.dart';
 import 'finish/undo_plan.dart';
 import 'process/exec_helper.dart';
 import 'process/platform_tree.dart';
+import 'settings/rules.dart';
 import 'vcs/document.dart' show documentBytes;
 
 const _usage =
@@ -137,8 +138,18 @@ Future<int> runCli(
     return runGateCommand(args.sublist(1), writeOut: outBytes ?? io.stdout.add);
   }
   if (args.isNotEmpty && args.first == 'as') {
+    final GitHubConnection connection;
+    try {
+      connection = githubConnection(
+        loadSettings(readSettingsText([projectRoot(choice.dir)])),
+      );
+    } on SettingsStop catch (stop) {
+      err.write('as.sh: ${stop.message}\n');
+      return stop.code;
+    }
     return runAsCommand(
       args.sublist(1),
+      host: connection.host,
       writeOut: outBytes ?? io.stdout.add,
       writeErr: errBytes ?? io.stderr.add,
     );
@@ -146,6 +157,7 @@ Future<int> runCli(
   if (args.isNotEmpty && args.first == 'pr') {
     return runPrCommand(
       args.sublist(1),
+      project: choice.project,
       writeOut: outBytes ?? io.stdout.add,
       writeErr: errBytes ?? io.stderr.add,
     );

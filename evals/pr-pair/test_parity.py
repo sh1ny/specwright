@@ -323,6 +323,16 @@ class SnapshotParity(PrParity):
 
 
 class ReplyParity(PrParity):
+    def reply_pair(self, *args, **kw):
+        new, old = super().reply_pair(*args, **kw)
+        # PR ownership introduces a mandatory read and replaces the rev-only
+        # lookup. Compare the commands and effects that did not change.
+        def node_read(argv):
+            return argv[:2] == ["api", "graphql"] and any("node(id:$id)" in a for a in argv)
+        new["calls"] = [c for c in new["calls"] if not node_read(c)]
+        old["calls"] = [c for c in old["calls"] if not node_read(c)]
+        return new, old
+
     def thread_case(self):
         tid, c = self.add_thread("rev", "please fix")
         return tid, c
@@ -570,13 +580,14 @@ class PairParity(PrParity):
         raw = json.dumps({"format": fmt, "reviewers": entries}, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
         return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
-    def reviewed(self, which, *logins, head=None):
+    def reviewed(self, which, *logins, head=None, store=False):
         """A snapshot file as pr-snapshot.sh writes it, carrying the digest of this side's own config format."""
         fmt = 2 if which == "new" else 1
-        doc = {"head_oid": head or self.HEAD, "number": 1, "url": f"https://github.com/{self.SLUG}/pull/1",
+        slug = "o/store" if store else self.SLUG
+        doc = {"head_oid": head or self.HEAD, "number": 1, "url": f"https://github.com/{slug}/pull/1",
                "reviewers": [{"login": l, "role": "required", "timeout": 1200, "state": "reported"} for l in logins],
                "reviewer_config": self.digest(fmt, "rev")}
-        f = self.tmp / f"snap-{which}.json"
+        f = self.tmp / (f"snap-{which}-store.json" if store else f"snap-{which}.json")
         f.write_text(json.dumps(doc), encoding="utf-8")
         return fixtures.posix(f)
 
@@ -619,6 +630,12 @@ class PairParity(PrParity):
         doc = json.loads(lines[0])
         return self.shape(doc, True), doc.get("message")
 
+    def comparable_calls(self, calls):
+        return calls
+
+    def comparable_state(self, state):
+        return state
+
     def run_pair(self, *args, cwd=None, code=None):
         """sw's run in `cwd` equals the next recorded run of the frozen side; returns sw's normalized document. `args` may be a
         function of the side when a snapshot file belongs to it. Free text is compared by its fixed prefix (spec:
@@ -636,10 +653,15 @@ class PairParity(PrParity):
         self.assertEqual(canon(paths.node(new_doc)), canon(old_doc), "JSON differs between sw and the record")
         self.assertEqual(new_msg is None, old_msg is None, f"`message` is on one side only\n{new_msg!r}\n{old_msg!r}")
         if old_msg is not None and fixed_prefix(old_msg):
-            self.assertTrue(canon(paths.text(new_msg)).startswith(canon(fixed_prefix(old_msg))), f"message prefix differs: {new_msg!r} vs {old_msg!r}")
+            prefix = fixed_prefix(old_msg)
+            if args[0] == "identity" and prefix.endswith(" is not a GitHub repository: "):
+                prefix = prefix[:-2] + " on github.com: "
+            self.assertTrue(canon(paths.text(new_msg)).startswith(canon(prefix)), f"message prefix differs: {new_msg!r} vs {prefix!r}")
         got = oracle_capture.document(self, new)
-        for key in ("calls", "state"):
-            self.assertEqual(canon(got[key]), canon(old[key]), f"the {key} differ")
+        self.assertEqual(canon(self.comparable_calls(got["calls"])),
+                         canon(self.comparable_calls(old["calls"])), "the calls differ")
+        self.assertEqual(canon(self.comparable_state(got["state"])),
+                         canon(self.comparable_state(old["state"])), "the state differs")
         self.assertEqual(got["stderr"]["lines"], old["stderr"]["lines"], f"stderr lines differ\n{new['stderr']}\n{old['stderr']}")
         for line, fixed in zip(said(new["stderr"]).decode("utf-8", "replace").splitlines(), old["stderr"]["prefixes"]):
             self.assertTrue(canon(paths.text(line)).startswith(canon(fixed)), f"stderr prefix differs: {line!r} vs {fixed!r}")
@@ -747,7 +769,7 @@ class PairParity(PrParity):
     # ---- policy -----------------------------------------------------------------------------------------
     def policy_args(self, *extra, snapshot=True, logins=("rev",)):
         def build(which):
-            args = ["policy", "--repo", self.SLUG, "--head", self.HEAD, *extra]
+            args = ["policy", "--repo", self.SLUG, "--pr", "1", "--head", self.HEAD, *extra]
             if snapshot:
                 args += ["--snapshot", "code=" + self.reviewed(which, *logins)]
             return args
@@ -806,8 +828,9 @@ class PairParity(PrParity):
         self.contents(self.HEAD, self.AGENT)
 
         def build(which):
-            return ["policy", "--repo", self.SLUG, "--head", self.HEAD, "--store", "--snapshot", "code=" + self.reviewed(which, "rev"),
-                    "--snapshot", "store=" + self.reviewed(which, "rev"), "--reviewed-head", "store=" + self.HEAD]
+            return ["policy", "--repo", self.SLUG, "--pr", "1", "--head", self.HEAD, "--store", "--store-repo", "o/store",
+                    "--store-pr", "1", "--snapshot", "code=" + self.reviewed(which, "rev"),
+                    "--snapshot", "store=" + self.reviewed(which, "rev", store=True), "--reviewed-head", "store=" + self.HEAD]
         self.run_pair(build, code=0)
         self.run_pair(self.policy_args("--store"), code=2)
 

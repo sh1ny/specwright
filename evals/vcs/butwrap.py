@@ -10,6 +10,7 @@ import sys
 from pathlib import Path
 
 from butenv import find_but, require_but
+import fakeexe  # butenv puts evals/ on sys.path
 
 WRAPPER = r'''
 import json, os, subprocess, sys
@@ -47,11 +48,7 @@ class ButWrap:
         self.log = scratch.root / "but-wrap-calls.jsonl"
         self.assign = scratch.root / "but-wrap-assign.json"
         self.assign.write_text(json.dumps(assign or {}), encoding="utf-8")
-        (self.dir / "wrap.py").write_text(WRAPPER, encoding="utf-8")
-        shim = self.dir / "but"
-        shim.write_text('#!/bin/sh\nexec "%s" "%s" "$@"\n' % (Path(sys.executable).as_posix(), (self.dir / "wrap.py").as_posix()),
-                        encoding="utf-8", newline="\n")
-        shim.chmod(0o755)
+        fakeexe.write_python_fake(self.dir / "but", WRAPPER)
 
     def set_assignments(self, assign):
         self.assign.write_text(json.dumps(assign), encoding="utf-8")

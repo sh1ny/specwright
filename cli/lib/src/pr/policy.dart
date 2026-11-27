@@ -10,7 +10,11 @@ import '../vcs/codec.dart';
 import '../vcs/document.dart';
 import 'context.dart';
 import 'gh.dart';
+import 'identity.dart';
 import 'pair.dart';
+import 'settings_commands.dart' show prGitHubSettings;
+import 'workflow.dart' show Workflow;
+import 'workflow_transport.dart' show hostGhArgs;
 
 // `sw pr policy`: `pr-pair.sh policy` (pr-pair.sh:2732-2914). The merge policy as the default branch holds it, read
 // from GitHub and never from the work tree (ADR 0020), with the head's copy compared for drift, and whether each
@@ -72,9 +76,15 @@ String _replyMessage(GhResult r) {
   return said.isNotEmpty ? said : 'gh exited ${r.exitCode}';
 }
 
-/// `policy_gh`: one `gh` read, with `sw`'s environment minus `GH_REPO`. A failure or a limit is unknown, a 404 is null.
-Future<String?> _policyGh(PrContext ctx, List<String> args) async {
-  final r = await ctx.gh(args, environment: {...ctx.env}..remove('GH_REPO'));
+typedef _ReadPolicy = Future<String?> Function(List<String> args);
+
+Future<String?> _policyGh(
+  PrContext ctx,
+  List<String> args,
+  String host,
+  Map<String, String> env,
+) async {
+  final r = await ctx.gh(hostGhArgs(args, host), environment: env);
   if (r.limit != null) _unknown('${r.limit!.label}: gh ${args.first}');
   if (r.exitCode != 0) {
     if (_httpStatus(r) == 404) return null;
@@ -140,11 +150,11 @@ String _utf8Sig(Uint8List bytes) {
 
 /// `policy_file`: the settings at [ref] from the contents API, or null when the file is not there (404).
 Future<Map<String, Object?>?> _policyFile(
-  PrContext ctx,
+  _ReadPolicy read,
   String repo,
   String ref,
 ) async {
-  final out = await _policyGh(ctx, [
+  final out = await read([
     'api',
     'repos/$repo/contents/openspec/specwright.yaml?ref=${_quote(ref)}',
   ]);
@@ -347,13 +357,20 @@ Future<int> runPolicy(
     ],
     const {
       '--repo': 'repo',
+      '--pr': 'pr',
+      '--store-repo': 'store_repo',
+      '--store-pr': 'store_pr',
       '--head': 'head',
       '--snapshot': '+snapshot',
       '--reviewed-head': '+reviewed',
     },
   );
   needArgs(a, ['repo', 'head']);
-  final repo = a['repo']!;
+  final settings = await prGitHubSettings(ctx);
+  final connection = settings.connection;
+  final host = connection.host;
+  final repo = prRepoSlug(a['repo']!, host);
+  if (repo == null) pairUsage('--repo must name owner/name on $host');
   final head = a['head']!;
   if (!_hex.hasMatch(head)) {
     pairUsage(
@@ -387,8 +404,48 @@ Future<int> runPolicy(
       (snaps.containsKey('store') || reviewed.containsKey('store'))) {
     pairUsage('--snapshot store= and --reviewed-head store= need --store');
   }
+  int prNumber(String value, String option) {
+    final number = int.tryParse(value);
+    if (number == null || number <= 0 || '$number' != value) {
+      pairUsage('--$option must be a positive PR number');
+    }
+    return number;
+  }
 
-  final body = await _policyGh(ctx, ['api', 'repos/$repo']);
+  needArgs(a, [
+    'pr',
+    if (withStore) ...['store_repo', 'store_pr'],
+  ]);
+  if (!withStore && (a['store_repo'] != null || a['store_pr'] != null)) {
+    pairUsage('--store-repo and --store-pr need --store');
+  }
+  final expected = {'code': (repo, prNumber(a['pr']!, 'pr'))};
+  if (withStore) {
+    final storeRepo = prRepoSlug(a['store_repo']!, host);
+    if (storeRepo == null || storeRepo.toLowerCase() == repo.toLowerCase()) {
+      pairUsage('--store-repo must name a distinct owner/name on $host');
+    }
+    expected['store'] = (storeRepo, prNumber(a['store_pr']!, 'store-pr'));
+  }
+  for (final entry in expected.entries) {
+    final (target, number) = entry.value;
+    final snapshot = snaps[entry.key];
+    if (snapshot is! Map ||
+        snapshot['number'] != number ||
+        !matchesPull(snapshot['url'], host, target, number)) {
+      throw PairStop(
+        'snapshot_target_mismatch',
+        'take a fresh ${entry.key} snapshot of $host/$target#$number',
+        code: 2,
+      );
+    }
+  }
+
+  final env = await Workflow(ctx)
+      .commandEnvironment(connection, settings.login);
+  Future<String?> read(List<String> args) => _policyGh(ctx, args, host, env);
+
+  final body = await read(['api', 'repos/$repo']);
   final String defaultBranch;
   try {
     if (body == null) throw _Unreadable('no body');
@@ -402,8 +459,8 @@ Future<int> runPolicy(
     _unknown('cannot read the default branch of $repo');
   }
   final mainSettings =
-      await _policyFile(ctx, repo, defaultBranch) ?? <String, Object?>{};
-  final headSettings = await _policyFile(ctx, repo, head);
+      await _policyFile(read, repo, defaultBranch) ?? <String, Object?>{};
+  final headSettings = await _policyFile(read, repo, head);
   if (headSettings == null) {
     _unknown('no openspec/specwright.yaml readable at $head');
   }

@@ -82,15 +82,17 @@ class TestReleaseSkill(unittest.TestCase):
             self.assertIn(needle, breaking)
 
     def test_publish_is_fenced_and_fetches_main_only(self):
-        # A user-started publish resolves its run login instead of running unfenced, and step 1 fetches main alone:
-        # `--tags` would fail on a divergent local tag before `sw release` can report tag_mismatch.
         text = read(SKILLS / "specwright-release" / "SKILL.md")
-        publish = paragraph(text, r"\*\*Run login\.\*\*", "the publish run-login rule")
-        self.assertIn("<sw> as --resolve", publish)
+        publish = sections(text)["publish"]
         self.assertIn("github.login", publish)
-        self.assertNotIn("with no run login, plain", text)
-        self.assertNotRegex(text, r"git fetch[^`\n]*--tags")
-        self.assertIn("`--no-tags`", text)  # tagOpt=--tags would otherwise fetch every tag
+        self.assertIn("`run_login` returned by the first GitHub proof", publish)
+        self.assertIn("Omit `--login` in ambient mode", publish)
+        proof = line_with(publish, r"^1\. .*release prove-main", "publish: prove main")
+        self.assertIn("only `refs/heads/<main>`", proof)
+        self.assertRegex(proof, r"leaves [^.]+ tags [^.]+ unchanged")
+        self.assertLess(publish.index(proof), publish.index("<sw> release untagged --proof"))
+        self.assertIn("<sw> release publish --version <version> --proof <proof>", publish)
+        self.assertNotRegex(publish, r"git fetch[^`\n]*--tags")
 
 
     def test_notes_check_names_proposal_in_planning_repo(self):
@@ -244,19 +246,21 @@ class TestShipText(unittest.TestCase):
         ship = self.ship
         step = line_with(ship, r"^   1\. .*<sw> release check --main", "ship: the version check item")
         self.assertRegex(step, r"release\.enabled")
+        self.assertIn("When the code PR is expected", step)
         fetch = step.index("--no-tags")
         self.assertLess(fetch, step.index("check --main"), "the check comes before the fetch")
-        self.assertRegex(step, r"(?is)refus[^.]*stop")
+        self.assertRegex(step, r"(?i)(failed fetch|version_not_ahead_of_main)[^.]*leaves both pushes and PRs untouched")
         self.assertRegex(step, r"(?i)bump")
         # the store is pushed first, so the code repo's check runs once, before either repo is validated or pushed
-        self.assertRegex(step, r"(?i)once,? before either repo")
+        self.assertRegex(step, r"(?i)before validation or either push")
         validate = line_with(ship, r"^   2\. .*validate", "ship: the validate item")
         # every repo of the set runs its own validate, the store's included, before its push
         self.assertRegex(validate, r"(?i)each repo")
         self.assertIn("`planning_store.validate` in the store", validate)
         self.assertIn("`pr.validate` in the code repo", validate)
         self.assertLess(ship.index(step), ship.index(validate), "the check comes after validate")
-        self.assertLess(ship.index(step), ship.index("Push each repo once its validate passed"), "the check comes after the push")
+        push = line_with(ship, r"^   3\. Push each validated repo", "ship: the guarded push item")
+        self.assertLess(ship.index(validate), ship.index(push), "the push comes before validation")
 
 
 class TestVersionCheckOptIn(unittest.TestCase):
@@ -269,7 +273,8 @@ class TestVersionCheckOptIn(unittest.TestCase):
             ("watch", next(l for l in sections(pr)["watch"].splitlines() if "check --main" in l)),
             ("local merge", next(l for l in sections(finish)["local"].splitlines() if "check --main" in l)),
         ):
-            self.assertRegex(line, r"(?i)(only )?with `release\.enabled` true", f"{name}: the check is not tied to release.enabled")
+            self.assertRegex(line, r"(?i)(?:with|and) `release\.enabled` (?:is )?true",
+                             f"{name}: the check is not tied to release.enabled")
         # every mention of the check, in either skill, sits on a line that names release.enabled or points at the Version check
         for text in (pr, finish):
             for l in text.splitlines():

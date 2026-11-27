@@ -485,6 +485,14 @@ class GitAllowlist(unittest.TestCase):
                     "fetch -qx origin", "fetch --depth 1 origin",  # an option off the read-only list is a write
                     "fetch +refs/heads/main:refs/heads/main", "fetch -q +refs/heads/x:refs/remotes/origin/x")  # + in any slot
 
+    def test_main_refresh_allows_only_the_selected_tracking_ref(self):
+        self.reads("fetch -q --refmap= publishing +refs/heads/main:refs/remotes/publishing/main")
+        self.writes("fetch --refmap= publishing +refs/heads/main:refs/heads/main",
+                    "fetch --refmap= publishing +refs/heads/main:refs/remotes/origin/main",
+                    "fetch --refmap= publishing +refs/heads/main:refs/remotes/publishing/master",
+                    "fetch --refmap= publishing +refs/heads/*:refs/remotes/publishing/*",
+                    "fetch --refmap= --tags publishing +refs/heads/main:refs/remotes/publishing/main")
+
     def test_branch_option_off_the_list_is_a_write(self):
         self.writes("branch -uother", "branch -vuother", "branch -fx main", "branch --frobnicate", "branch --sort=x -u other",
                     "branch -a --unset-upstream")
@@ -912,12 +920,6 @@ class ReleaseEvals(unittest.TestCase):
         (run_dir / "outputs").mkdir()
         return run_dir, repo
 
-    @staticmethod
-    def rewrite(repo):
-        """What the fixture's old bash shim gave a release run: the git config that reaches the local bare origin.
-        A native `sw release` is not a bash run, so the command line carries it."""
-        return f"GIT_CONFIG_GLOBAL={fixtures.posix(Path(repo) / 'state' / 'gitconfig-release')} "
-
     def sh(self, repo, script):
         env = dict(os.environ, SPECWRIGHT_HOME=str(vcs_test_support.sw_home()))
         r = subprocess.run([bashexe.bash(), "-c", f"source eval.env && {script}"], cwd=repo, capture_output=True, text=True,
@@ -936,7 +938,7 @@ class ReleaseEvals(unittest.TestCase):
         self.sh(repo, "git status --porcelain && git checkout -q main && git pull -q --ff-only && git fetch -q --no-tags origin main")
 
     def publish(self, repo):
-        return json.loads(self.sh(repo, f"{self.rewrite(repo)}{sw()} as eval-bot {sw()} release --dir . publish --version 0.5.0 --main origin/main"))
+        return json.loads(self.sh(repo, f"{sw()} as eval-bot {sw()} release --dir . publish --version 0.5.0"))
 
     def test_evals_json_lists_the_graders_assertions(self):
         evals = {e["name"]: e for e in json.loads((Path(__file__).resolve().parent / "evals.json").read_text(encoding="utf-8"))["evals"]}
@@ -950,7 +952,7 @@ class ReleaseEvals(unittest.TestCase):
     def test_pr_fixtures_untagged_lists_0_5_0_on_origins_main(self):
         for name in RELEASE_NAMES[:2]:
             _, repo = self.fixture(name)
-            doc = json.loads(self.sh(repo, f"{self.rewrite(repo)}{sw()} release --dir . untagged --main origin/main"))
+            doc = json.loads(self.sh(repo, f"{sw()} release --dir . untagged --main origin/main"))
             self.assertEqual([u["version"] for u in doc["untagged"]], ["0.5.0"], name)
             self.assertEqual(grade.git(repo, "log", "-1", "--format=%s", "origin/main"), "Add greeting (#7)")
             self.assertEqual(self.sh(repo, "git remote get-url origin"), "https://github.com/acme/greeter.git", name)
@@ -970,7 +972,7 @@ class ReleaseEvals(unittest.TestCase):
     def test_offer_run_passes_every_check(self):
         run_dir, repo = self.fixture("eval-finish-release-offer")
         self.cleanup(repo)
-        self.sh(repo, f"{self.rewrite(repo)}{sw()} release --dir . untagged --main origin/main")  # reading the list is allowed
+        self.sh(repo, f"{sw()} release --dir . untagged --main origin/main")  # reading the list is allowed
         res = self.grade("eval-finish-release-offer", run_dir, OFFER_REPORT)
         self.assertTrue(res and not self.failed(res), self.failed(res))
 
@@ -1046,7 +1048,7 @@ class ReleaseEvals(unittest.TestCase):
         run_dir, repo = self.fixture("eval-finish-release-auto")
         self.cleanup(repo)
         self.sh(repo, "git tag -a v0.5.0 -m 'the tag message' && git push -q origin refs/tags/v0.5.0:refs/tags/v0.5.0 "
-                      "&& GIT_CONFIG_GLOBAL=\"$PWD/state/gitconfig-release\" gh release create v0.5.0 --repo acme/greeter --verify-tag "
+                      "&& gh release create v0.5.0 --repo acme/greeter --verify-tag "
                       "--title v0.5.0 -n 'other notes'")
         res = self.grade("eval-finish-release-auto", run_dir, PUBLISHED_REPORT)
         self.assertEqual(self.failed(res), ["The fake gh holds the release, and its body equals the tag's message"])
@@ -1106,16 +1108,17 @@ class ReleaseEvals(unittest.TestCase):
     def test_local_run_passes_every_check(self):
         run_dir, repo = self.fixture("eval-finish-local-release-reported")
         self.local_run(repo)
-        self.sh(repo, f"{self.rewrite(repo)}{sw()} release --dir . untagged --main main")
+        self.sh(repo, f"{sw()} release --dir . untagged --main main")
         res = self.grade("eval-finish-local-release-reported", run_dir, self.LOCAL_REPORT)
         self.assertTrue(res and not self.failed(res), self.failed(res))
-        doc = json.loads(self.sh(repo, f"{self.rewrite(repo)}{sw()} release --dir . untagged --main main"))
+        doc = json.loads(self.sh(repo, f"{sw()} release --dir . untagged --main main"))
         self.assertEqual([u["version"] for u in doc["untagged"]], ["0.5.0"], "main's merge commit carries the release")
 
     def test_local_run_that_publishes_fails(self):
         run_dir, repo = self.fixture("eval-finish-local-release-reported")
         self.local_run(repo)
-        self.sh(repo, f"{self.rewrite(repo)}{sw()} as eval-bot {sw()} release --dir . publish --version 0.5.0 --main main")
+        self.sh(repo, "git tag -a v0.5.0 -m notes && git push -q origin refs/tags/v0.5.0:refs/tags/v0.5.0 "
+                      "&& gh release create v0.5.0 --repo acme/greeter --verify-tag -t v0.5.0 -n notes")
         res = self.grade("eval-finish-local-release-reported", run_dir, "Published v0.5.0.")
         for t in ("No tag was created", "Nothing was pushed: origin keeps its main and has no tag, no git push ran, and no gh release call was made",
                   "The report says v0.5.0 can be published after main is pushed"):
@@ -1867,6 +1870,36 @@ class CompletionWording(unittest.TestCase):
         self.assertEqual(grade.completion_by_repo(rep), {"code": self.BOTH, "store": self.BOTH})
         old = "code: 3 task commits, tree clean\nstore: 3 task commits, tree clean\n"
         self.assertEqual(grade.completion_by_repo(old), {"code": self.BOTH, "store": self.BOTH})
+
+
+class ConnectionWorkflowEvals(GroupGraderCase):
+    def test_archive_handoff_catches_archive_or_sync_and_in_place_edits(self):
+        for suffix in ("local-store", "preedited"):
+            with self.subTest(suffix=suffix):
+                repo = self.fixture("eval-store-archive-before-merge-" + suffix,
+                                    "Share and archive the planning branch feat/add-greeting by hand; no GitHub remote.")
+                reads = json.dumps(["list", "--json"]) + "\n"
+                fixtures.write(repo, "openspec-trace.jsonl", reads)
+                self.assert_passes()
+                for command in ("archive", "sync"):
+                    fixtures.write(repo, "openspec-trace.jsonl", reads + json.dumps([command, "add-greeting"]) + "\n")
+                    self.assert_fails("OpenSpec identified the planning root without invoking archive or spec sync")
+                fixtures.write(repo, "openspec-trace.jsonl", reads)
+                fixtures.write(repo / "store", "openspec/specs/greeting/spec.md", "The agent overwrote the spec.\n")
+                self.assert_fails("Both branch tips and all planning files are unchanged")
+
+    def test_selected_remote_reuse_catches_even_rolled_back_branch_creation(self):
+        repo = self.fixture("eval-store-branch-reused-name-selected",
+                            "Add-csv-export is already archived. Choose another name or abort.")
+        store, code = repo / "store", repo / "code"
+        trace = {**os.environ, "GIT_TRACE": fixtures.posix(repo / "git-trace.log")}
+        fetch = ["git", "fetch", "--refmap=", "plans", "+refs/heads/main:refs/remotes/plans/main"]
+        subprocess.run(fetch, cwd=store, env=trace, check=True, capture_output=True, text=True)
+        self.assert_passes()
+        for args in (("checkout", "-qb", "feat/add-csv-export"), ("checkout", "-q", "main"),
+                     ("branch", "-D", "feat/add-csv-export")):
+            subprocess.run(["git", *args], cwd=code, env=trace, check=True, capture_output=True, text=True)
+        self.assert_fails("No branch creation or other Git write was attempted before refusing the name")
 
 
 if __name__ == "__main__":

@@ -2,7 +2,7 @@
 name: specwright-commit
 description: "MANDATORY during the OpenSpec apply phase: /opsx:apply, openspec-apply-change, `openspec instructions apply`, or the user asks to implement/apply an OpenSpec change. Commits each completed task (with `commit_granularity: group`, each completed task group) on the change branch, verifies the commits when all tasks are done, then hands off to archive or to the PR."
 metadata:
-  version: 0.40.2
+  version: 0.41.0
 user-invocable: false
 allowed-tools: Bash(git *) Bash(openspec *) Bash(*/.specwright/bin/*/sw *) Bash(*/.specwright/bin/*/sw.exe *)
 ---
@@ -71,7 +71,7 @@ One call: `git log <main>..<branch> --oneline` and `<sw> vcs state --branch <bra
 
 Then read `finish` in `openspec/specwright.yaml` (default `local`):
 - `local` → suggest `/opsx:archive`; the user runs it.
-- `pr` → resolve the run login (`github.login`, else one `<sw> as --resolve`; exit 3 stops and tells the user), hand off to `specwright-pr` **ship** stating `run login: <login>`, then offer **watch**. Archive after review settles, on the same branch, before the PR is merged: **watch** offers it once the PR is ready.
+- `pr` → hand off to `specwright-pr` **ship** with `run login: <login>` if already bound, otherwise explicit permission for the first lookup after target inspection (ambient mode needs no login). Offer **watch** only as ship directs. Archive after review settles on the same branch, before merge, for a publishable change that watch reports ready.
 
 Never commit on main, push from this skill, batch tasks into one commit (only a group commit under `commit_granularity: group` holds several, and only the tasks of its own group), amend unprompted, or start archive yourself.
 

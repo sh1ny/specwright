@@ -56,6 +56,8 @@ class SnapCase(unittest.TestCase):
         (self.tmp / "bin").mkdir()
         fixtures.install_fake_gh(self.tmp)
         vcs_test_support.stamp_version(self.tmp)  # `sw` checks the version stamp of the project it runs in
+        # These I/O fixtures select a viewer by environment (also the frozen script's mode).
+        (self.tmp / "openspec" / "specwright.yaml").write_text("github:\n  fence: false\n", encoding="utf-8")
         self.gh_state, self.gh_log = self.tmp / "gh-state.json", self.tmp / "gh-log.jsonl"
         self.state_dir = self.tmp / "state"
         self.extra_env = {}

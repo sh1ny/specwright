@@ -20,6 +20,7 @@ class VcsRequest {
     this.main,
     this.prefix,
     this.mergedCommit,
+    this.expectedRepo,
     this.force = false,
     this.noTags = false,
     this.quiet = false,
@@ -43,6 +44,7 @@ class VcsRequest {
   final String? main;
   final String? prefix;
   final String? mergedCommit;
+  final String? expectedRepo;
   final bool force;
   final bool noTags;
   final bool quiet;
@@ -64,6 +66,7 @@ const _valueOptions = [
   'main',
   'prefix',
   'merged-commit',
+  'expected-repo',
 ];
 
 const _flagOptions = ['force', 'no-tags', 'quiet', 'remote-branch'];
@@ -131,6 +134,12 @@ VcsRequest parseVcsArguments(List<String> argv) {
   if (!knownCommands.contains(command)) {
     throw _usage('unknown command: $command');
   }
+  final expectedRepo = opts['--expected-repo'];
+  if (expectedRepo != null && (command != 'push' || expectedRepo.isEmpty)) {
+    throw _usage(
+      '--expected-repo takes the planned host/owner/repo for a push',
+    );
+  }
   final repo = opts['--repo'] ?? '';
   final role = opts['--role'];
   if (repo.isEmpty || (role != 'code' && role != 'store')) {
@@ -160,6 +169,7 @@ VcsRequest parseVcsArguments(List<String> argv) {
     main: opts['--main'],
     prefix: opts['--prefix'],
     mergedCommit: opts['--merged-commit'],
+    expectedRepo: expectedRepo,
     force: flags.contains('--force'),
     noTags: flags.contains('--no-tags'),
     quiet: flags.contains('--quiet'),

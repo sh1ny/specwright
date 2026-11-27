@@ -190,8 +190,10 @@ class WorkflowRecords(NativePass, original.PassBase):
         self.assertEqual(os.listdir(raw), [])
 
     def snapshots(self, snapshot=None):
-        return ["--snapshot", f"code={self.write_json('code-snap.json', snapshot or original.snap())}",
-                "--snapshot", f"store={self.write_json('store-snap.json', original.snap())}"]
+        code = self.with_pr_target(snapshot if snapshot is not None else original.snap(), original.CODE, 5)
+        store = self.with_pr_target(original.snap(), original.STORE, 3)
+        return ["--snapshot", f"code={self.write_json('code-snap.json', code)}",
+                "--snapshot", f"store={self.write_json('store-snap.json', store)}"]
 
     def captured(self, method):
         """The directory name the capture gave this class's test `method`."""
@@ -200,12 +202,31 @@ class WorkflowRecords(NativePass, original.PassBase):
     def compare_plan(self, snapshot=None, case=None):
         """Native `pass plan` equals the next recorded frozen run (`case` names its records, else this test's): the exit status,
         the document apart from the generated owner fields, the `gh` calls, the final fake-gh state and the comment bodies."""
+        # The frozen planner did not verify saved PR targets. Seed the PRs
+        # referenced by the old record, and require the new reads to be read-only.
+        pulls = ((original.CODE, 5, self.code), (original.STORE, 3, self.store))
+        for slug, number, repo in pulls:
+            if not self.pulls(slug):
+                self.add_pull(slug, number, sha=self.tip(repo))
+        before = self.gh()
         args = ["pass", "plan", *self.common(), "--owner", self.owner, *self.snapshots(snapshot)]
         result = self.command(args)
         calls = parity.calls_of(self.gh_log, lambda call: call["argv"])
         got = oracle_capture.document(self, {"code": result.returncode, "stdout": result.stdout, "stderr": result.stderr,
                                              "calls": calls, "state": self.gh_state.read_bytes()})
         want = oracle_capture.recorded(self, case)[0]
+        self.assertEqual(self.gh(), before)
+        endpoints = tuple(f"repos/{slug}/pulls?" for slug, _, _ in pulls)
+        looks_up_pr = lambda argv: any(a.startswith(endpoints) for a in argv)
+        self.assertEqual([argv[-1].split("?", 1)[0] for argv in calls if looks_up_pr(argv)],
+                         [f"repos/{slug}/pulls" for slug, _, _ in pulls])
+        got["calls"] = [argv for argv in got["calls"] if argv[:2] != ["auth", "token"]
+                        and argv != ["api", "--hostname", "github.com", "user", "--jq", ".login"]
+                        and not looks_up_pr(argv)]
+        for slug, _, _ in pulls:
+            got["state"]["repos"].pop(slug)
+        if not got["state"]["repos"] and "repos" not in want["state"]:
+            del got["state"]["repos"]
         self.assertIsNone(oracle_capture.compare(self, got, want))
         return json.loads(result.stdout)
 
@@ -351,16 +372,21 @@ class WorkflowRecords(NativePass, original.PassBase):
         self.push_all()
         held, release = self.tmp / "done-held", self.tmp / "done-release"
         lock = Path(str(self.record_path()) + ".lock")
-        real_git = original.fixtures.posix(shutil.which("git"))
         tool = self.tmp / "bin" / "git"
-        tool.write_text('#!/bin/bash\n'
-            'if [ "$1" = show-ref ] && [ -f "$WF_RECORD_LOCK" ]; then\n'
-            '  : > "$WF_DONE_HELD"\n'
-            '  while [ ! -e "$WF_DONE_RELEASE" ]; do sleep 0.05; done\n'
-            'fi\n'
-            f'exec "{real_git}" "$@"\n', encoding="utf-8", newline="\n")
-        tool.chmod(0o755)
-        fakeexe.add_launcher(tool, exe=True)  # sw starts it by PATHEXT name on Windows (D9)
+        launcher = tool.with_suffix(".exe") if os.name == "nt" else tool
+        delegate = launcher.with_name("git-with-fixture-origin" + launcher.suffix)
+        launcher.rename(delegate)
+        fakeexe.write_python_fake(tool, f'''
+import os, subprocess, sys, time
+from pathlib import Path
+args = sys.argv[1:]
+if args == ["rev-parse", "refs/heads/{original.BRANCH}"] and Path(os.environ["WF_RECORD_LOCK"]).is_file():
+    Path(os.environ["WF_DONE_HELD"]).touch()
+    release = Path(os.environ["WF_DONE_RELEASE"])
+    while not release.exists():
+        time.sleep(0.05)
+sys.exit(subprocess.call([{str(delegate)!r}, *args]))
+''')
         self.extra_env.update(WF_RECORD_LOCK=lock.as_posix(), WF_DONE_HELD=held.as_posix(),
                               WF_DONE_RELEASE=release.as_posix())
         results = []
@@ -368,9 +394,10 @@ class WorkflowRecords(NativePass, original.PassBase):
         worker = threading.Thread(target=lambda: results.append(self.command(args)))
         worker.start()
         try:
-            end = time.monotonic() + 20
-            while not held.exists() and time.monotonic() < end: time.sleep(0.05)
-            self.assertTrue(held.exists(), "done did not replan while holding its native lock")
+            end = time.monotonic() + 75
+            while worker.is_alive() and not held.exists() and time.monotonic() < end:
+                time.sleep(0.05)
+            self.assertTrue(held.exists(), f"done did not reach the locked replanning read: {results}")
             before = self.record_path().read_bytes()
             refused = self.pp("pass", "adopt", *self.common(), "--owner", "new", "--from", self.owner, expect=1)
             self.assertEqual(refused["error"], "record_busy")
@@ -507,6 +534,8 @@ class WorkflowRecords(NativePass, original.PassBase):
         before = self.record_path().read_bytes()
         for snapshot in ([], {"threads": "invalid"}, {"threads": ["invalid"]}):
             with self.subTest(snapshot=snapshot):
+                if isinstance(snapshot, dict):
+                    snapshot = self.with_pr_target(snapshot, original.CODE, 5)
                 file = self.write_json("bad-snapshot.json", snapshot)
                 args = ["pass", "plan", *self.common(), "--snapshot", f"code={file}"]
                 frozen = self.pp(*args, which="frozen", expect=1)

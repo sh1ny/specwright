@@ -1,3 +1,10 @@
+import '../fence/fence.dart' show originalGitEnvironment;
+import '../fence/urls.dart';
+import '../pr/context.dart';
+import '../pr/identity.dart';
+import '../pr/pair.dart' show PairStop;
+import '../settings/rules.dart';
+
 import 'scripts.dart';
 import 'stop.dart';
 
@@ -40,62 +47,139 @@ Future<TextResult> gitChecked(
   return result;
 }
 
-/// `vcs.sh`'s `remote_url`: the remote's URL, or empty when it has none.
-Future<String> remoteUrl(
+typedef NetworkRoute = ({
+  bool fenced,
+  List<String> urlCommand,
+  String? pushUrls,
+});
+
+/// Classify the destinations the actual Git operation uses. A bare Git pull
+/// asks Git to expand its default remote without contacting it.
+Future<NetworkRoute> networkRoute(
   VcsScripts scripts,
-  String repo, [
-  String remote = 'origin',
-]) async {
-  final r = await git(scripts, repo, ['remote', 'get-url', remote]);
-  return r.code == 0 ? r.stdout.trim() : '';
+  String repo,
+  GitHubConnection connection, {
+  required String? remote,
+  bool push = false,
+}) async {
+  final args = remote == null
+      ? ['ls-remote', '--get-url']
+      : [
+          'remote',
+          'get-url',
+          if (push) ...['--push', '--all'],
+          remote,
+        ];
+  final command = ['git', ...args];
+  final result = await runText(
+    repo,
+    command,
+    environment: originalGitEnvironment(scripts.environmentFor?.call(command)),
+  );
+  final output = result.stdout.trim();
+  final kind = push ? 'push' : 'fetch';
+  final name = remote ?? 'current upstream';
+  if (result.code != 0 || output.isEmpty) {
+    throw VcsStop(
+      'remote_unreadable',
+      "cannot read $kind destination for '$name'",
+      code: 3,
+    );
+  }
+  final urls = push && connection.fence ? output.split(RegExp(r'\r?\n')) : null;
+  final onHost =
+      connection.fence && ghUrl(urls?.first ?? output, host: connection.host);
+  if (urls != null) {
+    for (var i = 1; i < urls.length; i++) {
+      if (ghUrl(urls[i], host: connection.host) != onHost) {
+        throw VcsStop(
+          'mixed_push_transport',
+          "remote '$name' mixes push URLs on and off ${connection.host}; refusing",
+          code: 3,
+        );
+      }
+    }
+  }
+  return (fenced: onHost, urlCommand: command, pushUrls: push ? output : null);
 }
 
-final _windowsDrive = RegExp(r'^[A-Za-z]:[\\/]');
-final _scpHost = RegExp(r'^(?:[^@/]+@)?([^/:]+):');
-final _schemeChars = RegExp(r'^[A-Za-z][A-Za-z0-9+.\-]*$');
+/// The PR plan binds the destination before validation. Re-read the selected
+/// fetch and all push destinations using the environment of the actual child.
+Future<TextResult> launchNetwork(
+  VcsScripts scripts,
+  String repo,
+  List<String> command,
+  String who, {
+  required NetworkRoute route,
+  required String host,
+  required String? remote,
+  String? expectedRepo,
+}) async {
+  Future<void> checkTarget(Map<String, String>? env) async {
+    final planned = expectedRepo!;
+    Never changed() => throw VcsStop(
+      'pr_destination_changed',
+      "the selected remote '$remote' no longer matches the planned PR destination",
+      code: 3,
+    );
+    final parts = planned.split('/');
+    if (remote == null ||
+        parts.length != 3 ||
+        canonicalHost(parts.first) != host ||
+        parseRepo('https://$planned', host: host) == null) {
+      changed();
+    }
+    final context = PrContext(
+      writeOut: (_) {},
+      writeErr: (_) {},
+      environment: env,
+    );
+    try {
+      final current = await identityOf(
+        context,
+        repo,
+        host: host,
+        selection: RemoteSelection(name: remote),
+      );
+      if ((current['repo'] as String).toLowerCase() !=
+          parts.skip(1).join('/').toLowerCase()) {
+        changed();
+      }
+    } on PairStop {
+      changed();
+    }
+  }
 
-/// `urlsplit(url).hostname`: the host of a URL with a scheme and `//`
-/// authority, lower-cased; null when there is none.
-String? _urlHostname(String url) {
-  final colon = url.indexOf(':');
-  if (colon <= 0 || !_schemeChars.hasMatch(url.substring(0, colon))) {
-    return null;
+  Future<void> checkDestination(Map<String, String>? env) async {
+    if (expectedRepo != null) await checkTarget(env);
+    if (route.pushUrls case final planned?) {
+      final current = await runText(repo, route.urlCommand, environment: env);
+      if (current.code != 0 || current.stdout.trim() != planned) {
+        throw VcsStop(
+          'push_destination_changed',
+          "effective push destinations for remote '$remote' changed before launch",
+          code: 3,
+        );
+      }
+    }
   }
-  final rest = url.substring(colon + 1);
-  if (!rest.startsWith('//')) return null;
-  var end = rest.length;
-  for (final c in const ['/', '?', '#']) {
-    final i = rest.indexOf(c, 2);
-    if (i != -1 && i < end) end = i;
-  }
-  var netloc = rest.substring(2, end);
-  final at = netloc.lastIndexOf('@');
-  if (at != -1) netloc = netloc.substring(at + 1);
-  String host;
-  if (netloc.startsWith('[') && netloc.contains(']')) {
-    host = netloc.substring(1, netloc.indexOf(']'));
-  } else {
-    final p = netloc.indexOf(':');
-    host = p == -1 ? netloc : netloc.substring(0, p);
-  }
-  return host.isEmpty ? null : host.toLowerCase();
-}
 
-/// `vcs.sh`'s `is_github_url`.
-bool isGithubUrl(String url) {
-  if (_windowsDrive.hasMatch(url)) return false;
-  final String? host;
-  if (url.contains('://')) {
-    host = _urlHostname(url);
-  } else {
-    host = _scpHost.firstMatch(url)?.group(1);
+  final check = expectedRepo != null || route.pushUrls != null;
+  if (route.fenced) {
+    return runAs(
+      scripts,
+      repo,
+      who,
+      command,
+      host: host,
+      beforeLaunch: check ? checkDestination : null,
+    );
   }
-  if (host == null) return false;
-  var h = host.toLowerCase();
-  while (h.endsWith('.')) {
-    h = h.substring(0, h.length - 1);
-  }
-  return h == 'github.com' || h == 'ssh.github.com';
+  final environment = originalGitEnvironment(
+    scripts.environmentFor?.call(command),
+  );
+  if (check) await checkDestination(environment);
+  return runText(repo, command, environment: environment);
 }
 
 final _notFastForward = RegExp(
@@ -103,10 +187,8 @@ final _notFastForward = RegExp(
   caseSensitive: false,
 );
 
-/// `vcs.sh`'s `network_git`: runs `git <args>` in [repo], through the identity
-/// fence in this process ([runAs]) when `origin` is on GitHub. A failure is the
-/// `not_fast_forward` stop (a `pull` that cannot fast-forward, exit 1), else
-/// `fence_failed` (a refused fence on GitHub) or `git_network_error`, exit 3.
+/// Runs a Git network operation with the selected transport. A non-fast-forward
+/// pull is exit 1. Other failures are `fence_failed` or `git_network_error`.
 ///
 /// Constraint C4: on Git and jj a fenced command's own exit 3 on a GitHub
 /// remote is still reported as `fence_failed` (D2); this is a deliberate gap,
@@ -115,13 +197,36 @@ Future<TextResult> networkGit(
   VcsScripts scripts,
   String repo,
   List<String> args,
-  String? login,
-) async {
-  final github = isGithubUrl(await remoteUrl(scripts, repo));
-  final who = await fenceLogin(scripts, repo, github: github, login: login);
-  final result = github
-      ? await runAs(scripts, repo, who, ['git', ...args])
-      : await git(scripts, repo, args);
+  String? login, {
+  required String? remote,
+  required GitHubConnection connection,
+  String? expectedRepo,
+}) async {
+  final route = await networkRoute(
+    scripts,
+    repo,
+    connection,
+    remote: remote,
+    push: args.first == 'push',
+  );
+  final github = route.fenced;
+  final who = await fenceLogin(
+    scripts,
+    repo,
+    github: github,
+    login: login,
+    host: connection.host,
+  );
+  final result = await launchNetwork(
+    scripts,
+    repo,
+    ['git', ...args],
+    who,
+    route: route,
+    host: connection.host,
+    remote: remote,
+    expectedRepo: expectedRepo,
+  );
   if (result.code != 0) {
     final said = orElse(result.stderr, result.stdout).trim();
     final message = said.isNotEmpty ? said : 'Git network operation failed';

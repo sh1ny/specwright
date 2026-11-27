@@ -59,15 +59,15 @@ When a new change will live in a store, `specwright-branch` SHALL run its gate o
 - **THEN** Specwright stops, names the branch the store is on, says that one store holds one change in progress at a time on this machine, does not switch the store off that branch (the other change's work would be lost) and leaves both repos on their original branches; the user finishes or abandons that change first
 
 ### Requirement: A change name is used once
-`specwright-branch` SHALL stop before creating any branch when the planning repo's main branch, or its `origin` copy after a fetch, already holds an archive of a change with the same name (`<P>/changes/archive/<change-name>/` or `<P>/changes/archive/YYYY-MM-DD-<change-name>/`), and offer another name or abort. PR discovery, the planning-only marker and roadmap merge proofs match a change by its name, so an earlier change of the same name would otherwise count as this one's PR, marker or merge.
+`specwright-branch` SHALL stop before creating any branch when the planning repo's main or its selected remote's fetched main archives the same change name (`<P>/changes/archive/<change-name>/` or `<P>/changes/archive/YYYY-MM-DD-<change-name>/`). Offer another name or abort. PR discovery, the planning-only marker and roadmap merge proofs match by name, so a match could refer to the earlier change.
 
 #### Scenario: Name of an archived change
 - **WHEN** a store-backed change `add-csv-export` starts and the store's main holds `openspec/changes/archive/2026-09-01-add-csv-export/`
 - **THEN** Specwright creates no branch in either repo, scaffolds nothing, leaves no gate lock, says the name was already used by an archived change and offers another name or abort
 
 #### Scenario: Archived from another checkout
-- **WHEN** the earlier `add-csv-export` was archived and merged from another checkout, so only the store's `origin/main` holds its archive and the local main has not been pulled
-- **THEN** Specwright fetches the store's main, finds the archive on `origin/main` and stops the same way, without moving the local main
+- **WHEN** the store uses `planning_store.remote: plans` and only `plans/main` holds the earlier archive because it was merged from another checkout
+- **THEN** Specwright fetches main from `plans`, finds the archive there and stops the same way, without moving the local main
 
 ### Requirement: The store gate is exclusive
 `specwright-branch` SHALL run the store checks and the branch creation while holding an exclusive gate lock on the store, taken with `sw gate lock`, so two sessions cannot both pass against the same store checkout. A lock left by an interrupted session SHALL be removed only with the user's confirmation, through `sw gate unlock --stale`.
@@ -241,15 +241,27 @@ Every git or `gh` command that acts on the store SHALL run with the store's chec
 - **THEN** the call stops with `no_credential` (exit 3) before any store git network command runs, and never retries with the code login
 
 ### Requirement: The expected PR set follows the change's work and transport
-For a store-backed change in `pr` mode, Specwright SHALL expect a code PR when a code PR from `<prefix>/<change-name>` into the code main exists in any state, or, before one exists, when the code branch has commits after main. It SHALL expect a store PR exactly when the store has a GitHub `origin`. It SHALL recompute this set at every ship, watch, feedback, archive and cleanup step and use it for each; merging a PR, advancing main or deleting a branch SHALL NOT remove that PR from the set.
+In store-backed `pr` mode, expect a code PR if it exists in any state or code is ahead of main. Expect a store PR if all selected URLs name one repo on the configured host, distinct from code. Only a proven absent or off-host remote permits handoff; mixed, unknown or unreadable URLs SHALL stop. Ship SHALL determine the set before validating or pushing, and watch only that set. Later phases SHALL recompute it after handoff and retain existing PRs after merge or branch deletion.
 
 #### Scenario: Planning-only change with a GitHub store
-- **WHEN** ship runs and the code branch has no commits while the store has a GitHub `origin`
+- **WHEN** ship runs, the code branch has no commits and has a usable GitHub identity, and the selected planning remote is on the configured GitHub host
 - **THEN** only the store PR is opened, and its description says the change has no code changes
 
 #### Scenario: Planning-only change with no GitHub store
-- **WHEN** ship runs, the code branch has no commits and the store has no GitHub `origin`
+- **WHEN** ship runs, the code branch has no commits and the store's selected remote is absent or not on the configured GitHub host
 - **THEN** no PR is opened, and the report names the store branch to be shared by hand and says nothing is watched
+
+#### Scenario: Local-only store with code to ship
+- **WHEN** the code branch has commits and a usable GitHub remote but the planning store has no `origin` and no explicitly selected remote
+- **THEN** ship opens only the code PR, reports that the store is local and to share the planning branch by hand, and sends no store validate, push, PR or watch request
+
+#### Scenario: Code PR required but the code remote is missing
+- **WHEN** the code branch has commits and the code repository has no selected remote, even if the store has a usable GitHub remote
+- **THEN** ship stops before either push and names the missing code remote
+
+#### Scenario: Store publication still requires code identity
+- **WHEN** the code branch has no commits after main and no usable GitHub remote, but the store has a usable GitHub remote
+- **THEN** ship stops before either push and reports the missing or unusable code target
 
 #### Scenario: Code fix turns a planning-only change into a pair
 - **WHEN** a feedback fix adds the first commit to the code branch of a change whose only PR is the store PR
@@ -259,15 +271,39 @@ For a store-backed change in `pr` mode, Specwright SHALL expect a code PR when a
 - **WHEN** a fresh session runs watch after the code PR was merged and the code main was pulled, so the code branch has no commits after main, while the store PR is still open
 - **THEN** the expected set still holds both PRs, and watch reports the split and hands off without archiving or reporting ready
 
+#### Scenario: An unreadable code range is not an empty range
+- **WHEN** a change branch exists, its base or range cannot be read, and the store would otherwise be publishable
+- **THEN** the workflow reports that the expected set could not be established and sends no push to either repository
+
+#### Scenario: A merged code PR remains expected without a local change branch
+- **WHEN** the local code change branch was deleted after merge, but discovery finds its matching merged PR
+- **THEN** the code PR remains expected and cleanup does not infer that there was no code PR
+
+#### Scenario: A failed remote lookup does not make the store local
+- **WHEN** Git reports an error enumerating remotes or reading the selected store remote's fetch or applicable push URLs
+- **THEN** the workflow reports the read error, opens no PR, attempts no push, and does not report the store as local
+
+#### Scenario: Fetch and push disagree about the GitHub host
+- **WHEN** the selected planning remote fetches from an off-host mirror and pushes to the configured GitHub host, or fetches from that host and has any off-host push URL
+- **THEN** ship reports the disagreement rather than manual sharing and stops before discovery or either push
+
+#### Scenario: Code and store select the same repository
+- **WHEN** the two roles select different remote names whose effective URLs identify the same canonical host and case-insensitive owner/name
+- **THEN** PR planning reports the role collision before discovery or push and opens no PR
+
+#### Scenario: No GitHub operation is needed
+- **WHEN** local checks prove neither repo has a GitHub PR to look up or open and neither side needs publication
+- **THEN** ship reports the manual-share outcome without resolving a stored GitHub account
+
 ### Requirement: PR finish pairs the store PR with the code PR
-When both PRs are expected, each SHALL link the other: in its description when the other PR's URL is known as it is created, otherwise by one marker comment that names the peer PR. When the peer PR changes, Specwright SHALL update its own marker comment rather than add another. Specwright SHALL NOT rewrite an existing description. An existing PR whose base is not that repo's main SHALL stop ship. It SHALL push and validate each repo with that repo's settings and SHALL never merge either PR.
+When both PRs are expected, each SHALL link its peer in the new description if its URL is known, otherwise in one marker comment updated if the peer changes. Ship SHALL NOT rewrite existing descriptions or merge PRs, SHALL stop if an existing PR targets a base other than that repo's main, and SHALL push and validate each repo using its own settings.
 
 #### Scenario: Ship opens both PRs
 - **WHEN** ship runs for a store-backed change, both PRs are expected and neither exists
 - **THEN** the store PR is created first and gets one Specwright link comment with the code PR URL, and the code PR's description contains the store PR URL
 
 #### Scenario: Code PR already open without the link
-- **WHEN** ship runs and the code PR already exists with a description that has no store PR link
+- **WHEN** the code PR already exists with a description that has no store PR link
 - **THEN** the code PR's description is unchanged, and the code PR has exactly one Specwright link comment containing the store PR URL
 
 #### Scenario: Ship re-run after an interrupted first run
@@ -276,30 +312,30 @@ When both PRs are expected, each SHALL link the other: in its description when t
 
 #### Scenario: Code PR replaced after closing unmerged
 - **WHEN** the linked code PR was closed unmerged and ship opens a replacement code PR from the same branch while the store PR is open
-- **THEN** the store PR's Specwright link comment names the replacement code PR, and the store PR has exactly one Specwright link comment
+- **THEN** the store PR's Specwright link comment names the replacement code PR, and the store PR has exactly one link to its peer
 
 #### Scenario: Existing code PR targets another branch
-- **WHEN** ship finds an open code PR from `<prefix>/<change-name>` whose base is `integration` rather than the code main
+- **WHEN** ship finds an open code PR whose base is `integration` rather than the code main
 - **THEN** Specwright stops, names the PR and its base, and opens or links no PR
 
 #### Scenario: Fetch and push URLs name different repositories
-- **WHEN** the store's `origin` fetches from `team/plans` but pushes to `publishing/plans`
-- **THEN** Specwright stops before pushing the store branch, names both repositories, and opens or looks up no store PR
+- **WHEN** `planning_store.remote: plans` selects a remote that fetches from `team/plans` but pushes to `publishing/plans`
+- **THEN** Specwright stops before pushing either branch, names both repositories, and opens or looks up no store PR
 
 #### Scenario: Matching PR beyond the first page
 - **WHEN** thirty newer PRs from forks share the change's branch name and base, and the change's own code PR is older and merged
 - **THEN** the code PR is still found, stays in the expected set, and counts as merged-code proof for roadmap status
 
 #### Scenario: Inherited GH_REPO names the code repo
-- **WHEN** ship and watch run for a store-backed change with `GH_REPO` set to the code repo, or with a `gh` default repository other than the store's `origin`
-- **THEN** every store PR lookup, creation, wait and reply targets the store's `origin` repository, and the store PR and code PR are never the same PR
+- **WHEN** ship and watch run for a store-backed change with `GH_REPO` set to the code repo or a `gh` default repository other than the selected store remote
+- **THEN** every store PR lookup, creation, wait and reply targets the selected store remote's repository, and the store PR and code PR are never the same PR
 
 #### Scenario: Store push rejected
 - **WHEN** pushing the store branch fails, for example because of a missing permission or a non-fast-forward rejection
 - **THEN** Specwright reports the store push error, does not open or update the store PR, and does not report the change as ready
 
 ### Requirement: Watch covers the expected PR set
-For a store-backed change in `pr` mode, watch SHALL run one wait per expected PR and report ready only when every expected PR is open and ready. When an expected PR merges or closes while another expected PR is open, watch SHALL stop all waits and hand off to the user. Archive-before-merge SHALL publish the store archive commit only when a store PR is expected.
+For a store-backed change in `pr` mode, watch SHALL run one wait per expected open PR and report change readiness only when every expected PR is ready and the planning gates are satisfied. When one expected PR merges or closes while another is open, watch SHALL stop all waits and hand off. A missing expected PR SHALL lead to ship, not manual handoff. Archive-before-merge SHALL publish the store archive only when its PR is expected.
 
 #### Scenario: Code PR green, store PR waiting
 - **WHEN** the code PR's checks and required reviews pass but the store PR still has an unresolved required review
@@ -314,8 +350,12 @@ For a store-backed change in `pr` mode, watch SHALL run one wait per expected PR
 - **THEN** watch stops all background waits and reports which PR merged and which is still open, without archiving or re-requesting review
 
 #### Scenario: Archive before merge with no store PR
-- **WHEN** the code PR is ready, the store has no GitHub `origin`, and the user agrees to archive
-- **THEN** the archive commit is made on the store branch without a push or review request, and the report names the store branch to be shared by hand
+- **WHEN** all code PR checks and reviews pass under `pr.merge: agent` but the store's selected remote is absent
+- **THEN** `pair-state` returns `manual_store_handoff`, not `ready`; watch names the planning branch to share and archive by hand and does not read planning task evidence, prompt for archive, start a store wait, claim change readiness or request merge
+
+#### Scenario: A publishable store PR has not been opened
+- **WHEN** the selected store remote is publishable but its expected PR is missing beside a green code PR
+- **THEN** `pair-state` returns `ship`, not `manual_store_handoff` or `ready`
 
 #### Scenario: Store snapshot of an old head
 - **WHEN** the store snapshot passes every readiness check for head A, while discovery reports the store PR's head as B
@@ -330,10 +370,10 @@ For a store-backed change in `pr` mode, watch SHALL run one wait per expected PR
 - **THEN** `pair-state` treats it as not matching and reports a `refresh` blocker, never `ready`
 
 ### Requirement: Feedback rounds span the PR pair
-For a store-backed change, one feedback pass SHALL cover every expected PR. A fix to `<root>/openspec/**` SHALL be committed on the store branch, and any other fix on the code branch, whichever PR the finding came from.
+For a store-backed change with a store PR, one feedback pass SHALL cover every expected PR. A fix to `<root>/openspec/**` SHALL be committed on the store branch, and any other fix on the code branch, whichever PR the finding came from. Without a store PR, store feedback SHALL use the manual handoff.
 
 #### Scenario: Spec fix requested on the code PR
-- **WHEN** a reviewer on the code PR asks for a change to a requirement in the change's spec delta
+- **WHEN** a reviewer on the code PR of a pair asks for a change to a requirement in the change's spec delta
 - **THEN** the fix is committed with `Feedback-Round: <n>` and pushed on the store branch, review is re-requested on the store PR, and the reply on the code PR links the store commit
 
 #### Scenario: Round limit across both repos
@@ -349,7 +389,7 @@ For a store-backed change, one feedback pass SHALL cover every expected PR. A fi
 - **THEN** the round count is 1, the limit is not reached, and the next pass is round 2
 
 #### Scenario: Legacy branch without trailers
-- **WHEN** neither branch has a `Feedback-Round` trailer and the code branch has two `address review feedback` commits
+- **WHEN** the store PR is expected, neither branch has a `Feedback-Round` trailer and the code branch has two `address review feedback` commits
 - **THEN** the round count is 2
 
 ### Requirement: An interrupted feedback pass is completed first
@@ -400,7 +440,7 @@ A feedback pass SHALL record its round, findings, their destination repos, the e
 - **THEN** the next plan lists a link step as to do, the pass does not complete until each PR links the other, and each PR then has exactly one link to its peer
 
 ### Requirement: Cleanup after merge covers every expected PR
-After the PRs are merged, `specwright-finish` SHALL, for each repo whose expected PR is MERGED, check out its main, pull with `--ff-only`, and delete the change branch under the existing merged-head rule. It SHALL delete an empty code branch with `-d`. It SHALL leave the branch of any repo whose expected PR is not merged and report it.
+After the PRs are merged, `specwright-finish` SHALL, for each repo whose expected PR is MERGED, check out and pull its main under the backend's pull rules, and delete the change branch under the existing merged-head rule. It SHALL delete an empty code branch with `-d`. It SHALL leave the branch of any repo whose expected PR is not merged and report it. Without a store PR, it SHALL leave the store checkout untouched and report the manual handoff.
 
 #### Scenario: Both PRs merged
 - **WHEN** both expected PRs are MERGED
@@ -412,7 +452,11 @@ After the PRs are merged, `specwright-finish` SHALL, for each repo whose expecte
 
 #### Scenario: Cleanup re-run after the store PR merges
 - **WHEN** cleanup runs again after the split above, once the store PR is MERGED and the code branch is already deleted
-- **THEN** the store checkout is cleaned up and the code PR is still counted as merged, not as missing
+- **THEN** the store checkout is cleaned up from its selected remote and the code PR is still counted as merged, not as missing
+
+#### Scenario: Code PR merged beside a local-only store
+- **WHEN** only the code PR was expected and it has merged
+- **THEN** cleanup updates only the code checkout and reports the unchanged planning branch to share and archive by hand
 
 ### Requirement: Roadmap status needs proof that the whole change merged
 `specwright-roadmap` SHALL count a store-backed change as done only when the store's main holds its archive directory and either that directory holds `specwright-change.yaml` with `code_changes: none`, or the code side merged as a whole: a `merge: <change-name>` commit on the code main's first-parent history in `local` mode, or a MERGED code PR whose head is `<prefix>/<change-name>` in the code repo itself and whose base is the code main in `pr` mode.
@@ -539,14 +583,14 @@ A snapshot SHALL count toward readiness only when its repository, PR number and 
 - **THEN** `pair-state` reports `wait` with a `refresh` blocker for the code PR naming heads A and B
 
 ### Requirement: Fix rounds are counted across both branches
-Each fix commit SHALL carry the trailer `Feedback-Round: <n>`. The round limit SHALL count the highest `n` across both branches and SHALL apply only to starting a new pass. Fix commits without a trailer SHALL be counted by their `address review feedback` subject only when neither branch has a `Feedback-Round` trailer.
+With a store PR expected, each fix commit SHALL carry the trailer `Feedback-Round: <n>`. The round limit SHALL count the highest `n` across both branches and SHALL apply only to starting a new pass. Fix commits without a trailer SHALL be counted by their `address review feedback` subject only when neither branch has a `Feedback-Round` trailer.
 
 #### Scenario: Round below the limit
-- **WHEN** `max_fix_rounds` is 2 and only the store branch has a fix commit, with `Feedback-Round: 1`
+- **WHEN** the store PR is expected, `max_fix_rounds` is 2 and only the store branch has a fix commit, with `Feedback-Round: 1`
 - **THEN** the next pass is round 2, and each of its fix commits carries `Feedback-Round: 2`
 
 #### Scenario: Trailer and legacy commits mixed
-- **WHEN** the store branch has a fix commit with `Feedback-Round: 1` and the code branch has two `address review feedback` commits without a trailer
+- **WHEN** the store PR is expected, its branch has a fix commit with `Feedback-Round: 1` and the code branch has two `address review feedback` commits without a trailer
 - **THEN** the round count is 1: the commits without a trailer are not counted
 
 ### Requirement: A pass record is removed only when its pass is done
@@ -561,7 +605,7 @@ A feedback pass's record SHALL be removed once every applicable step of the pass
 - **THEN** `pass done` keeps the record, and the next plan lists the store push as to do
 
 ### Requirement: Ship pushes every expected repo before it opens a PR
-For a store-backed change, ship SHALL validate and push every repo of the expected set, the store first and then the code repo, before it finds, opens or updates a PR in either repo. When any push fails, ship SHALL open or update no PR in either repo, SHALL report which repo's push failed with its error, and SHALL NOT report the change ready.
+For a store-backed change, ship SHALL discover existing PRs to determine the expected set and first-PR gate, then validate and push every repo of the set, store first, before opening or updating a PR in either repo. When any push fails, ship SHALL open or update no PR in either repo, SHALL report which repo's push failed with its error, and SHALL NOT report the change ready.
 
 #### Scenario: Both pushes succeed
 - **WHEN** ship runs for a store-backed change, both PRs are expected and neither exists
@@ -801,3 +845,18 @@ Each `sw` project command a skill runs with a store as its working directory or 
 #### Scenario: Code checkout not named
 - **WHEN** an `sw` project command runs from the store toplevel with neither `--project` nor `--code`, and the store has no `openspec/.specwright/VERSION`
 - **THEN** it prints the `sw_mismatch` document, exits 1, and does nothing in the store
+
+### Requirement: A store without a PR is a manual handoff
+In PR mode, a proven local-only store SHALL hand off its named branch for manual sharing and archive. `pair-state` SHALL report handoff, not readiness. Watch and finish SHALL stop the store before archive prompts or edits; feedback SHALL NOT read store history or ancestry or count store rounds. A handoff SHALL leave the store unchanged and SHALL NOT authorize automated archive or merge. `finish: local` SHALL retain its existing local archive and merge workflow.
+
+#### Scenario: Feedback rounds with an off-host store
+- **WHEN** the local store branch has a committed fix trailer, but its selected remote is outside the configured GitHub host
+- **THEN** feedback and `rounds` report the named manual handoff without emitting a round decision, reading store trailers, contacting the store remote or its credential helper, committing a store fix or treating the store portion as complete
+
+#### Scenario: PR finish with a local-only store
+- **WHEN** PR finish identifies a local-only planning store before archive has run
+- **THEN** it reports the planning branch to share and archive by hand without prompting for archive, invoking `openspec archive`, starting a store watch, or making any store write
+
+#### Scenario: Archive edits already exist at PR finish
+- **WHEN** PR finish identifies a local-only planning store with archive edits already in its worktree
+- **THEN** it reports the same handoff, preserves the edits, and creates no archive commit, recovery branch, push or PR

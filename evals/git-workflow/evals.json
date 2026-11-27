@@ -518,11 +518,11 @@
         "specwright-pr",
         "specwright-finish"
       ],
-      "prompt": "The code PR for add-greeting (#7) passed CI and every review, so watch reports it ready. Yes, archive add-greeting on this branch now, as watch asks before merge. The store is a local checkout with no GitHub remote.",
-      "expected_output": "The store has no GitHub origin, so no store PR is expected: archives add-greeting in the store, commits the archive on the store's feat/add-greeting branch (staged by file, no specwright-change.yaml because the code branch has commits), makes no push and no review request, does not touch the open code PR #7 or the code repo, and reports the store branch feat/add-greeting to be shared by hand.",
+      "prompt": "The code PR for add-greeting (#7) passed CI and reviews. Yes, archive add-greeting on this branch now; run the normal OpenSpec archive workflow. The separate planning store is local and has no GitHub remote.",
+      "expected_output": "The archive entry reads the planning root, then reports the local store branch feat/add-greeting to share and archive by hand. It does not run OpenSpec archive or spec sync, change either tree, or touch PR #7.",
       "assertions": [
-        "The store has an archive commit feat(add-greeting): archive change on feat/add-greeting that stages only the removed change directory, the archive directory and openspec/specs/greeting/spec.md, and no specwright-change.yaml was written",
-        "The store is still on feat/add-greeting, its main is unchanged, it has no remote and no remote-tracking branch, and its tree is clean",
+        "OpenSpec identified the planning root without invoking archive or spec sync",
+        "Both branch tips and all planning files are unchanged",
         "The code repo is untouched: still on feat/add-greeting with its task commits, main has only the initial commit, and the tree is clean",
         "No gh call created or changed a pull request or a comment, and code PR #7 is still the only PR, open and unchanged (no review request was posted)",
         "The report names the store branch feat/add-greeting and says it must be shared by hand because there is no store PR or GitHub remote",
@@ -1512,6 +1512,36 @@
         "The only Git commands were reads",
         "The report does not ask the user to set edits aside, stash or abort",
         "The report names greet.py and the cause"
+      ]
+    },
+    {
+      "id": 83,
+      "name": "eval-store-archive-before-merge-preedited",
+      "skills": ["specwright-pr", "specwright-finish"],
+      "prompt": "Finish archiving add-greeting on this branch. There are existing archive edits from an earlier run. The separate planning store is local and has no GitHub remote.",
+      "expected_output": "The finish entry reports the named local planning branch for manual sharing and archiving without invoking archive or spec sync. It leaves all existing archive edits and both branch tips unchanged and does not touch PR #7.",
+      "assertions": [
+        "OpenSpec identified the planning root without invoking archive or spec sync",
+        "Both branch tips and all planning files are unchanged",
+        "The code repo is untouched: still on feat/add-greeting with its task commits, main has only the initial commit, and the tree is clean",
+        "No gh call created or changed a pull request or a comment, and code PR #7 is still the only PR, open and unchanged (no review request was posted)",
+        "The report names the store branch feat/add-greeting and says it must be shared by hand because there is no store PR or GitHub remote",
+        "No commit was amended in either repo"
+      ]
+    },
+    {
+      "id": 84,
+      "name": "eval-store-branch-reused-name-selected",
+      "skills": ["specwright-branch"],
+      "prompt": "Start a new OpenSpec change called add-csv-export for exporting greetings as CSV.",
+      "expected_output": "The earlier archive is only on the selected plans remote, not on local main or origin. Fetch plans, stop before any branch creation, and offer another name.",
+      "assertions": [
+        "Both repos are still on main with only the main branch and no new commit",
+        "No change directory add-csv-export was created in either repo",
+        "No gate lock is left in the store",
+        "The report says the name belongs to an archived change and offers another name",
+        "The store fetched plans and found the archive only on plans/main",
+        "No branch creation or other Git write was attempted before refusing the name"
       ]
     }
   ]

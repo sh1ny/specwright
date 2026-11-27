@@ -100,7 +100,35 @@ class ReplyRev(ReplyCase):
         t = self.thread_state()
         self.assertEqual((t["isResolved"], len(t["comments"])), (True, 2))
         self.assertIn(f"<!-- specwright:handled {tid} resolve -->", t["comments"][1]["body"])
-        self.assertEqual(self.node_reads(), [], "no re-read without --rev")
+        self.assertEqual(len(self.node_reads()), 1, "one read proves the parent PR and root without --rev")
+
+    def test_reply_only_mutates_verified_thread_and_its_actual_root(self):
+        tid, root = self.add_thread("rev", "root")
+        _, different = self.add_thread("rev", "different root")
+        result = self.reply("thread", tid, different["databaseId"], "BODY", "--resolve", "--react", "+1", body="done")
+        self.assertEqual(result.returncode, 3, result.stdout + result.stderr)
+        self.assert_untouched(tid)
+        result = self.reply("thread", tid, root["databaseId"], "BODY", "--resolve", body="done")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertTrue(self.thread_state()["isResolved"])
+
+    def test_reply_rejects_node_from_other_pr_including_standalone_actions(self):
+        foreign = {**self._pull(), "number": 8, "html_url": f"https://github.com/{self.SLUG}/pull/8"}
+        self.mutate(lambda st: st["repos"][self.SLUG]["pulls"].append(foreign))
+        thread = self.mutate(lambda st: fake_gh.add_thread(st, self.SLUG, 8))
+        root = self.mutate(lambda st: fake_gh.add_thread_comment(st, self.SLUG, 8, thread["id"], "rev", "foreign"))
+        comment = self.mutate(lambda st: fake_gh.add_pr_comment(st, self.SLUG, 8, "rev", "foreign"))
+        for args in (("resolve", thread["id"]), ("react", root["id"], "+1"),
+                     ("react", root["databaseId"], "+1"),
+                     ("comment", comment["node_id"], "BODY")):
+            with self.subTest(args=args):
+                result = self.reply(*args, body="answer")
+                self.assertEqual(result.returncode, 3, result.stdout + result.stderr)
+        p = self.st()["repos"][self.SLUG]
+        self.assertFalse(p["pulls"][1]["threads"][0]["isResolved"])
+        self.assertEqual(p["comments"].get(str(self.PR), []), [])
+        self.assertFalse(self.st().get("review_comment_reactions"))
+        self.assertFalse([c for c in self.gh_calls() if any("addReaction" in a or "resolveReviewThread" in a for a in c)])
 
 
 class ReplyRevKinds(ReplyCase):
@@ -254,7 +282,9 @@ class ReplyTempFiles(ReplyCase):
     def test_reply_leaves_no_temp_file_on_success(self):
         tid, c = self.add_thread("rev", "please fix")
         self.assertEqual(self.reply("thread", tid, c["databaseId"], "BODY", body="done").returncode, 0)
-        self.assertEqual(self.reply("comment", "IC_x", "BODY", body="ok").returncode, 0)
+        item = self.add_comment("rev", "please fix another thing")
+        result = self.reply("comment", item["node_id"], "BODY", body="ok")
+        self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(self.leftovers(), [])
 
     def test_reply_leaves_no_temp_file_when_post_fails(self):

@@ -5,6 +5,7 @@ import 'package:specwright_cli/src/pr/context.dart';
 import 'package:specwright_cli/src/process/limit_line.dart' show BoundedLimit;
 import 'package:specwright_cli/src/pr/gh.dart';
 import 'package:specwright_cli/src/vcs/codec.dart';
+import 'package:specwright_cli/src/vcs/text_result.dart';
 
 /// A gh answer: exit 0 and [stdout] by default. [merged] is the combined
 /// output of a call that ran in merged mode (the `--log-failed` call): its
@@ -35,10 +36,20 @@ class Fixture {
     Directory? temp,
     Map<String, String>? environment,
   }) : tempDir = temp ?? Directory.systemTemp.createTempSync('sw-pr-test-') {
+    writeAmbientSettings(tempDir);
     ctx = PrContext(
       writeOut: out.addAll,
       writeErr: err.addAll,
       environment: environment,
+      git: (_, args) async => switch (args.join(' ')) {
+        'rev-parse --show-toplevel' => TextResult(0, tempDir.path, ''),
+        'rev-parse --git-dir' => TextResult(0, '.git', ''),
+        'symbolic-ref --quiet --short HEAD' => TextResult(0, branch, ''),
+        'remote' => TextResult(0, 'origin\n', ''),
+        'remote get-url origin' || 'remote get-url --push --all origin' =>
+          TextResult(0, 'https://github.com/o/n.git\n', ''),
+        _ => throw StateError('unexpected Git call: $args'),
+      },
       seconds: () => clock,
       bounded: (command, {environment}) async {
         boundedCalls.add(command);
@@ -74,6 +85,7 @@ class Fixture {
   }
 
   final Directory tempDir;
+  String branch = 'feature';
   final List<int> out = [];
   final List<int> err = [];
   final List<List<String>> ghCalls = [];
@@ -100,9 +112,19 @@ class Fixture {
 
   /// Files left in the temp directory.
   List<String> get leftovers => [
-    for (final e in tempDir.listSync()) e.uri.pathSegments.last,
+    for (final e in tempDir.listSync())
+      if (!e.path.endsWith('${Platform.pathSeparator}openspec'))
+        e.uri.pathSegments.last,
   ];
 
   File file(String name, String text) =>
       File('${tempDir.path}/$name')..writeAsBytesSync(utf8.encode(text));
+}
+
+/// I/O fixtures exercise transport after authentication, under an explicit
+/// caller account (the equivalent of the frozen workflow's token input).
+void writeAmbientSettings(Directory root) {
+  File('${root.path}/openspec/specwright.yaml')
+    ..createSync(recursive: true)
+    ..writeAsStringSync('github:\n  fence: false\n');
 }

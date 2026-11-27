@@ -1,11 +1,70 @@
 import 'dart:io';
 
 import '../fence/fence.dart';
+import '../fence/urls.dart';
 import '../process/limit_line.dart';
 import '../process/limits.dart';
 import '../vcs/tool_runner.dart';
 import 'gh.dart';
 import 'pair.dart';
+
+/// The host and repository are selected by the caller, not by GH_HOST, GH_REPO
+/// or gh's inference from whatever checkout happens to be current.
+List<String> hostGhArgs(List<String> args, String host) {
+  if (args.first == 'api' && host != defaultGitHubHost) {
+    return ['api', '--hostname', host, ...args.skip(1)];
+  }
+  if (host == defaultGitHubHost) return args;
+  return [
+    for (var i = 0; i < args.length; i++)
+      if (i > 0 &&
+          (args[i - 1] == '--repo' || args[i - 1] == '-R') &&
+          args[i].split('/').length == 2)
+        '$host/${args[i]}'
+      else
+        args[i],
+  ];
+}
+
+Map<String, String> hostGhEnvironment(
+  Map<String, String> environment,
+  String host, {
+  bool fenced = true,
+}) {
+  final scoped = Map<String, String>.of(
+    fenced ? environment : originalGitEnvironment(environment)!,
+  );
+  if (!fenced) {
+    final primary = githubTokenVariable(host);
+    final fallback = primary == 'GH_TOKEN'
+        ? 'GITHUB_TOKEN'
+        : 'GITHUB_ENTERPRISE_TOKEN';
+    var callerHost = '';
+    var hasToken = false;
+    for (final entry in scoped.entries) {
+      if (entry.value.isEmpty) continue;
+      final key = Platform.isWindows ? entry.key.toUpperCase() : entry.key;
+      if (key == 'GH_HOST') callerHost = entry.value;
+      if (key == primary || key == fallback) hasToken = true;
+    }
+    final approved = callerHost.isEmpty
+        ? defaultGitHubHost
+        : canonicalHost(callerHost);
+    if (hasToken && host != approved) {
+      throw PairStop(
+        'ambient_token_host_mismatch',
+        'ambient GitHub token host mismatch for $host; set GH_HOST to the '
+            'approved hostname outside the checkout or remove the environment token',
+        code: 3,
+      );
+    }
+  }
+  scoped.removeWhere(
+    (key, _) => const {'GH_HOST', 'GH_REPO'}.contains(key.toUpperCase()),
+  );
+  scoped['GH_HOST'] = host;
+  return scoped;
+}
 
 typedef WorkflowRunner = Future<GhResult> Function(
   String directory,
@@ -55,6 +114,7 @@ class WorkflowTransport {
     String login,
     List<String> command, {
     RunLimits? outer,
+    String host = defaultGitHubHost,
   }) async {
     final watch = Stopwatch()..start();
     Never limited(BoundedLimit limit) => throw PairStop(
@@ -110,12 +170,13 @@ class WorkflowTransport {
       }
 
       await checkGhVersion(gh, discovery);
-      final tokenEnv = await verifyIdentity(login, gh, discovery);
-      checkOuter();
-      checkArguments(command);
-      checkOptions(command);
-      await checkRemotes(git, tokenEnv);
-      final fenced = await fencedEnvironment(tokenEnv, git);
+      final tokenEnv = await verifyIdentity(login, gh, discovery, host: host);
+      final fenced = await prepareFencedCommand(
+        command,
+        tokenEnv,
+        git,
+        host: host,
+      );
       return await call(command, fenced);
     } on FenceStop catch (stop) {
       checkOuter();

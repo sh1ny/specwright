@@ -4,8 +4,10 @@ import 'dart:typed_data';
 
 import 'package:ffi/ffi.dart';
 
+import '../fence/urls.dart' show defaultGitHubHost;
 import '../vcs/codec.dart';
 import 'context.dart';
+import 'watch_state.dart' show hostStateBase;
 
 final _getenv = DynamicLibrary.process()
     .lookupFunction<
@@ -53,8 +55,9 @@ String? _processValue(String name) {
 /// no override, context stops with internal_error before a pass starts.
 /// Unset POSIX HOME has no passwd fallback here, unlike the frozen script.
 ({String stateRoot, String recordDirectory}) feedbackDirectory(
-  PrContext context,
-) {
+  PrContext context, {
+  String host = defaultGitHubHost,
+}) {
   final injected = context.environment;
   String? value(String name) => injected != null
       ? injected[name]
@@ -83,5 +86,6 @@ String? _processValue(String name) {
     }
     root = '$home/.cache/specwright';
   }
-  return (stateRoot: root, recordDirectory: '$root/feedback');
+  final scoped = hostStateBase(root, host);
+  return (stateRoot: scoped, recordDirectory: '$scoped/feedback');
 }

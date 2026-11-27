@@ -5,13 +5,19 @@ import 'dart:io';
 import '../process/limit_line.dart';
 import '../options.dart';
 import '../process/limits.dart';
+import '../settings/rules.dart' show GitHubConnection;
 import '../vcs/codec.dart';
 import '../vcs/document.dart';
 import 'context.dart';
 import 'gh.dart';
+import 'identity.dart';
+import 'pair.dart' show PairStop;
 import 'queries.dart';
 import 'reviewers.dart' show reviewerLogins;
 import 'text.dart';
+import 'settings_commands.dart' show prGitHubSettings;
+import 'workflow.dart' show Workflow;
+import 'workflow_transport.dart' show hostGhArgs;
 import 'watch_state.dart';
 
 final RegExp _datePattern = RegExp(
@@ -39,6 +45,9 @@ Future<int> runSnapshot(PrContext ctx, List<String> argv) async {
   try {
     return await snapshot.run(argv);
   } on PrExit catch (e) {
+    return e.code;
+  } on PairStop catch (e) {
+    ctx.err('pr-snapshot: ${e.message}\n');
     return e.code;
   } finally {
     for (final s in signals) {
@@ -121,6 +130,10 @@ class _Snapshot {
   _Snapshot(this.ctx);
 
   final PrContext ctx;
+  late final GitHubConnection connection;
+  late final String configuredLogin;
+  late final credentials = Workflow(ctx)
+      .commandEnvironment(connection, configuredLogin);
   String pr = '';
   String repo = '';
   String full = '';
@@ -167,7 +180,11 @@ class _Snapshot {
     claim?.release();
   }
 
-  Future<GhResult> gh(List<String> args) => ctx.gh(args, environment: pollEnv);
+  Future<GhResult> gh(List<String> args, {bool paged = false}) async => ctx.gh(
+    hostGhArgs(args, connection.host),
+    environment: pollEnv ?? await credentials,
+    paged: paged,
+  );
 
   Future<int> run(List<String> argv) async {
     // The one option rule (`options.dart`): `--opt VALUE` or `--opt=VALUE`, no abbreviations. A missing value or an unknown
@@ -237,16 +254,20 @@ class _Snapshot {
     }
     logs = parsed.flag('logs');
     wait = parsed.flag('wait');
+    if (parsed.rest.length > 1) {
+      stop('pr-snapshot: pass at most one PR number or URL', 2);
+    }
+    ({String host, String repo, int number})? fromUrl;
     for (final arg in parsed.rest) {
-      if (RegExp(r'^https://.*/pull/').hasMatch(arg)) {
-        repo = arg.replaceFirstMapped(
-          RegExp(r'https://[^/]+/([^/]+/[^/]+)/pull/.*'),
-          (m) => m[1]!,
-        );
-        pr = arg.replaceFirstMapped(
-          RegExp(r'.*/pull/([0-9]+).*'),
-          (m) => m[1]!,
-        );
+      if (arg.startsWith('https://')) {
+        fromUrl = pullCoordinates(arg);
+        if (fromUrl == null) stop('pr-snapshot: invalid PR URL', 2);
+        if (repo.isNotEmpty &&
+            repo.toLowerCase() != fromUrl.repo.toLowerCase()) {
+          stop('pr-snapshot: PR URL disagrees with --repo', 2);
+        }
+        repo = fromUrl.repo;
+        pr = '${fromUrl.number}';
       } else if (RegExp(r'^[0-9]').hasMatch(arg)) {
         pr = arg;
       } else {
@@ -258,6 +279,12 @@ class _Snapshot {
         stop("pr-snapshot: bad --until '$until' (want attention)", 2);
       }
       if (!wait) stop('pr-snapshot: --until needs --wait', 2);
+    }
+    final settings = await prGitHubSettings(ctx);
+    connection = settings.connection;
+    configuredLogin = settings.login;
+    if (fromUrl != null && fromUrl.host != connection.host) {
+      stop('pr-snapshot: PR URL does not name ${connection.host}', 2);
     }
     if (full.isNotEmpty) return await readFull();
 
@@ -273,34 +300,52 @@ class _Snapshot {
       rcfgArg = path;
     }
     if (repo.isEmpty) {
-      final r = await gh([
-        'repo',
-        'view',
-        '--json',
-        'owner,name',
-        '--jq',
-        repoViewJq,
-      ]);
-      ctx.relayErr(r);
-      if (r.exitCode != 0) throw PrExit(r.exitCode);
-      repo = ctx.captured(r);
-    }
-    if (pr.isEmpty) {
-      final r = await gh([
-        'pr',
-        'view',
-        '--json',
-        'number',
-        '--jq',
-        prNumberJq,
-      ]);
-      ctx.relayErr(r);
-      if (r.exitCode != 0) throw PrExit(r.exitCode);
-      pr = ctx.captured(r);
+      repo =
+          (await identityOf(
+                ctx,
+                ctx.cwd,
+                selection: settings.remote,
+                host: connection.host,
+              ))['repo']
+              as String;
+    } else {
+      repo =
+          prRepoSlug(repo, connection.host) ??
+          (throw PairStop(
+            'usage',
+            '--repo needs owner/name on ${connection.host}',
+            code: 2,
+          ));
     }
     final slash = repo.indexOf('/');
-    owner = slash < 0 ? repo : repo.substring(0, slash);
-    name = slash < 0 ? repo : repo.substring(slash + 1);
+    owner = repo.substring(0, slash);
+    name = repo.substring(slash + 1);
+
+    if (pr.isEmpty) {
+      final ref = await ctx.git(ctx.cwd, [
+        'symbolic-ref',
+        '--quiet',
+        '--short',
+        'HEAD',
+      ]);
+      final branch = ref.names('current branch').trim();
+      if (ref.code != 0 || branch.isEmpty || branch.startsWith('-')) {
+        stop(
+          'pr-snapshot: cannot read the current branch; pass a PR number',
+          2,
+        );
+      }
+      final selected =
+          await branchPrNumber(branch, 'open') ??
+          await branchPrNumber(branch, 'closed');
+      if (selected == null) {
+        stop(
+          'pr-snapshot: cannot find a pull request for current branch $branch in $repo; pass a PR number',
+          1,
+        );
+      }
+      pr = '$selected';
+    }
 
     // The evaluator's material file, in the system temp directory (D8).
     final mat = await ctx.makeTemp();
@@ -342,7 +387,7 @@ class _Snapshot {
       var limited = false;
       for (final id in _failRunIds(snapDoc)) {
         ctx.out('\n===== failed log: run $id =====\n');
-        final r = await ctx.gh(['run', 'view', id, '-R', repo, '--log-failed']);
+        final r = await gh(['run', 'view', id, '-R', repo, '--log-failed']);
         // `2>&1 | tail -n 80`: what the call printed, both streams in arrival order, or the limit line the helper
         // printed. A call that never started has no merged output: its start-failure text is its stderr (D4).
         final bytes = r.limitLine != null
@@ -360,6 +405,33 @@ class _Snapshot {
       if (limited) throw PrExit(1);
     }
     return 0;
+  }
+
+  /// REST lists newest first and includes merged PRs in its `closed` state.
+  Future<int?> branchPrNumber(String branch, String state) async {
+    final ref = Uri.encodeComponent(branch);
+    final r = await gh([
+      'api',
+      '--paginate',
+      'repos/$repo/pulls?state=$state&head=$owner:$ref&per_page=100',
+      '--jq',
+      '.[] | {number, ref: .head.ref, repo: .head.repo.full_name}',
+    ], paged: true);
+    ctx.relayErr(r);
+    if (r.exitCode != 0) throw PrExit(r.exitCode);
+    final slug = repo.toLowerCase();
+    for (final line in LineSplitter.split(ctx.captured(r))) {
+      final item = _document(line);
+      final number = item?['number'];
+      if (number is! int || number <= 0) {
+        stop('pr-snapshot: unreadable branch PR listing for $repo', 1);
+      }
+      if (item!['ref'] == branch &&
+          _stringOf(item['repo']).toLowerCase() == slug) {
+        return number;
+      }
+    }
+    return null;
   }
 
   /// `--full`: one node read whole, no snapshot, no reviewer config, no claim.
@@ -459,7 +531,7 @@ class _Snapshot {
     } else {
       // decided once per head per process, so the cutoff and timeout start stay fixed
       if (seenSrc.isEmpty) {
-        final base = stateBase(ctx);
+        final base = stateBase(ctx, host: connection.host);
         final seen = await resolveFirstSeen(
           ctx,
           dir: headsDirectory(base, owner, name, pr),
@@ -576,6 +648,7 @@ class _Snapshot {
     var out = ctx.captured(r);
     var doc = _document(out);
     if (doc == null) return notDocument();
+    if (!snapshotTarget(doc)) return _Result(1);
     final batches = recheckBatches(_recheckIds(doc));
     if (batches.isEmpty) return evaluate(out, doc);
     var rt = '';
@@ -599,7 +672,21 @@ class _Snapshot {
     out = ctx.captured(r);
     doc = _document(out);
     if (doc == null) return notDocument();
+    if (!snapshotTarget(doc)) return _Result(1);
     return evaluate(out, doc);
+  }
+
+  bool snapshotTarget(Map<String, Object?> doc) {
+    final number = int.tryParse(pr);
+    if (number != null &&
+        doc['number'] == number &&
+        matchesPull(doc['url'], connection.host, repo, number)) {
+      return true;
+    }
+    ctx.err(
+      'pr-snapshot: GitHub did not return the requested PR $repo#$pr on ${connection.host}\n',
+    );
+    return false;
   }
 
   /// The PR query's line is not one JSON document: the poll fails.
@@ -611,10 +698,11 @@ class _Snapshot {
   /// One poll: one deadline for all its gh calls, so a hung poll ends at that deadline and the timeout is still reported on
   /// time. Returns the snapshot and its document, or null when the poll failed.
   Future<({String text, Map<String, Object?> doc})?> poll() async {
+    final scoped = await credentials;
     final at =
         DateTime.now().microsecondsSinceEpoch / 1e6 +
         resolveLimits(ctx.env, paged: false).deadline.inMicroseconds / 1e6;
-    pollEnv = {...ctx.env, 'SPECWRIGHT_NET_DEADLINE_AT': at.toStringAsFixed(6)};
+    pollEnv = {...scoped, 'SPECWRIGHT_NET_DEADLINE_AT': at.toStringAsFixed(6)};
     try {
       if (await prepareCfg() != 0) return null;
       final s = await snapshot();
@@ -648,7 +736,12 @@ class _Snapshot {
     ({String wake, String snapshot, Map<String, Object?> doc, int filtered})
   >
   watch() async {
-    final dir = claimDirectory(stateBase(ctx), owner, name, pr);
+    final dir = claimDirectory(
+      stateBase(ctx, host: connection.host),
+      owner,
+      name,
+      pr,
+    );
     claim = WatchClaim.claim(dir);
     if (claim == null) {
       ctx.err(

@@ -44,6 +44,7 @@ Future<int> runPrCommand(
   List<String> args, {
   required void Function(List<int> bytes) writeOut,
   required void Function(List<int> bytes) writeErr,
+  String? project,
   PrContext Function()? context,
 }) async {
   if (args.isNotEmpty && args[0] == 'reviewers') {
@@ -59,7 +60,8 @@ Future<int> runPrCommand(
   }
   final rest = args.sublist(1);
   final ctx =
-      context?.call() ?? PrContext(writeOut: writeOut, writeErr: writeErr);
+      context?.call() ??
+      PrContext(writeOut: writeOut, writeErr: writeErr, project: project);
   return switch (args[0]) {
     'pair' => runPairCommand(ctx, () async {
       pairUsage(

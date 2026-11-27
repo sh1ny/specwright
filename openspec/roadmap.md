@@ -20,7 +20,7 @@ Specwright already exists (0.1.8), so M1 is not a walking skeleton: it closes th
 **Changes** (in order; each about one PR):
 1. `fix-sw-port-gaps` - fix the defects the M8 ports kept for parity or found: #206, #209, #214, #215, #223, #224, #232 and #235, and the Windows eval flakes #227 and #231.
 2. `spec-wording-sweep` - replace retired script names in the main specs with their `sw` commands, wording only (#234), and fix the install prompt wording that can derail a correct install, plus its stale wording (#242). It runs early so later M9 changes edit the new wording.
-3. `github-connection-options` - SSH remotes, GitHub Enterprise hosts and token-only environments (#167), and a configurable remote name for fork workflows (#168).
+3. `github-connection-options` - SSH remotes, GitHub Enterprise hosts and token-only environments (#167), a configurable remote name for fork workflows (#168), and code PR shipping with a local-only planning store (#260).
 4. `reviewer-settings` - custom reviewer routes and an opt-in user codex config (#169), round-cap settings (#172), and the OMP route's missing `find` tool (#222).
 5. `project-conventions` - configurable branch prefixes, commit subject format and limit, and version scheme, with today's values as defaults (#171).
 6. `agent-defaults` - the OMP full implementer's model (#170), a Codex implementer and a clear DELEGATION rule (#208), ADR task placement (#201), and neutral shipped examples (#173).

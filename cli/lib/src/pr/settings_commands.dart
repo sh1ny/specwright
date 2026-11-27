@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import '../commit/task_cover.dart' show pyStrip;
+import '../entry/project_version.dart' show projectRoot;
 import '../settings/reviewer_config.dart';
 import '../settings/rules.dart';
 import 'context.dart';
@@ -27,14 +28,23 @@ Future<Contexts> workflowContexts(
   String code,
   String? store,
 ) async {
-  final mains = {
-    code: await _detectMain(ctx, code),
-    ?store: await _detectMain(ctx, store),
-  };
   final problems = <SettingProblem>[];
   try {
+    final settings = loadSettings(
+      readSettingsText([projectRoot(ctx.project ?? code)]),
+    );
+    final mains = {
+      code: await _detectMain(ctx, code, selectedRemote(settings).name),
+    };
+    if (store != null) {
+      mains[store] = await _detectMain(
+        ctx,
+        store,
+        selectedRemote(settings, store: true).name,
+      );
+    }
     final c = contexts(
-      await _loadSettings(ctx, code),
+      settings,
       code,
       store,
       detectMain: (d) => mains[d] ?? 'main',
@@ -42,6 +52,39 @@ Future<Contexts> workflowContexts(
     );
     _stopOnOversized(problems);
     return c;
+  } on SettingsStop catch (e) {
+    throw _stopOf(e);
+  }
+}
+
+/// A direct command uses the requested checkout unless `--project` names the
+/// code project. An implicit target in a different work tree is then the store.
+Future<({GitHubConnection connection, RemoteSelection remote, String login})>
+prGitHubSettings(
+  PrContext ctx, {
+  String? directory,
+  String? code,
+  bool? store,
+}) async {
+  final dir = directory ?? ctx.cwd;
+  final project = projectRoot(ctx.project ?? code ?? dir);
+  try {
+    final settings = loadSettings(readSettingsText([project]));
+    String pathKey(String path) =>
+        Platform.isWindows ? path.toLowerCase() : path;
+
+    final isStore = store ?? pathKey(project) != pathKey(projectRoot(dir));
+    final github = settingSection(settings, 'github', 'github');
+    final codeLogin = pyStrip('${github['login'] ?? ''}');
+    final storeSettings = isStore
+        ? settingSection(settings, 'planning_store', 'planning_store')
+        : const <String, Object?>{};
+    final storeLogin = pyStrip('${storeSettings['login'] ?? ''}');
+    return (
+      connection: githubConnection(settings),
+      remote: selectedRemote(settings, store: isStore),
+      login: storeLogin.isNotEmpty ? storeLogin : codeLogin,
+    );
   } on SettingsStop catch (e) {
     throw _stopOf(e);
   }
@@ -73,7 +116,7 @@ Future<Map<String, Object?>> _loadSettings(PrContext ctx, String code) async {
 Future<bool> _hasRef(PrContext ctx, String d, String ref) async =>
     (await ctx.git(d, ['show-ref', '--verify', '--quiet', ref])).code == 0;
 
-/// `detect_main(d)`: `main`, else `master`, as a local or origin branch; `main` when neither exists.
+/// `main`, else `master`, as a local or selected remote branch.
 ///
 /// C43: default main detection (run eagerly by `readVcsSettings` for every role
 /// and used only when that role sets no `main_branch`) keeps today's rule: a
@@ -87,10 +130,10 @@ Future<bool> _hasRef(PrContext ctx, String d, String ref) async =>
 /// rule. Rejected: a strict lookup on the planner's path, which two review
 /// rounds showed cannot tell a malformed ref from a missing one through
 /// `show-ref` and would stop plans on a role's detection they do not use.
-Future<String> _detectMain(PrContext ctx, String d) async {
+Future<String> _detectMain(PrContext ctx, String d, String remote) async {
   for (final name in const ['main', 'master']) {
     if (await _hasRef(ctx, d, 'refs/heads/$name') ||
-        await _hasRef(ctx, d, 'refs/remotes/origin/$name')) {
+        await _hasRef(ctx, d, 'refs/remotes/$remote/$name')) {
       return name;
     }
   }
@@ -236,7 +279,16 @@ Future<String> _pinRef(
 /// What `sw vcs` needs of `pr-pair.sh vcs` and `context --only repos`, read in process (D6): the backend the settings
 /// choose for [role], and the main branch and login of that role's repo. No reviewer-config write and no identity
 /// lookup. Throws [SettingsStop] as the script stopped.
-Future<({String backend, String main, String login})> readVcsSettings(
+Future<
+  ({
+    String backend,
+    String main,
+    String login,
+    GitHubConnection connection,
+    RemoteSelection remote,
+  })
+>
+readVcsSettings(
   PrContext ctx, {
   required String code,
   required String repo,
@@ -247,9 +299,11 @@ Future<({String backend, String main, String login})> readVcsSettings(
   final v = vcsChoices(s);
   final backend = role == 'code' ? v.code : v.store;
   final store = role == 'store' ? repo : null;
+  final selection = selectedRemote(s, store: role == 'store');
   final mains = {
-    code: await _detectMain(ctx, code),
-    if (store != null && store.isNotEmpty) store: await _detectMain(ctx, store),
+    code: await _detectMain(ctx, code, selectedRemote(s).name),
+    if (store != null && store.isNotEmpty)
+      store: await _detectMain(ctx, store, selection.name),
   };
   final c = contexts(
     s,
@@ -259,7 +313,13 @@ Future<({String backend, String main, String login})> readVcsSettings(
     checkMerge: false,
   );
   final item = role == 'store' ? c.store : c.code;
-  return (backend: backend, main: item?.main ?? '', login: item?.login ?? '');
+  return (
+    backend: backend,
+    main: item?.main ?? '',
+    login: item?.login ?? '',
+    connection: c.connection,
+    remote: selection,
+  );
 }
 
 /// `context --only repos --branch <branch>` as far as it checks the pin: on GitButler the work-tree settings must be
@@ -361,15 +421,20 @@ Future<int> runContext(PrContext ctx, List<String> argv) =>
       }
       final text = await _settingsText(ctx, code);
       final problems = <SettingProblem>[];
-      final mains = {
-        code: await _detectMain(ctx, code),
-        if (store != null && store.isNotEmpty)
-          store: await _detectMain(ctx, store),
-      };
       final Contexts c;
       try {
+        final settings = loadSettings(text);
+        final mains = {
+          code: await _detectMain(ctx, code, selectedRemote(settings).name),
+          if (store != null && store.isNotEmpty)
+            store: await _detectMain(
+              ctx,
+              store,
+              selectedRemote(settings, store: true).name,
+            ),
+        };
         c = contexts(
-          loadSettings(text),
+          settings,
           code,
           store,
           detectMain: (d) => mains[d] ?? 'main',
@@ -383,7 +448,14 @@ Future<int> runContext(PrContext ctx, List<String> argv) =>
       Future<Map<String, Object?>> withRepo(RepoContext rc, String dir) async {
         String? repo;
         try {
-          repo = (await identityOf(ctx, dir))['repo'] as String?;
+          repo =
+              (await identityOf(
+                    ctx,
+                    dir,
+                    host: c.connection.host,
+                    selection: rc.remote,
+                  ))['repo']
+                  as String?;
         } on PairStop {
           repo = null;
         }

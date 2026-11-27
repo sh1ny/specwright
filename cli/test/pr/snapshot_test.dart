@@ -24,14 +24,15 @@ String snapJson({
   String failRuns = '',
   String extra = '',
 }) =>
-    '{"head_oid":"$oid","recheck":[$recheck],"complete":$complete,"sig":"$sig","attn":"$attn",'
+    '{"number":7,"url":"https://github.com/o/n/pull/7",'
+    '"head_oid":"$oid","recheck":[$recheck],"complete":$complete,"sig":"$sig","attn":"$attn",'
     '"fail_names":[],"fail_run_ids":[$failRuns]$extra}';
 
 /// Which `gh` call [args] is.
 String kindOf(List<String> args) {
   final text = args.join(' ');
   if (args.first == 'repo') return 'repo';
-  if (args.first == 'pr') return 'prnum';
+  if (text.contains('/pulls?state=')) return 'prnum';
   if (args.first == 'run') return 'logs';
   if (text.contains('node(id:\$id)')) return 'full';
   if (text.contains('headRefOid headRefName headRepository')) return 'cfg';
@@ -60,7 +61,7 @@ void main() {
       if (custom != null) return custom(args);
       return switch (kind) {
         'repo' => answer('o/n\n'),
-        'prnum' => answer('7\n'),
+        'prnum' => answer('{"number":7,"ref":"feature","repo":"o/n"}\n'),
         'cfg' => answer('$oid feature o/n\n'),
         'rate' => answer('HTTP/2.0 200 OK\r\nDate: $date\r\n\r\n{}'),
         'activity' => answer('$pushed\n'),
@@ -264,6 +265,10 @@ void main() {
     });
 
     test('a pull request URL gives the repository and the number', () async {
+      material = snapJson().replaceFirst(
+        '"number":7,"url":"https://github.com/o/n/pull/7"',
+        '"number":12,"url":"https://github.com/Own/Nm/pull/12"',
+      );
       expect(await snapshot(['https://github.com/Own/Nm/pull/12/files']), 0);
       expect(kinds(), ['cfg', 'rate', 'activity', 'snapshot']);
       final query = f.ghCalls.last;
@@ -271,6 +276,10 @@ void main() {
     });
 
     test('a number is the PR, and --repo names the repository', () async {
+      material = snapJson().replaceFirst(
+        '"number":7,"url":"https://github.com/o/n/pull/7"',
+        '"number":9,"url":"https://github.com/a/b/pull/9"',
+      );
       expect(await snapshot(['--repo', 'a/b', '9']), 0);
       expect(kinds(), ['cfg', 'rate', 'activity', 'snapshot']);
       expect(f.ghCalls.last, containsAllInOrder(['owner=a', 'name=b', 'pr=9']));
@@ -413,22 +422,11 @@ void main() {
   group('one snapshot', () {
     test('looks up the repository and PR, then reads cfg, the clock, the push and the PR', () async {
       expect(await snapshot([]), 0);
-      expect(kinds(), ['repo', 'prnum', 'cfg', 'rate', 'activity', 'snapshot']);
-      expect(f.ghCalls[0], [
-        'repo',
-        'view',
-        '--json',
-        'owner,name',
-        '--jq',
-        repoViewJq,
-      ]);
-      expect(f.ghCalls[1], [
-        'pr',
-        'view',
-        '--json',
-        'number',
-        '--jq',
-        prNumberJq,
+      expect(kinds(), ['prnum', 'cfg', 'rate', 'activity', 'snapshot']);
+      expect(f.ghCalls.first.take(3), [
+        'api',
+        '--paginate',
+        'repos/o/n/pulls?state=open&head=o:feature&per_page=100',
       ]);
       final cfg = cfgFor(
         logins: '',
@@ -451,7 +449,7 @@ void main() {
         '--jq',
         prJq(cfg, 'def rtimes: {};'),
       ]);
-      expect(f.ghCalls[4], [
+      expect(f.ghCalls[3], [
         'api',
         'repos/o/n/activity?ref=refs/heads/feature&per_page=100',
         '--jq',
@@ -524,12 +522,25 @@ void main() {
           f.stderr,
           'pr-snapshot: cannot create a temp file for the reviewer evaluator\n',
         );
-        expect(kinds(), ['repo', 'prnum']);
+        expect(kinds(), ['prnum']);
       },
     );
 
-    test('a failed repository lookup exits with gh\'s status', () async {
-      answers({'repo': (_) => answer('', exit: 7, stderr: 'nope\n')});
+    test('a numeric branch name selects its PR, not that PR number', () async {
+      f.branch = '123';
+      answers({
+        'prnum': (args) => answer(
+          args[2] == 'repos/o/n/pulls?state=open&head=o:123&per_page=100'
+              ? '{"number":7,"ref":"123","repo":"o/n"}\n'
+              : '',
+        ),
+      });
+      expect(await snapshot([]), 0);
+      expect(f.ghCalls.last, contains('pr=7'));
+    });
+
+    test('a failed branch PR lookup exits with gh\'s status', () async {
+      answers({'prnum': (_) => answer('', exit: 7, stderr: 'nope\n')});
       expect(await snapshot([]), 7);
       expect(f.stderr, 'nope\n');
     });
@@ -608,7 +619,7 @@ void main() {
     test('a repository the head is not in (a fork that is gone) has no activity lookup', () async {
       answers({'cfg': (_) => answer('$oid feature -\n')});
       expect(await snapshot([]), 0);
-      expect(kinds(), ['repo', 'prnum', 'cfg', 'rate', 'snapshot']);
+      expect(kinds(), ['prnum', 'cfg', 'rate', 'snapshot']);
     });
   });
 
@@ -1049,9 +1060,9 @@ void main() {
   });
 
   group('documents are parsed, not matched', () {
-    /// The same document with a space after every `:` and `,` (the fixtures hold no string with either).
+    /// Re-encode so whitespace never changes string values.
     String spaced(String compact) =>
-        compact.replaceAll(':', ': ').replaceAll(',', ', ');
+        const JsonEncoder.withIndent('  ').convert(jsonDecode(compact));
 
     test('evaluator output that is not a document fails the poll', () async {
       for (final bad in [

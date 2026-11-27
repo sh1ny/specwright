@@ -8,7 +8,19 @@ finish: local
 # Main branch. Omit to detect (main, else master).
 # main_branch: main
 
+# Network remote for the code repository. Omit for origin and legacy Git pull
+# of the checked-out main's upstream. An explicit name, even origin, pins pull.
+# remote: origin
+
 github:
+  # Hostname only; use the GitHub Enterprise Server hostname when applicable.
+  # host: github.com
+  # true = verify a stored gh login and fence HTTPS to this host. false = use
+  # caller Git/gh credentials (SSH or environment tokens); leave named
+  # accounts below, planning_store.login and pr.request_as empty in that mode.
+  # With environment tokens, set GH_HOST outside the checkout to the approved
+  # host. Unset or empty GH_HOST approves github.com only.
+  # fence: true
   # Account for push, PR creation, replies and thread resolution.
   # Empty = the active gh account, resolved once when a run starts and fenced
   # for the whole run (sw as), so a later gh auth switch cannot redirect it.
@@ -150,7 +162,7 @@ pr:
   # Quiet window before a PR counts as ready (1m to 1h; default 5m).
   # settle: 5m
   # Account that posts the requests. Default: review_request.login, else
-  # github.login.
+  # the repository's bound run login.
   # request_as: ""
   # Who merges a ready PR. user = you merge on GitHub; watch reports ready
   # and stops. agent = with finish: pr, watch archives the change without
@@ -183,9 +195,11 @@ cheap_tier:
 
 # Store-backed changes only (planning in an OpenSpec store, a separate git
 # repo): settings for the store side. Every other setting is shared with the
-# code repo, and each key below falls back to the code repo's value.
+# code repo. Store values default to the code value except where noted.
 # planning_store:
 #   # Store main branch. Omit to detect (main, else master) in the store.
+#   # Network remote, independently defaults to origin, not the code remote.
+#   # remote: origin
 #   # Backend for this repository's branch state and version-control writes:
 #   # git (default) | jj (gitbutler is not supported for a store). Independent of the code repository's vcs setting.
 #   vcs: git
