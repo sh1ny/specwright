@@ -29,7 +29,8 @@ class GitButlerNetworkCase(GitButlerWorkspaceCase):
     def github_view(self):
         script = self.shim.path / "git"
         text = script.read_text(encoding="utf-8").replace("\r\n", "\n")
-        answer = 'if [ "$*" = "remote get-url origin" ]; then echo "%s"; exit 0; fi\n' % GITHUB
+        answer = ('case "$*" in "remote get-url origin"|"remote get-url --all origin"|'
+                  '"remote get-url --push --all origin") echo "%s"; exit 0 ;; esac\n') % GITHUB
         text = text.replace('exec "$SPECWRIGHT_REAL_GIT" "$@"', answer + 'exec "$SPECWRIGHT_REAL_GIT" "$@"')
         with script.open("w", encoding="utf-8", newline="\n") as stream:
             stream.write(text)

@@ -404,6 +404,8 @@ Future<Map<String, Object?>> runGitOperation(
   final repo = s.repo;
   final scripts = s.scripts;
   final main = s.info.main;
+  final remote = s.info.remote;
+  final connection = s.info.connection;
   final messageFile = request.messageFile ?? '';
   switch (command) {
     case 'branch-create':
@@ -504,40 +506,57 @@ Future<Map<String, Object?>> runGitOperation(
       ], error: 'branch_delete_failed');
       return {'ok': true, 'backend': 'git', 'branch': branch};
     case 'fetch-main':
-      await networkGit(scripts, repo, [
-        'fetch',
-        if (request.quiet) '-q',
-        if (request.noTags) '--no-tags',
-        'origin',
-        main,
-      ], _loginFor(s));
+      await networkGit(
+        scripts,
+        repo,
+        [
+          'fetch',
+          if (request.quiet) '-q',
+          if (request.noTags) '--no-tags',
+          remote.name,
+          main,
+        ],
+        _loginFor(s),
+        remote: remote.name,
+        connection: connection,
+      );
       final commit = (await gitChecked(scripts, repo, [
         'rev-parse',
         '--verify',
-        'refs/remotes/origin/$main^{commit}',
+        'refs/remotes/${remote.name}/$main^{commit}',
       ], error: 'fetch_failed')).stdout.trim();
       return {
         'ok': true,
         'backend': 'git',
-        'ref': 'origin/$main',
+        'ref': '${remote.name}/$main',
         'commit': commit,
       };
     case 'pull':
-      await networkGit(scripts, repo, [
-        'pull',
-        '--ff-only',
-        if (request.remoteBranch) ...['origin', main],
-      ], _loginFor(s));
+      final explicitlyNamed = request.remoteBranch || remote.explicit;
+      await networkGit(
+        scripts,
+        repo,
+        [
+          'pull',
+          '--ff-only',
+          if (explicitlyNamed) ...[remote.name, main],
+        ],
+        _loginFor(s),
+        remote: explicitlyNamed ? remote.name : null,
+        connection: connection,
+      );
       return {'ok': true, 'backend': 'git', 'branch': await gitCurrent(s)};
     case 'push':
       final branch = requireBranch(s);
       await checkBranch(s, branch);
-      await networkGit(scripts, repo, [
-        'push',
-        '-u',
-        'origin',
-        'HEAD',
-      ], _loginFor(s));
+      await networkGit(
+        scripts,
+        repo,
+        ['push', '-u', remote.name, 'HEAD'],
+        _loginFor(s),
+        remote: remote.name,
+        connection: connection,
+      );
       return {'ok': true, 'backend': 'git', 'branch': branch};
     case 'advance':
       if (request.scope == null) throw _usage('advance requires --scope');

@@ -81,6 +81,24 @@ class TestGitButlerProbe(GitButlerCase):
             self.assertIn("main", result["message"])
             self.assertFalse(log.exists(), "but ran although the target is wrong")
 
+    def assert_target_refused(self, target):
+        self.settings(self.repo, "vcs: gitbutler\nfinish: pr\nremote: publishing\n")
+        (self.repo / ".git" / "gitbutler").mkdir()
+        self.git(self.repo, "config", "gitbutler.project.targetRef", target)
+        env, log = self.stub_but()
+        before = self.snapshot(self.repo)
+        result, _ = self.invoke("probe", repo=self.repo, env=env, expected=1)
+        self.assertEqual(result["error"], "target_mismatch", result)
+        self.assertIn("refs/remotes/publishing/main", result["message"])
+        self.assertFalse(log.exists(), "but ran although the target is wrong")
+        self.assertEqual(self.snapshot(self.repo), before)
+
+    def test_explicit_remote_rejects_gitbutler_target_for_other_remote(self):
+        self.assert_target_refused("refs/remotes/origin/main")
+
+    def test_explicit_remote_rejects_gitbutler_local_only_target(self):
+        self.assert_target_refused("refs/heads/main")
+
     def test_probe_passes_and_runs_but_outside_repo(self):
         require_but()
         with Scratch() as scratch:

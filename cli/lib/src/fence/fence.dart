@@ -128,6 +128,33 @@ Map<String, String> saveOriginals(Map<String, String> env, {bool? windows}) {
   return out;
 }
 
+/// Restore the caller's transport for a plain Git/colocated backend command.
+/// Never pass the active fence token to a remote outside the fence.
+Map<String, String>? originalGitEnvironment([
+  Map<String, String>? environment,
+]) {
+  final env = environment ?? Platform.environment;
+  final windows = Platform.isWindows;
+  final savedKey = _keyOf(env, 'AS_SH_ORIG_SET', windows);
+  if (savedKey == null) return environment;
+  final result = <String, String>{};
+  for (final entry in env.entries) {
+    final name = windows ? entry.key.toUpperCase() : entry.key;
+    if (!_tokenVariables.contains(name) &&
+        !_savedVariables.contains(name) &&
+        !_gitConfigName.hasMatch(name) &&
+        !name.startsWith('AS_SH_ORIG_')) {
+      result[entry.key] = entry.value;
+    }
+  }
+  for (final name in env[savedKey]!.split(' ')) {
+    if (name.isEmpty) continue;
+    final key = _keyOf(env, 'AS_SH_ORIG_$name', windows);
+    if (key != null) result[name] = env[key]!;
+  }
+  return result;
+}
+
 /// What discovery runs with: [env] without the gh token and host variables
 /// (an empty `GH_HOST` counts as set, so it goes too).
 Map<String, String> discoveryEnvironment(

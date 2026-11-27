@@ -1,4 +1,5 @@
 import '../fence/fenced_text.dart';
+import '../fence/urls.dart';
 import '../pr/context.dart';
 import '../pr/pair.dart';
 import '../pr/settings_commands.dart';
@@ -41,20 +42,31 @@ class VcsScripts {
   /// Replaces the in-process fence in a test; null runs [fencedText].
   final FencedRun? fence;
 
-  /// `as.sh <argv...>` in [repo], run in this process.
-  Future<TextResult> fenced(String repo, List<String> argv) {
+  Future<TextResult> fenced(
+    String repo,
+    List<String> argv, {
+    String host = defaultGitHubHost,
+  }) {
     final run = fence;
-    return run != null ? run(repo, argv) : fencedText(repo, argv);
+    return run != null ? run(repo, argv) : fencedText(repo, argv, host: host);
   }
 }
 
 /// The backend, main branch and login `vcs.sh`'s `get_settings` returns.
 class VcsSettings {
-  VcsSettings(this.backend, this.main, this.login);
+  VcsSettings(
+    this.backend,
+    this.main,
+    this.login,
+    this.connection,
+    this.remote,
+  );
 
   final String backend;
   final String main;
   final String login;
+  final GitHubConnection connection;
+  final RemoteSelection remote;
 }
 
 /// `vcs.sh`'s `get_settings`, read in process (design D6): the backend the
@@ -76,7 +88,13 @@ Future<VcsSettings> readSettings(
       repo: repo,
       role: role,
     );
-    return VcsSettings(read.backend, read.main, read.login);
+    return VcsSettings(
+      read.backend,
+      read.main,
+      read.login,
+      read.connection,
+      read.remote,
+    );
   } on SettingsStop catch (e) {
     throw VcsStop(e.error, e.message, code: _cap(e.code));
   }
@@ -119,10 +137,11 @@ Future<String> fenceLogin(
   String repo, {
   required bool github,
   String? login,
+  String host = defaultGitHubHost,
 }) async {
   var who = login ?? '';
   if (github && who.isEmpty) {
-    final resolved = await scripts.fenced(repo, ['--resolve']);
+    final resolved = await scripts.fenced(repo, ['--resolve'], host: host);
     if (resolved.code != 0) {
       final said = resolved.stderr.trim();
       throw VcsStop(
@@ -147,7 +166,8 @@ Future<TextResult> runAs(
   VcsScripts scripts,
   String repo,
   String who,
-  List<String> command,
-) => scripts.fenced(repo, [who, ...command]);
+  List<String> command, {
+  String host = defaultGitHubHost,
+}) => scripts.fenced(repo, [who, ...command], host: host);
 
 int _cap(int code) => code < 3 ? code : 3;

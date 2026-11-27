@@ -402,6 +402,7 @@ class RepoContext {
     required this.requestsDisabled,
     required this.mergeReady,
     required this.mergeReason,
+    this.remote = const RemoteSelection(),
   });
 
   final String dir;
@@ -411,6 +412,7 @@ class RepoContext {
   final String main;
   final String validate;
   final Map<String, Reviewer> reviewers;
+  final RemoteSelection remote;
   final bool requestsDisabled;
   final bool mergeReady;
 
@@ -429,6 +431,7 @@ class RepoContext {
     'requests_disabled': requestsDisabled,
     'merge_ready': mergeReady,
     'merge_reason': mergeReason,
+    if (remote.explicit) 'remote': remote.name,
   };
 }
 
@@ -497,6 +500,7 @@ RepoContext repoContext(
     login: login,
     main: main,
     validate: validate,
+    remote: selectedRemote(s, store: which == 'store'),
     reviewers: reviewers,
     requestsDisabled: disabled,
     mergeReady: ready,
@@ -519,10 +523,12 @@ class Contexts {
     required this.mergeNote,
     required this.mergeMethod,
     required this.deleteBranch,
+    this.connection = const GitHubConnection(),
   });
 
   final RepoContext code;
   final RepoContext? store;
+  final GitHubConnection connection;
   final String finish;
 
   /// `int()` of an integer setting (a boolean reads as 1 or 0), else 2; past 64 bits is 2 with a problem.
@@ -540,6 +546,8 @@ class Contexts {
   Map<String, Object?> toJson() => {
     'code': code.toJson(),
     'store': store?.toJson(),
+    if (connection.host != defaultGitHubHost) 'github_host': connection.host,
+    if (!connection.fence) 'github_fence': false,
     'finish': finish,
     'max_fix_rounds': maxFixRounds,
     'after_limit': afterLimit,
@@ -605,6 +613,7 @@ Contexts contexts(
   }
   return Contexts(
     code: codeContext,
+    connection: githubConnection(s),
     store: storeContext,
     finish: _strOr(s['finish']),
     maxFixRounds: maxRounds,

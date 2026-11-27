@@ -11,6 +11,93 @@ from vcs_test_support import VcsTestCase, bash_path_env
 READ_FETCH = "FETCH_HEAD-only read fetch"
 
 
+class TestGitSelectedRemotes(VcsTestCase):
+    def must(self, d, *args):
+        result = self.git(d, *args)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return result.stdout.strip()
+
+    def add_remote(self, d, name):
+        remote = self.root / (d.name + "-" + name + ".git")
+        self.must(self.root, "init", "--bare", "-b", "main", remote)
+        self.must(d, "remote", "add", name, remote)
+        self.must(d, "push", name, "main")
+        source = self.root / (d.name + "-" + name + "-seed")
+        self.must(self.root, "clone", remote, source)
+        (source / "source.txt").write_text(name, encoding="utf-8")
+        self.must(source, "add", "source.txt")
+        self.must(source, "commit", "-m", "from " + name)
+        self.must(source, "push", "origin", "main")
+        return remote, self.must(source, "rev-parse", "HEAD")
+
+    def test_code_and_store_refresh_only_their_selected_remote(self):
+        store = self.root / "store"
+        self._init_git(store)
+        self.add_remote(self.repo, "origin")
+        self.add_remote(store, "origin")
+        _, code_sha = self.add_remote(self.repo, "publishing")
+        _, store_sha = self.add_remote(store, "plans")
+        self.set_settings(self.repo, "remote: publishing\nplanning_store:\n  remote: plans\n")
+        code, _ = self.invoke("fetch-main")
+        plan, _ = self.invoke("fetch-main", repo=store, role="store", code=self.repo)
+        self.assertEqual((code["ref"], code["commit"]), ("publishing/main", code_sha))
+        self.assertEqual((plan["ref"], plan["commit"]), ("plans/main", store_sha))
+        self.assertNotEqual(self.must(store, "rev-parse", "origin/main"), store_sha)
+
+    def test_selected_planning_tip_contains_archive_not_in_origin(self):
+        store = self.root / "store"
+        self._init_git(store)
+        self.add_remote(store, "origin")
+        self.add_remote(store, "publishing")
+        seed = self.root / "store-publishing-seed"
+        archive = "openspec/changes/archive/2026-01-01-reused"
+        (seed / archive).mkdir(parents=True)
+        (seed / archive / "proposal.md").write_text("Archived change\n", encoding="utf-8")
+        self.must(seed, "add", "-A")
+        self.must(seed, "commit", "-m", "archive reused")
+        self.must(seed, "push", "origin", "main")
+        self.set_settings(self.repo, "planning_store:\n  remote: publishing\n")
+        plan, _ = self.invoke("fetch-main", repo=store, role="store", code=self.repo)
+        self.assertEqual(self.must(store, "ls-tree", "-d", "--name-only", plan["ref"], "--", archive), archive)
+        self.assertEqual(self.must(store, "ls-tree", "-d", "--name-only", "origin/main", "--", archive), "")
+        self.assertEqual(self.must(store, "branch", "--show-current"), "main")
+
+    def test_store_defaults_to_origin_even_when_code_remote_is_set(self):
+        store = self.root / "store"
+        self._init_git(store)
+        _, origin_sha = self.add_remote(store, "origin")
+        self.add_remote(store, "publishing")
+        self.set_settings(self.repo, "remote: publishing\nplanning_store:\n  main_branch: main\n")
+        plan, _ = self.invoke("fetch-main", repo=store, role="store", code=self.repo)
+        self.assertEqual((plan["ref"], plan["commit"]), ("origin/main", origin_sha))
+
+    def test_fetch_and_push_refuse_missing_selected_remote(self):
+        origin, _ = self.add_remote(self.repo, "origin")
+        self.set_settings(self.repo, "remote: missing\n")
+        self.must(self.repo, "checkout", "-b", "feat/selected")
+        for operation, args in (("fetch-main", ()), ("push", ("--branch", "feat/selected"))):
+            with self.subTest(operation=operation):
+                result, _ = self.invoke(operation, *args, expected=3)
+                self.assertEqual(result["error"], "remote_unreadable", result)
+                self.assertIn("missing", result["message"])
+        self.assertEqual(self.must(origin, "for-each-ref", "refs/heads/feat/selected"), "")
+
+    def test_git_pull_without_remote_keeps_non_origin_upstream(self):
+        self.add_remote(self.repo, "origin")
+        _, upstream_sha = self.add_remote(self.repo, "tracking")
+        self.must(self.repo, "branch", "--set-upstream-to=tracking/main", "main")
+        self.invoke("pull")
+        self.assertEqual(self.must(self.repo, "rev-parse", "HEAD"), upstream_sha)
+
+    def test_git_pull_explicit_origin_uses_origin_main(self):
+        _, origin_sha = self.add_remote(self.repo, "origin")
+        self.add_remote(self.repo, "tracking")
+        self.must(self.repo, "branch", "--set-upstream-to=tracking/main", "main")
+        self.set_settings(self.repo, "remote: origin\n")
+        self.invoke("pull")
+        self.assertEqual(self.must(self.repo, "rev-parse", "HEAD"), origin_sha)
+
+
 class FetchPullCase(VcsTestCase):
     def setUp(self):
         super().setUp()
@@ -98,6 +185,26 @@ class TestJjFetchMain(FetchPullCase):
         self.shim.assert_no_writes(allowed=(READ_FETCH,))
         # the archive check can read the fetched commit
         self.assertEqual(self.ref(new + "^{commit}"), new)
+
+    def test_jj_main_refresh_tracks_selected_remote_without_moving_bookmarks(self):
+        self.tracked()
+        old = self.ref("refs/heads/main")
+        alternate = self.root / "publishing.git"
+        self.must(self.root, "init", "--bare", "-b", "main", alternate)
+        self.must(self.repo, "remote", "add", "publishing", alternate)
+        self.must(self.other, "remote", "add", "publishing", alternate)
+        (self.other / "publish.txt").write_text("publishing only\n", encoding="utf-8")
+        self.must(self.other, "add", "publish.txt")
+        self.must(self.other, "commit", "-m", "selected remote tip")
+        self.must(self.other, "push", "publishing", "HEAD:refs/heads/main")
+        new = self.must(self.other, "rev-parse", "HEAD")
+        self.set_settings(self.repo, "vcs: jj\nremote: publishing\nmain_branch: main\n")
+        doc, _ = self.invoke("fetch-main", "--no-tags", repo=self.repo)
+        self.assertEqual(doc["commit"], new)
+        self.assertEqual(self.ref("refs/heads/main"), old)
+        self.assertEqual(self.jj_log("main"), old)
+        self.assertEqual([c["argv"] for c in self.calls("fetch")][-1],
+                         ["fetch", "--no-tags", "--refmap=", "publishing", "refs/heads/main"])
 
     def test_fetch_main_diverged_no_conflict(self):
         self.tracked()

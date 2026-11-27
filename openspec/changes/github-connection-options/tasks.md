@@ -11,14 +11,14 @@ Red means added/changed coverage to prove before implementation; inherited green
 | github-identity → Ambient authentication is an explicit opt-out | SSH transport and an environment token only | `evals/pr-pair/test_pr_pair.py` | `test_ship_and_watch_with_ssh_and_token_only` | red |
 | github-identity → Ambient authentication is an explicit opt-out | Token-only HTTPS automation | `evals/pr-pair/test_pr_pair.py` | `test_ship_on_https_with_caller_token_and_no_stored_login` | red |
 | github-identity → Ambient authentication is an explicit opt-out | A named identity conflicts with ambient authentication | `evals/pr-pair/test_pr_pair.py` | `test_ambient_workflow_rejects_each_named_identity` | red |
-| github-identity → Ambient authentication is an explicit opt-out | SSH remains disabled by the default fence | `evals/vcs/test_sw_fence.py` | `test_github_ssh_still_refused_by_default_fenced_push` | red |
+| github-identity → Ambient authentication is an explicit opt-out | SSH remains disabled by the default fence | `evals/vcs/test_sw_fence.py` | `test_github_ssh_still_refused_by_default_fenced_push` | green |
 | github-identity → Fenced calls target the configured GitHub host | Enterprise host in the environment with default settings | `evals/pr-pair/test_as_sh.py` | `test_gh_host_and_enterprise_tokens_unset` | green |
 | github-identity → Fenced calls target the configured GitHub host | Host variables set but empty | `evals/pr-pair/test_as_sh.py` | `test_empty_gh_host_targets_github` | green |
 | github-identity → Fenced calls target the configured GitHub host | Fenced Enterprise ship and watch | `evals/pr-pair/test_pr_pair.py` | `test_enterprise_ship_and_watch_keep_host_and_identity` | red |
 | github-identity → Fenced calls target the configured GitHub host | Another host requests the credential | `evals/pr-pair/test_as_sh.py` | `test_enterprise_helper_refuses_other_hosts_and_protocols` | green |
-| github-identity → Push authentication follows the actual destinations | A non-GitHub fetch URL has a GitHub push URL | `evals/vcs/test_sw_fence.py` | `test_push_fences_effective_github_target_with_off_host_fetch` | red |
-| github-identity → Push authentication follows the actual destinations | GitHub fetch and non-GitHub push | `evals/vcs/test_sw_fence.py` | `test_push_uses_ambient_credentials_for_off_host_push_urls` | red |
-| github-identity → Push authentication follows the actual destinations | Push destinations need incompatible authentication | `evals/vcs/test_sw_fence.py` | `test_mixed_effective_push_hosts_launch_nothing` | red |
+| github-identity → Push authentication follows the actual destinations | A non-GitHub fetch URL has a GitHub push URL | `evals/vcs/test_sw_fence.py` | `test_push_fences_effective_github_target_with_off_host_fetch` | green |
+| github-identity → Push authentication follows the actual destinations | GitHub fetch and non-GitHub push | `evals/vcs/test_sw_fence.py` | `test_push_uses_ambient_credentials_for_off_host_push_urls` | green |
+| github-identity → Push authentication follows the actual destinations | Push destinations need incompatible authentication | `evals/vcs/test_sw_fence.py` | `test_mixed_effective_push_hosts_launch_nothing` | green |
 | github-identity → Push authentication follows the actual destinations | Indexed URL rewrites survive fenced publication | `evals/pr-pair/test_pr_pair.py` | `test_fenced_ship_keeps_indexed_rewrites_and_gh_target` | red |
 | github-identity → Push authentication follows the actual destinations | Launched Git would differ from the PR plan | `evals/pr-pair/test_pr_pair.py` | `test_fenced_ship_refuses_effective_target_change` | red |
 | github-identity → Every GitHub call of a run is fenced to the run login | Configured login | `evals/pr-pair/test_as_sh.py` | `test_configured_login_pins_its_token_not_the_active_one` | green |
@@ -28,18 +28,18 @@ Red means added/changed coverage to prove before implementation; inherited green
 | github-identity → An empty login is resolved once per run | Handed-off step without its run login | `evals/pr-pair/test_pr_pair.py` | `test_fenced_handoff_without_authority_uses_neither_login` | red |
 | github-identity → An empty login is resolved once per run | Deferred first login is handed to ship | `evals/pr-pair/test_pr_pair.py` | `test_fenced_initial_lookup_is_deferred_then_bound` | red |
 | github-identity → An empty login is resolved once per run | No active account in a step that needs GitHub | `evals/pr-pair/test_pr_pair.py` | `test_expected_discovers_only_after_account_resolution` | red |
-| github-identity → An empty login is resolved once per run | No gh account in a step that accepts local refs | `evals/vcs/test_sw_fence.py` | `test_optional_main_refresh_reports_local_refs_when_account_missing` | red |
+| github-identity → An empty login is resolved once per run | No gh account in a step that accepts local refs | `evals/vcs/test_sw_fence.py` | `test_no_account_leaves_local_main_available` | green |
 | github-identity → An empty login is resolved once per run | Ambient token variables do not choose the login | `evals/pr-pair/test_as_sh.py` | `test_resolve_ignores_gh_token_env` | green |
 | github-identity → Login fallbacks end at the run login | Review requests with every login empty | `evals/pr-pair/test_pr_pair.py` | `test_review_request_uses_resolved_run_login` | red |
 | github-identity → Login fallbacks end at the run login | Store login empty | `evals/pr-pair/test_pr_pair.py` | `test_expected_uses_bound_code_login_for_store_without_override` | red |
 | github-identity → Login fallbacks end at the run login | Fallback login has no credential | `evals/pr-pair/test_as_sh.py` | `test_request_as_without_credential_exits_3` | green |
-| github-identity → Login fallbacks end at the run login | Store reads with both logins empty | `evals/vcs/test_sw_fence.py` | `test_fenced_store_fetch_refuses_userinfo_with_empty_logins` | red |
+| github-identity → Login fallbacks end at the run login | Store reads with both logins empty | `evals/vcs/test_sw_fence.py` | `test_fenced_store_fetch_refuses_userinfo_with_empty_logins` | green |
 | github-identity → Main refreshes and pulls from GitHub are fenced | Cleanup pull after merge | `evals/pr-pair/test_pr_pair.py` | `test_cleanup_plan_pulls_each_selected_remote_under_its_login` | red |
-| github-identity → Main refreshes and pulls from GitHub are fenced | Branch gate fetch over SSH | `evals/vcs/test_sw_fence.py` | `test_fenced_ssh_main_refresh_cannot_use_ambient_key` | red |
-| github-identity → Main refreshes and pulls from GitHub are fenced | Origin that pushes to a fork | `evals/vcs/test_sw_fence.py` | `test_main_fetch_auth_uses_fetch_url_not_fork_push_url` | red |
-| github-identity → Main refreshes and pulls from GitHub are fenced | Post-merge pull refused | `evals/vcs/test_sw_fence.py` | `test_refused_pull_leaves_branch_and_refs_unchanged` | red |
-| github-identity → Main refreshes and pulls from GitHub are fenced | The legacy upstream is on the configured GitHub host | `evals/vcs/test_sw_fence.py` | `test_legacy_pull_fences_effective_upstream` | red |
-| github-identity → Main refreshes and pulls from GitHub are fenced | The legacy upstream is not on the configured GitHub host | `evals/vcs/test_sw_fence.py` | `test_legacy_pull_does_not_fence_off_host_upstream` | red |
+| github-identity → Main refreshes and pulls from GitHub are fenced | Branch gate fetch over SSH | `evals/vcs/test_sw_fence.py` | `test_fenced_ssh_main_refresh_cannot_use_ambient_key` | green |
+| github-identity → Main refreshes and pulls from GitHub are fenced | Origin that pushes to a fork | `evals/vcs/test_sw_fence.py` | `test_main_fetch_auth_uses_fetch_url_not_fork_push_url` | green |
+| github-identity → Main refreshes and pulls from GitHub are fenced | Post-merge pull refused | `evals/vcs/test_sw_fence.py` | `test_refused_pull_leaves_branch_and_refs_unchanged` | green |
+| github-identity → Main refreshes and pulls from GitHub are fenced | The legacy upstream is on the configured GitHub host | `evals/vcs/test_sw_fence.py` | `test_legacy_pull_fences_effective_upstream` | green |
+| github-identity → Main refreshes and pulls from GitHub are fenced | The legacy upstream is not on the configured GitHub host | `evals/vcs/test_sw_fence.py` | `test_legacy_pull_does_not_fence_off_host_upstream` | green |
 | github-identity → The post-merge PR check is fenced | Merged PR check with a login set | `evals/pr-pair/test_pr_pair.py` | `test_closed_check_reads_selected_repo_with_bound_identity` | red |
 | github-identity → The post-merge PR check is fenced | Check cannot authenticate | `evals/pr-pair/test_pr_pair.py` | `test_cleanup_makes_no_change_when_merge_evidence_cannot_authenticate` | red |
 | github-identity → Credentials in a URL are refused | Credential-free HTTPS URL | `evals/pr-pair/test_as_sh.py` | `test_enterprise_helper_returns_verified_enterprise_token` | green |
@@ -50,7 +50,7 @@ Red means added/changed coverage to prove before implementation; inherited green
 | github-identity → Credentials in a URL are refused | Git pointed at another repository | `evals/pr-pair/test_as_sh.py` | `test_git_selecting_another_repo_refused` | green |
 | github-identity → Credentials in a URL are refused | Username without a secret | `evals/pr-pair/test_as_sh.py` | `test_bare_username_refused` | green |
 | github-identity → Credentials in a URL are refused | Credential rule for another host | `evals/pr-pair/test_as_sh.py` | `test_gitlab_token_rule_ignored` | green |
-| github-identity → Non-GitHub remotes stay outside the fence | Local mode with a self-hosted remote | `evals/vcs/test_sw_fence.py` | `test_self_hosted_main_fetch_uses_normal_git_credentials` | red |
+| github-identity → Non-GitHub remotes stay outside the fence | Local mode with a self-hosted remote | `evals/vcs/test_sw_fence.py` | `test_off_host_fetch_preserves_original_enterprise_environment` | green |
 | github-identity → Non-GitHub remotes stay outside the fence | PR mode with a non-GitHub origin | `evals/pr-pair/test_pr_pair.py` | `test_expected_refuses_off_host_code_remote_before_push` | red |
 | github-identity → The trailing-dot host is github.com | Token in a trailing-dot URL | `evals/pr-pair/test_as_sh.py` | `test_trailing_dot_token_in_fetch_url_refused` | green |
 | github-identity → The trailing-dot host is github.com | Trailing-dot URL argument or rewrite | `evals/pr-pair/test_as_sh.py` | `test_enterprise_trailing_dot_userinfo_refused` | green |
@@ -58,8 +58,8 @@ Red means added/changed coverage to prove before implementation; inherited green
 | github-identity → The trailing-dot host is github.com | Look-alike host | `evals/pr-pair/test_as_sh.py` | `test_lookalike_host_not_github` | green |
 | github-identity → The trailing-dot host is github.com | Trailing-dot store remote | `evals/pr-pair/test_pr_pair.py` | `test_expected_fences_trailing_dot_store_url` | red |
 | github-identity → Unfenced git keeps the caller's enterprise host settings | Enterprise store read by rounds | `evals/pr-pair/test_pr_pair.py` | `test_rounds_off_host_store_hands_off_without_reading_history` | red |
-| github-identity → Unfenced git keeps the caller's enterprise host settings | Explicit fetch for another host | `evals/vcs/test_sw_fence.py` | `test_off_host_fetch_preserves_original_enterprise_environment` | red |
-| github-identity → Unfenced git keeps the caller's enterprise host settings | Variables were unset | `evals/vcs/test_sw_fence.py` | `test_off_host_fetch_keeps_absent_enterprise_environment` | red |
+| github-identity → Unfenced git keeps the caller's enterprise host settings | Explicit fetch for another host | `evals/vcs/test_sw_fence.py` | `test_off_host_fetch_preserves_original_enterprise_environment` | green |
+| github-identity → Unfenced git keeps the caller's enterprise host settings | Variables were unset | `evals/vcs/test_sw_fence.py` | `test_off_host_fetch_keeps_absent_enterprise_environment` | green |
 | github-identity → Unfenced git keeps the caller's enterprise host settings | Fenced calls stay on github.com | `evals/pr-pair/test_as_sh.py` | `test_gh_host_and_enterprise_tokens_unset` | green |
 | github-identity → jj network commands are fenced like git | Push on jj | `evals/pr-pair/test_as_jj.py` | `test_jj_push_fences_selected_enterprise_remote` | red |
 | github-identity → jj network commands are fenced like git | Repository option | `evals/pr-pair/test_as_jj.py` | `test_jj_repository_option_refused` | green |
@@ -202,12 +202,12 @@ Red means added/changed coverage to prove before implementation; inherited green
 | releases → A cut-off tag push or release creation is decided by a read-back | Release creation cut off before it landed | `evals/release/test_release.py` | `test_release_create_cut_off_not_found` | red |
 | releases → A cut-off tag push or release creation is decided by a read-back | Read-back fails too | `evals/release/test_release.py` | `test_push_cut_off_read_back_fails_state_unknown` | red |
 | releases → A cut-off tag push or release creation is decided by a read-back | Remote retargeted after the tag push is cut off | `evals/release/test_release.py` | `test_publish_readback_does_not_follow_retargeted_remote` | red |
-| vcs-backends → Each repository selects one network remote | Code and store use different remote names | `evals/vcs/test_fetch_pull.py` | `test_code_and_store_refresh_only_their_selected_remote` | red |
-| vcs-backends → Each repository selects one network remote | The store does not inherit the code's remote name | `evals/vcs/test_fetch_pull.py` | `test_store_defaults_to_origin_even_when_code_remote_is_set` | red |
-| vcs-backends → Each repository selects one network remote | A selected remote is missing | `evals/vcs/test_fetch_pull.py` | `test_fetch_and_push_refuse_missing_selected_remote` | red |
-| vcs-backends → Each repository selects one network remote | Git main has a different upstream | `evals/vcs/test_fetch_pull.py` | `test_git_pull_without_remote_keeps_non_origin_upstream` | red |
-| vcs-backends → Each repository selects one network remote | Explicit origin is not the default pull | `evals/vcs/test_fetch_pull.py` | `test_git_pull_explicit_origin_uses_origin_main` | red |
-| vcs-backends → Each repository selects one network remote | jj reads main from a selected remote | `evals/vcs/test_fetch_pull.py` | `test_jj_main_refresh_tracks_selected_remote_without_moving_bookmarks` | red |
+| vcs-backends → Each repository selects one network remote | Code and store use different remote names | `evals/vcs/test_fetch_pull.py` | `test_code_and_store_refresh_only_their_selected_remote` | green |
+| vcs-backends → Each repository selects one network remote | The store does not inherit the code's remote name | `evals/vcs/test_fetch_pull.py` | `test_store_defaults_to_origin_even_when_code_remote_is_set` | green |
+| vcs-backends → Each repository selects one network remote | A selected remote is missing | `evals/vcs/test_fetch_pull.py` | `test_fetch_and_push_refuse_missing_selected_remote` | green |
+| vcs-backends → Each repository selects one network remote | Git main has a different upstream | `evals/vcs/test_fetch_pull.py` | `test_git_pull_without_remote_keeps_non_origin_upstream` | green |
+| vcs-backends → Each repository selects one network remote | Explicit origin is not the default pull | `evals/vcs/test_fetch_pull.py` | `test_git_pull_explicit_origin_uses_origin_main` | green |
+| vcs-backends → Each repository selects one network remote | jj reads main from a selected remote | `evals/vcs/test_fetch_pull.py` | `test_jj_main_refresh_tracks_selected_remote_without_moving_bookmarks` | green |
 | vcs-backends → The Git backend keeps today's commands | Git commit by name | `evals/vcs/test_git_backend.py` | `test_git_commit_commands_exact` | green |
 | vcs-backends → The Git backend keeps today's commands | Git push | `evals/vcs/test_git_backend.py` | `test_git_push_command_exact_no_deadline` | green |
 | vcs-backends → The Git backend keeps today's commands | Git pull without a remote setting | `evals/vcs/test_git_backend.py` | `test_git_pull_call_site_forms` | green |
@@ -218,15 +218,15 @@ Red means added/changed coverage to prove before implementation; inherited green
 | vcs-backends → The GitButler backend is probed before any `but` command | `but` missing | `evals/vcs/test_gitbutler_probe.py` | `test_but_missing_stops_before_write` | green |
 | vcs-backends → The GitButler backend is probed before any `but` command | Repo not managed by GitButler | `evals/vcs/test_gitbutler_probe.py` | `test_unmanaged_repo_not_set_up` | green |
 | vcs-backends → The GitButler backend is probed before any `but` command | Target is another branch | `evals/vcs/test_gitbutler_probe.py` | `test_target_mismatch_stops` | green |
-| vcs-backends → The GitButler backend is probed before any `but` command | Target is on another remote | `evals/vcs/test_gitbutler_probe.py` | `test_explicit_remote_rejects_gitbutler_target_for_other_remote` | red |
-| vcs-backends → The GitButler backend is probed before any `but` command | An explicit remote cannot be verified from a local target | `evals/vcs/test_gitbutler_probe.py` | `test_explicit_remote_rejects_gitbutler_local_only_target` | red |
+| vcs-backends → The GitButler backend is probed before any `but` command | Target is on another remote | `evals/vcs/test_gitbutler_probe.py` | `test_explicit_remote_rejects_gitbutler_target_for_other_remote` | green |
+| vcs-backends → The GitButler backend is probed before any `but` command | An explicit remote cannot be verified from a local target | `evals/vcs/test_gitbutler_probe.py` | `test_explicit_remote_rejects_gitbutler_local_only_target` | green |
 | vcs-backends → A GitButler push publishes only the change branch | Ship with another branch applied | `evals/vcs/test_gitbutler_push.py` | `test_push_only_change_branch` | green |
 | vcs-backends → A GitButler push publishes only the change branch | Rewritten branch | `evals/vcs/test_gitbutler_push.py` | `test_push_rejected_never_forced` | green |
 | vcs-backends → The GitButler pull never rebases another branch | Cleanup alone in the workspace | `evals/vcs/test_gitbutler_pull.py` | `test_pull_alone_runs_fenced` | green |
 | vcs-backends → The GitButler pull never rebases another branch | Another branch applied | `evals/vcs/test_gitbutler_pull.py` | `test_pull_skipped_other_branch` | green |
 | vcs-backends → The GitButler pull never rebases another branch | Linked worktree | `evals/vcs/test_gitbutler_pull.py` | `test_pull_skipped_linked_worktree` | green |
 | vcs-backends → The GitButler pull never rebases another branch | Finish after a skipped pull | `evals/vcs/test_gitbutler_pull.py` | `test_finish_reads_fetched_main` | green |
-| vcs-backends → sw vcs reads settings and fences identity in process | Settings read through pr-pair.sh | `evals/vcs/test_sw_scripts.py` | `test_pr_pair_reads_selected_role_remote` | red |
+| vcs-backends → sw vcs reads settings and fences identity in process | Settings read through pr-pair.sh | `evals/pr-pair/test_pr_pair.py` | `test_pr_pair_reads_selected_role_remote` | red |
 | vcs-backends → sw vcs reads settings and fences identity in process | Unknown backend in the settings | `evals/vcs/test_sw_scripts.py` | `test_unknown_backend_stops_as_before` | green |
 | vcs-backends → sw vcs reads settings and fences identity in process | Scripts installed under a non-UTF-8 directory | `evals/vcs/test_sw_scripts.py` | `test_scripts_under_non_utf8_directory_is_not_utf8` | green |
 | vcs-backends → sw vcs reads settings and fences identity in process | Unpinned settings stop a GitButler push | `evals/vcs/test_gitbutler_push.py` | `test_unassigned_settings_edit_stops_push` | green |
@@ -235,7 +235,7 @@ Red means added/changed coverage to prove before implementation; inherited green
 | vcs-backends → sw vcs reads settings and fences identity in process | Login resolved in process | `evals/vcs/test_sw_fence.py` | `test_login_resolved_in_process` | green |
 | vcs-backends → sw vcs reads settings and fences identity in process | No gh account to resolve | `evals/vcs/test_sw_fence.py` | `test_no_gh_account_is_fence_failed` | green |
 | vcs-backends → sw vcs reads settings and fences identity in process | Store without a Specwright version | `evals/vcs/test_sw_fence.py` | `test_store_without_version_pulls` | green |
-| vcs-backends → sw vcs reads settings and fences identity in process | Fenced commands stay unbounded | `evals/vcs/test_sw_fence.py` | `test_fenced_command_has_no_deadline` | red |
+| vcs-backends → sw vcs reads settings and fences identity in process | Fenced commands stay unbounded | `evals/vcs/test_sw_fence.py` | `test_fenced_command_has_no_deadline` | green |
 | vcs-backends → sw vcs reads settings and fences identity in process | Non-GitHub remote runs unfenced | `evals/vcs/test_sw_fence.py` | `test_non_github_remote_runs_unfenced` | green |
 
 ## 1. Record the connection contract
@@ -249,8 +249,8 @@ Red means added/changed coverage to prove before implementation; inherited green
 
 ## 3. Selected VCS transport and ref policy
 
-- [ ] 3.1 Write and run the red Git/jj/GitButler selected-remote, actual Git upstream, fetch and all-effective-push cases in the mapped VCS modules, including explicit off-host fetch for set and unset Enterprise variables and the deterministic deadline test migration. Use real temporary repos with distinct refs, and assert refusal launch/order rather than wall time.
-- [ ] 3.2 Apply remote settings to fetch, push, upstream pulls and cleanup ref targets. Preserve bare pull when remote is omitted; verify an explicit GitButler target matches the selected remote. Verify 3.1 and rerun mapped unchanged Git/jj/GitButler checks through the focused modules. Update the README VCS table and the branch/roadmap commands for selected refs; verify reused-name exclusion in the planning repo against its selected remote before branch creation.
+- [x] 3.1 Write and run the red Git/jj/GitButler selected-remote, actual Git upstream, fetch and all-effective-push cases in the mapped VCS modules, including explicit off-host fetch for set and unset Enterprise variables and the deterministic deadline test migration. Use real temporary repos with distinct refs, and assert refusal launch/order rather than wall time.
+- [x] 3.2 Apply remote settings to fetch, push, upstream pulls and cleanup ref targets. Preserve bare pull when remote is omitted; verify an explicit GitButler target matches the selected remote. Verify 3.1 and rerun mapped unchanged Git/jj/GitButler checks through the focused modules. Update the README VCS table and the branch/roadmap commands for selected refs; verify reused-name exclusion in the planning repo against its selected remote before branch creation.
 
 ## 4. Ship, expected set and manual handoff
 

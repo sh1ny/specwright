@@ -32,30 +32,46 @@ GITHUB = "https://github.com/o/r.git"
 LOGIN = "KintsugiBot"
 TOKENS = {LOGIN: "tok-k", "store-bot": "tok-store", "sh1ny": "tok-sh1ny"}
 
-# Answers `git remote get-url origin` with $SWF_ORIGIN_URL when that is set, and logs every other call: where it ran, the
-# token and transport variables it saw, and its arguments (separated by 0x1f, so their bytes are exact). $SWF_SLEEP slows a fetch.
+# Pretend the real, local origin has GitHub URLs while logging actual Git launches.
+# Fetch and push URL overrides can differ. A cutoff is injected as an exit status.
 GIT_SHIM = r"""#!/bin/sh
-if [ "$*" = "remote get-url origin" ] && [ -n "${SWF_ORIGIN_URL:-}" ]; then printf '%s\n' "$SWF_ORIGIN_URL"; exit 0; fi
+case "$*" in
+  "remote get-url origin"|"remote get-url --all origin")
+    if [ -n "${SWF_ORIGIN_URL:-}" ]; then printf '%s\n' "$SWF_ORIGIN_URL"; exit 0; fi ;;
+  "remote get-url --push --all origin")
+    if [ "${SWF_PUSH_URLS+x}" = x ]; then printf '%s\n' "$SWF_PUSH_URLS"; exit 0; fi
+    if [ -n "${SWF_ORIGIN_URL:-}" ] && ! "$SWF_REAL_GIT" config --get remote.origin.pushurl >/dev/null; then
+      printf '%s\n' "$SWF_ORIGIN_URL"; exit 0
+    fi ;;
+  "ls-remote --get-url")
+    if [ -n "${SWF_UPSTREAM_URL:-}" ]; then printf '%s\n' "$SWF_UPSTREAM_URL"; exit 0; fi
+    branch=$("$SWF_REAL_GIT" symbolic-ref --short HEAD 2>/dev/null)
+    upstream=$("$SWF_REAL_GIT" config --get "branch.$branch.remote" 2>/dev/null)
+    if [ "${upstream:-origin}" = origin ] && [ -n "${SWF_ORIGIN_URL:-}" ]; then
+      printf '%s\n' "$SWF_ORIGIN_URL"; exit 0
+    fi ;;
+esac
 here=$PWD
 if command -v cygpath >/dev/null 2>&1; then here=$(cygpath -m "$PWD"); fi
 {
-  printf 'cwd=%s|token=%s|prompt=%s|ssh=%s|args=' "$here" "${GH_TOKEN-unset}" "${GIT_TERMINAL_PROMPT-unset}" "${GIT_SSH_COMMAND:+set}"
+  printf 'cwd=%s|token=%s|prompt=%s|ssh=%s|host=%s|ent=%s|ent2=%s|args=' \
+      "$here" "${GH_TOKEN-unset}" "${GIT_TERMINAL_PROMPT-unset}" "${GIT_SSH_COMMAND:+set}" \
+      "${GH_HOST-unset}" "${GH_ENTERPRISE_TOKEN-unset}" "${GITHUB_ENTERPRISE_TOKEN-unset}"
   for a in "$@"; do printf '%s\037' "$a"; done
   printf '\n'
 } >> "$SWF_GIT_LOG"
-if [ -n "${SWF_SLEEP:-}" ] && [ "$1" = fetch ]; then sleep "$SWF_SLEEP"; fi
+if [ -n "${SWF_FETCH_EXIT:-}" ] && [ "$1" = fetch ]; then exit "$SWF_FETCH_EXIT"; fi
 exec "$SWF_REAL_GIT" "$@"
 """
 # A `gh` that needs no Python (a failing `python` is first on PATH, and a Python start is slow): it logs the token it saw and its
-# arguments, answers `auth token --help` and `auth token --user <login>` (tokens: $SWF_GH_TOKENS, `login=token` pairs;
-# $SWF_GH_SLEEP slows the token lookup) and `api user` (the login of GH_TOKEN when set, else $SWF_GH_USER; none: no account).
+# arguments, serves `auth token`/`api user`, and can inject a lookup exit result.
 GH_SHIM = r"""#!/bin/sh
 { printf 'token=%s|argv=' "${GH_TOKEN-unset}"; for a in "$@"; do printf '%s\037' "$a"; done; printf '\n'; } >> "$SWF_GH_LOG"
 if [ "$1 $2 $3" = "auth token --help" ]; then echo "--user"; exit 0; fi
 if [ "$1 $2" = "auth token" ]; then
   user=; prev=
   for a in "$@"; do if [ "$prev" = --user ]; then user=$a; fi; prev=$a; done
-  if [ -n "${SWF_GH_SLEEP:-}" ]; then sleep "$SWF_GH_SLEEP"; fi
+  if [ -n "${SWF_GH_EXIT:-}" ]; then exit "$SWF_GH_EXIT"; fi
   for pair in $SWF_GH_TOKENS; do if [ "${pair%%=*}" = "$user" ]; then echo "${pair#*=}"; exit 0; fi; done
   echo "no oauth token found for $user" >&2; exit 1
 fi
@@ -102,18 +118,17 @@ class Harness:
             self.sent.probe(case)
             Harness.probed = True
 
-    def set_gh(self, user=None, sleep=None):
-        """The active gh account (none for None) and how long a token lookup takes."""
-        self.gh_user, self.gh_sleep = user, sleep
+    def set_gh(self, user=None, lookup_exit=None):
+        self.gh_user, self.gh_exit = user, lookup_exit
 
     def env(self, extra=None):
         env = swharness.fixture_env()
-        for name in ("GH_TOKEN", "GITHUB_TOKEN", "GH_REPO", "GH_HOST"):
+        for name in ("GH_TOKEN", "GITHUB_TOKEN", "GH_REPO", "GH_HOST", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN"):
             env.pop(name, None)
         env.update({"GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": os.devnull})
         env.update({key: value for key, value in self.world_env.items() if key != "PATH"})
         env.update(self.sent.env)
-        env.update({"SWF_GH_LOG": posix(self.gh_log), "SWF_GH_USER": self.gh_user or "", "SWF_GH_SLEEP": self.gh_sleep or "",
+        env.update({"SWF_GH_LOG": posix(self.gh_log), "SWF_GH_USER": self.gh_user or "", "SWF_GH_EXIT": self.gh_exit or "",
                     "SWF_GH_TOKENS": " ".join("%s=%s" % pair for pair in TOKENS.items()),
                     "SWF_GIT_LOG": posix(self.git_log), "SWF_REAL_GIT": jjenv.real_git(),
                     "SWF_ORIGIN_URL": self.origin_url or ""})
@@ -445,19 +460,139 @@ class FenceCase(gbnet.GitButlerNetworkCase):
 
     def test_fenced_command_has_no_deadline(self):
         world = self.git_world()
-        deadline = {"SPECWRIGHT_NET_DEADLINE": "1"}
-        with self.subTest("a fenced fetch that takes 3 seconds against a deadline of 1"):
-            doc, _ = self.h.run("fetch-main", "--login", LOGIN, repo=world.repo, env={**deadline, "SWF_SLEEP": "3"})
-            self.assertTrue(doc["ok"], doc)
-            self.assertNotEqual(doc.get("error"), "deadline_exceeded")
-        with self.subTest("the fence's own gh lookups keep the deadline"):
-            self.h.git_log.unlink(missing_ok=True)
-            self.h.set_gh(user=LOGIN, sleep="3")
-            doc, _ = self.h.run("fetch-main", "--login", LOGIN, repo=world.repo, env=deadline, expected=3)
-            self.assertEqual(doc["error"], "fence_failed", doc)
-            self.assertIn("deadline_exceeded", doc["message"])
-            self.assertRegex(doc["message"], r"^as\.sh:", doc)
-            self.assertEqual([c for c in self.h.git_calls() if c["argv"][:1] == ["fetch"]], [], "a fetch ran")
+        doc, _ = self.h.run("fetch-main", "--login", LOGIN, repo=world.repo,
+                            env={"SWF_FETCH_EXIT": "124"}, expected=3)
+        self.assertEqual(doc["error"], "git_network_error", doc)
+        self.assertNotIn("deadline_exceeded", doc["message"])
+        self.assertEqual(len([c for c in self.h.git_calls() if c["argv"][:1] == ["fetch"]]), 1)
+        self.h.git_log.unlink()
+        self.h.set_gh(user=LOGIN, lookup_exit="124")
+        doc, _ = self.h.run("fetch-main", "--login", LOGIN, repo=world.repo, expected=3)
+        self.assertEqual(doc["error"], "fence_failed", doc)
+        self.assertIn("deadline_exceeded", doc["message"])
+        self.assertEqual([c for c in self.h.git_calls() if c["argv"][:1] == ["fetch"]], [])
+
+    def test_push_fences_effective_github_target_with_off_host_fetch(self):
+        world = self.git_world()
+        self.h.origin_url = "https://git.example.org/team/mirror.git"
+        self.h.run("push", "--branch", "feat/a", "--login", LOGIN, repo=world.repo,
+                   env={"SWF_PUSH_URLS": GITHUB})
+        push, = [c for c in self.h.git_calls() if c["argv"][:1] == ["push"]]
+        self.assertEqual(push["token"], TOKENS[LOGIN])
+        self.assertIn("refs/heads/feat/a", world.origin_refs())
+
+    def test_push_uses_ambient_credentials_for_off_host_push_urls(self):
+        world = self.git_world()
+        self.h.run("push", "--branch", "feat/a", repo=world.repo,
+                   env={"SWF_PUSH_URLS": world.origin.as_posix(), "GH_TOKEN": "caller-token"})
+        push, = [c for c in self.h.git_calls() if c["argv"][:1] == ["push"]]
+        self.assertEqual(push["token"], "caller-token")
+        self.assertEqual(self.h.gh_calls(), [])
+        self.assertIn("refs/heads/feat/a", world.origin_refs())
+
+    def test_mixed_effective_push_hosts_launch_nothing(self):
+        world = self.git_world()
+        before = world.origin_refs()
+        doc, _ = self.h.run("push", "--branch", "feat/a", repo=world.repo, expected=3,
+                            env={"SWF_PUSH_URLS": GITHUB + "\n" + world.origin.as_posix()})
+        self.assertEqual(doc["error"], "mixed_push_transport", doc)
+        self.assertEqual(self.h.gh_calls(), [])
+        self.assertFalse([c for c in self.h.git_calls() if c["argv"][:1] == ["push"]])
+        self.assertEqual(world.origin_refs(), before)
+
+    def check_pull_environment(self, url, token):
+        world = self.git_world()
+        world.real(world.repo, "checkout", "main")
+        world.real(world.repo, "remote", "rename", "origin", "tracking")
+        advanced = world.advance("pull")
+        self.h.run("pull", "--login", LOGIN, repo=world.repo, env={"SWF_UPSTREAM_URL": url})
+        pull, = [c for c in self.h.git_calls() if c["argv"][:1] == ["pull"]]
+        self.assertEqual(pull["argv"], ["pull", "--ff-only"])
+        self.assertEqual(pull["token"], token)
+        self.assertEqual(world.real(world.repo, "rev-parse", "HEAD"), advanced)
+        self.assertEqual(bool(self.h.gh_calls()), token != "unset")
+
+    def test_legacy_pull_fences_effective_upstream(self):
+        self.h.origin_url = "https://git.example.org/team/unused.git"
+        self.check_pull_environment(GITHUB, TOKENS[LOGIN])
+
+    def test_legacy_pull_does_not_fence_off_host_upstream(self):
+        self.check_pull_environment("https://git.example.org/team/app.git", "unset")
+
+    def check_off_host_fetch_environment(self, extra, want):
+        world = self.git_world()
+        self.h.origin_url = "https://github.example.com/team/app.git"
+        wanted = world.advance("fetch")
+        doc, _ = self.h.run("fetch-main", repo=world.repo, env=extra)
+        fetch, = [c for c in self.h.git_calls() if c["argv"][:1] == ["fetch"]]
+        self.assertEqual([fetch[key] for key in ("host", "ent", "ent2")], want)
+        self.assertEqual(self.h.gh_calls(), [])
+        self.assertEqual(doc["commit"], wanted)
+
+    def test_off_host_fetch_preserves_original_enterprise_environment(self):
+        self.check_off_host_fetch_environment(
+            {"GH_HOST": "github.example.com", "GH_ENTERPRISE_TOKEN": "caller", "GITHUB_ENTERPRISE_TOKEN": "other"},
+            ["github.example.com", "caller", "other"])
+
+    def test_off_host_fetch_keeps_absent_enterprise_environment(self):
+        self.check_off_host_fetch_environment({}, ["unset", "unset", "unset"])
+
+    def test_main_fetch_auth_uses_fetch_url_not_fork_push_url(self):
+        world = self.git_world()
+        wanted = world.advance("fetch")
+        self.git(world.repo, "remote", "set-url", "--push", "origin", "https://github.com/fork/app.git")
+        doc, _ = self.h.run("fetch-main", "--login", LOGIN, repo=world.repo)
+        fetch, = [c for c in self.h.git_calls() if c["argv"][:1] == ["fetch"]]
+        self.assertEqual((doc["commit"], fetch["token"]), (wanted, TOKENS[LOGIN]))
+
+    def test_fenced_store_fetch_refuses_userinfo_with_empty_logins(self):
+        world = self.store_world()
+        self.h.origin_url = "https://private-userinfo@github.com/team/plans.git"
+        doc, done = self.h.run("fetch-main", repo=world.repo, role="store", code=self.repo, expected=3)
+        self.assertEqual(doc["error"], "fence_failed")
+        self.assertNotIn(b"private-userinfo", done.stdout + done.stderr)
+        self.assertIn("***", doc["message"])
+        self.assertFalse(any(c["argv"][:1] == ["fetch"] for c in self.h.git_calls()))
+
+    def check_ssh_refusal(self, operation, *options):
+        world = self.git_world()
+        ssh_url = "git@github.com:team/app.git"
+        world.real(world.repo, "remote", "set-url", "origin", ssh_url)
+        self.h.origin_url = ssh_url
+        before = world.origin_refs()
+        doc, _ = self.h.run(operation, *options, repo=world.repo, expected=3,
+                            env={"GIT_SSH_COMMAND": "sh -c 'echo ambient-ssh-should-not-run >&2; exit 99'"})
+        self.assertIn("SSH is disabled", doc["message"])
+        self.assertNotIn("ambient-ssh-should-not-run", doc["message"])
+        self.assertEqual(world.origin_refs(), before)
+
+    def test_fenced_ssh_main_refresh_cannot_use_ambient_key(self):
+        self.check_ssh_refusal("fetch-main")
+
+    def test_github_ssh_still_refused_by_default_fenced_push(self):
+        self.check_ssh_refusal("push", "--branch", "feat/a")
+
+    def test_no_account_leaves_local_main_available(self):
+        world = self.git_world()
+        before = world.real(world.repo, "rev-parse", "main")
+        self.h.set_gh(user=None)
+        doc, _ = self.h.run("fetch-main", repo=world.repo, expected=3)
+        self.assertEqual(doc["error"], "fence_failed")
+        self.assertIn("gh auth login", doc["message"])
+        self.assertFalse(any(c["argv"][:1] == ["fetch"] for c in self.h.git_calls()))
+        self.assertEqual(world.real(world.repo, "rev-parse", "main"), before)
+
+    def test_refused_pull_leaves_branch_and_refs_unchanged(self):
+        world = self.git_world()
+        world.real(world.repo, "checkout", "main")
+        world.advance("pull")
+        branch = world.real(world.repo, "symbolic-ref", "HEAD")
+        refs = world.real(world.repo, "show-ref")
+        self.h.set_gh(user=None)
+        doc, _ = self.h.run("pull", repo=world.repo, expected=3)
+        self.assertEqual(doc["error"], "fence_failed")
+        self.assertFalse(any(c["argv"][:1] == ["pull"] for c in self.h.git_calls()))
+        self.assertEqual((world.real(world.repo, "symbolic-ref", "HEAD"), world.real(world.repo, "show-ref")), (branch, refs))
 
     def test_non_github_remote_runs_unfenced(self):
         world = self.git_world()

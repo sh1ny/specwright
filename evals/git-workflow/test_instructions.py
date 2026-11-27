@@ -1114,11 +1114,6 @@ class FinishAgentMerge(unittest.TestCase):
 class FencedGitHubCalls(unittest.TestCase):
     """default-identity-fencing: main refreshes and pulls from GitHub run fenced, decided by the fetch URL."""
 
-    def gate_fetch(self):
-        b = find_block(read(BRANCH), r"Used once")
-        self.assertTrue(b, "specwright-branch step 3 has no main refresh")
-        return b
-
     def roadmap_status_bullet(self):
         b = find_block(read(ROADMAP), r"\*\*Main branches\.\*\*")
         self.assertTrue(b, "roadmap has no Main branches rule")
@@ -1128,40 +1123,6 @@ class FencedGitHubCalls(unittest.TestCase):
         text = read(FINISH)
         at = text.index("- **After the PR is merged**")
         return text[at:text.index("\n\n", at)]
-
-    def test_branch_gate_fetch_fenced_local_refs_on_refusal(self):
-        b = self.gate_fetch()
-        self.assertRegex(b, r"github\.com", "the gate does not say the fence applies to github.com remotes")
-        self.assertRegex(b, r"(?is)refus[^.]*local refs only|local refs only[^.]*refus", "a refusal does not report local refs only")
-        self.assertRegex(b, r"(?i)continue", "a refused refresh does not continue on local refs")
-
-    def test_fetch_fenced_by_fetch_url_not_identity(self):
-        for name, b in (("branch gate", self.gate_fetch()), ("roadmap status", self.roadmap_status_bullet())):
-            self.assertRegex(b, r"git remote get-url", f"{name}: the host is not read from the fetch URL")
-            self.assertRegex(b, r"(?i)fetch URL", f"{name}: does not decide by the fetch URL")
-            self.assertRegex(b, r"(?is)not (decided )?by `?<sw> pr identity`?", f"{name}: may still be decided by `identity`")
-
-    def test_trailing_dot_host_counts_as_github(self):
-        """fix-m2-gaps (#83, review S3): the fetch-URL rule treats `github.com.` as github.com, so that remote is fenced too."""
-        for p in (FINISH, ROOT / "skills" / "specwright-pr" / "SKILL.md", BRANCH, ROADMAP):
-            lines = [l for l in read(p).splitlines() if re.search(r"(?i)fetch URL|github\.com remote", l) and "github.com" in l]
-            self.assertTrue(lines, f"{p.parent.name}: no fetch-URL rule for github.com")
-            self.assertTrue(any("`github.com.`" in l for l in lines),
-                            f"{p.parent.name}: the fetch-URL rule does not say that `github.com.` counts as github.com")
-
-    def test_non_github_fetch_runs_plain(self):
-        for name, b in (("branch gate", self.gate_fetch()), ("roadmap status", self.roadmap_status_bullet())):
-            self.assertRegex(b, r"(?is)(other|any other|another) host[^.]*plain|plain[^.]*(other|another) host|not on github\.com[^.]*plain",
-                             f"{name}: a non-GitHub remote does not run plain git")
-
-    def test_gate_and_roadmap_status_local_refs_when_resolve_fails(self):
-        for name, b in (("branch gate", self.gate_fetch()), ("roadmap status", self.roadmap_status_bullet())):
-            self.assertRegex(b, r"--resolve", f"{name}: does not resolve the run login")
-            self.assertRegex(b, r"(?is)--resolve[^.]*(fail|exit)[^.]*local refs only|local refs only \(no gh account\)",
-                             f"{name}: a failed --resolve does not report local refs only")
-            self.assertRegex(b, r"no gh account", f"{name}: the note does not say there is no gh account")
-        status = section(read(ROADMAP), r"status\b")
-        self.assertRegex(status, r"(?i)local refs only|refused", "roadmap status does not report the refused refresh")
 
     def test_local_finish_never_resolves(self):
         # PR #82: finish: local makes no GitHub call, so with no gh account it hands `run login: none` instead of stopping
@@ -1226,12 +1187,7 @@ class FencedGitHubCalls(unittest.TestCase):
         self.assertRegex(offer, r"(?i)run login", "finish -> the roadmap offer does not pass the run login")
         self.assertRegex(finish, r"(?s)\*\*Run login\.\*\*.{0,1200}(cannot|can't) find[^.]*stop", "finish does not stop when a handed-off step has no run login")
 
-    def test_branch_gate_takes_handed_run_login(self):
-        # PR #82: roadmap next starts the gate in the same run; the gate uses the login it is handed, never resolves again
-        g = self.gate_fetch()
-        self.assertRegex(g, r"run login: <login>", "the gate does not take a handed run login")
-        self.assertRegex(g, r"(?is)handed[^.]*run login: <login>[^.]*(otherwise|else)[^.]*`github\.login`",
-                         "a handed run login does not come before github.login and --resolve")
+    def test_roadmap_next_hands_off_run_login(self):
         step4 = next((l for l in read(ROADMAP).splitlines() if l.startswith("4. Start `/opsx:propose")), "")
         self.assertRegex(step4, r"run login: <login>", "roadmap next does not hand its run login to the branch gate")
         # PR #82: only a user-started step resolves (github-identity spec). Roadmap next, with no run login yet
@@ -1239,20 +1195,13 @@ class FencedGitHubCalls(unittest.TestCase):
         self.assertRegex(step4, r"(?is)no run login yet.{0,80}user-started.{0,120}--resolve.{0,120}`run login: none`",
                          "roadmap next with no run login (local mode) does not resolve it before handing off")
         self.assertNotRegex(step4, r"(?i)gate resolves", "roadmap next leaves the resolve to the handed-off gate")
-        self.assertRegex(g, r"(?is)--resolve[^.]*only when it is user-started",
-                         "the gate resolves even when another step started it")
-        self.assertNotRegex(g, r"started by `specwright-roadmap` \*\*next\*\* without a login",
-                            "the gate still resolves when roadmap next hands it no login")
-        self.assertRegex(g, r"(?is)`run login: none`[^.]*local refs only", "the gate has no meaning for a handed `run login: none`")
 
     def test_store_login_chosen_per_repo(self):
         # PR #82: a handed run login is the code repo's; the store keeps planning_store.login.
         finish = read(FINISH)
         run_login = finish[finish.index("**Run login.**"):].split("\n", 1)[0]
-        for name, b in (("branch gate", self.gate_fetch()), ("finish", run_login), ("roadmap status", self.roadmap_status_bullet())):
-            self.assertNotIn("(the store's: `planning_store.login`)", b, f"{name}: the store login is still an alternative to the handed login")
-            self.assertRegex(b, r"(?is)store[^.]*`planning_store\.login`[^.]*else[^.]*run login",
-                             f"{name}: the store does not use planning_store.login, else the code repo's run login")
+        self.assertRegex(run_login, r"(?is)store[^.]*`planning_store\.login`[^.]*else[^.]*run login",
+                         "finish does not use planning_store.login, else the code repo's run login")
         pr = read(PR_SKILL)
         settings = next((l for l in pr.splitlines() if "**Settings per repo:**" in l), "")
         self.assertTrue(settings, "specwright-pr has no Settings per repo block")

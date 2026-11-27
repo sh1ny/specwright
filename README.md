@@ -759,6 +759,7 @@ release:                        # opt-in; refused with pr.merge_method: rebase
 - **The one Git write.** The annotated release tag (`specwright-release`) is still created and pushed with Git. Every other write on a jj repository goes through jj, and reads such as `git log` stay as they are.
 - **Your own jj skill is optional.** Specwright never installs a jj skill or a jj configuration. If you keep a personal one (for identity, trailers or push rules), it works beside Specwright; the skills do not need it.
 - **Stores.** `planning_store.vcs` sets the store's backend on its own and does not inherit `vcs`: a jj code repository can have a Git store and the other way round. Each repository needs its own colocated checkout under the same rules.
+- **Network remotes.** Set `remote` for code and `planning_store.remote` for the planning store. Both default independently to `origin`. A named Git remote can select a fork or upstream checkout target; the same repository must be used for PR head and base. Setting a name explicitly, even `origin`, selects that remote's main for Git pull. Omitting the key preserves the branch upstream for bare pulls.
 
 **GitButler (`vcs: gitbutler`).** Set `vcs: gitbutler` to have the skills write through [GitButler](https://gitbutler.com)'s `but` CLI, so the change branch is applied beside the branches other agents or you have applied, instead of taking over the working tree. It is for the code repository only and needs `finish: pr`.
 

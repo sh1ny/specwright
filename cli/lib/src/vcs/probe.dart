@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import '../settings/rules.dart';
 import 'git_common.dart' show orElse;
 import 'scripts.dart';
 import 'stop.dart';
@@ -13,6 +14,8 @@ class ProbeInfo {
     this.repo,
     this.login, {
     this.jjPresent = false,
+    this.connection = const GitHubConnection(),
+    this.remote = const RemoteSelection(),
   });
 
   final String backend;
@@ -20,6 +23,8 @@ class ProbeInfo {
   final String repo;
   final String login;
   final bool jjPresent;
+  final GitHubConnection connection;
+  final RemoteSelection remote;
 }
 
 /// `Path(path).resolve()` for a directory that exists: absolute, `.` and `..`
@@ -160,11 +165,15 @@ Future<ProbeInfo> _probeGitbutler(
           'never sets it up',
     );
   }
-  if (target != 'refs/heads/$main' && target != 'refs/remotes/origin/$main') {
+  final remoteRef = 'refs/remotes/${settings.remote.name}/$main';
+  if (target != remoteRef &&
+      (settings.remote.explicit || target != 'refs/heads/$main')) {
+    final expected = settings.remote.explicit
+        ? remoteRef
+        : 'refs/heads/$main or $remoteRef';
     throw VcsStop(
       'target_mismatch',
-      'GitButler target is $target, but the main branch is $main (expected '
-          'refs/heads/$main or refs/remotes/origin/$main)',
+      'GitButler target is $target, but the main branch is $main (expected $expected)',
     );
   }
   // installed skills live inside the code checkout, so ask `but` from outside
@@ -195,7 +204,14 @@ Future<ProbeInfo> _probeGitbutler(
           'minimum supported version is 0.23',
     );
   }
-  return ProbeInfo('gitbutler', main, root, settings.login);
+  return ProbeInfo(
+    'gitbutler',
+    main,
+    root,
+    settings.login,
+    connection: settings.connection,
+    remote: settings.remote,
+  );
 }
 
 /// `vcs.sh`'s `probe(repo, code, role)`: the backend the settings choose,
@@ -281,7 +297,14 @@ Future<ProbeInfo> probe(
         'jj workspace and Git work tree do not share the same toplevel',
       );
     }
-    return ProbeInfo('jj', main, root, settings.login);
+    return ProbeInfo(
+      'jj',
+      main,
+      root,
+      settings.login,
+      connection: settings.connection,
+      remote: settings.remote,
+    );
   }
   final root = await gitRoot(repo);
   final main = await detectMain(root, settings.main);
@@ -299,6 +322,8 @@ Future<ProbeInfo> probe(
     main,
     root,
     settings.login,
+    connection: settings.connection,
+    remote: settings.remote,
     jjPresent: _exists(_join(root, '.jj')),
   );
 }

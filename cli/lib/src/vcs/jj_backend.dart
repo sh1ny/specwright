@@ -631,18 +631,31 @@ Future<String> jjBookmark(
 Future<List<String>> conflictPaths(VcsSession s, String revision) =>
     _resolveList(s, revision);
 
-/// `vcs.sh`'s `network_jj`: `jj <args>` in the repo, through `as.sh <login>`
-/// when `origin` is on GitHub.
+/// Run jj with the selected remote's fetch or push credential policy.
 Future<TextResult> networkJj(
   VcsSession s,
   List<String> args,
   String? login,
 ) async {
-  final github = isGithubUrl(await remoteUrl(s.scripts, s.repo));
-  final who = await fenceLogin(s.scripts, s.repo, github: github, login: login);
+  final connection = s.info.connection;
+  final github = await networkUsesFence(
+    s.scripts,
+    s.repo,
+    connection,
+    remote: s.info.remote.name,
+    push: args[1] == 'push',
+  );
+  final who = await fenceLogin(
+    s.scripts,
+    s.repo,
+    github: github,
+    login: login,
+    host: connection.host,
+  );
+  final command = ['jj', ...args];
   final result = github
-      ? await runAs(s.scripts, s.repo, who, ['jj', ...args])
-      : await jj(s, args);
+      ? await runAs(s.scripts, s.repo, who, command, host: connection.host)
+      : await plainNetwork(s.scripts, s.repo, command);
   if (result.code != 0) {
     final said = orElse(result.stderr, result.stdout).trim();
     throw VcsStop(
@@ -657,14 +670,21 @@ Future<TextResult> networkJj(
 /// `vcs.sh`'s `jj_fetch_main`: `git fetch` of the main branch, then the commit
 /// it fetched.
 Future<String> jjFetchMain(VcsSession s, String? login) async {
-  await networkGit(s.scripts, s.repo, [
-    'fetch',
-    if (s.request.quiet) '-q',
-    if (s.request.noTags) '--no-tags',
-    '--refmap=',
-    'origin',
-    'refs/heads/${s.info.main}',
-  ], login);
+  await networkGit(
+    s.scripts,
+    s.repo,
+    [
+      'fetch',
+      if (s.request.quiet) '-q',
+      if (s.request.noTags) '--no-tags',
+      '--refmap=',
+      s.info.remote.name,
+      'refs/heads/${s.info.main}',
+    ],
+    login,
+    remote: s.info.remote.name,
+    connection: s.info.connection,
+  );
   return (await gitChecked(s.scripts, s.repo, [
     'rev-parse',
     '--verify',
@@ -821,6 +841,7 @@ Future<Map<String, Object?>> jjDelete(VcsSession s) async {
 /// `vcs.sh`'s `jj_pull`.
 Future<Map<String, Object?>> jjPull(VcsSession s, String? login) async {
   final main = s.info.main;
+  final remoteName = s.info.remote.name;
   final wasOnMain = (await jjState(s))['on_main'] == true;
   final old = await jjBookmark(s, main);
   final fetched = await jjFetchMain(s, login);
@@ -837,21 +858,21 @@ Future<Map<String, Object?>> jjPull(VcsSession s, String? login) async {
   if (!await gitAncestor(s.scripts, s.repo, old, fetched)) {
     throw VcsStop(
       'not_fast_forward',
-      'local $main at $old and origin $main at $fetched have diverged',
+      'local $main at $old and $remoteName $main at $fetched have diverged',
     );
   }
   await networkJj(s, [
     'git',
     'fetch',
     '--remote',
-    'origin',
+    remoteName,
     '--branch',
     exactPattern(main),
   ], login);
   var current = await jjBookmark(s, main, allowConflict: true);
   final remote = await jjOne(
     s,
-    '${revsetText(main)}@${revsetText('origin')}',
+    '${revsetText(main)}@${revsetText(remoteName)}',
     'commit_id',
   );
   if (current.isNotEmpty &&
@@ -948,7 +969,7 @@ Future<Map<String, Object?>> jjPush(VcsSession s, String? login) async {
     'git',
     'push',
     '--remote',
-    'origin',
+    s.info.remote.name,
     '--bookmark',
     exactPattern(branch),
   ], login);

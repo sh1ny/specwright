@@ -4,6 +4,7 @@ import 'dart:typed_data';
 
 import 'package:specwright_cli/src/commands/vcs.dart';
 import 'package:specwright_cli/src/fence/fenced_text.dart';
+import 'package:specwright_cli/src/fence/urls.dart';
 import 'package:specwright_cli/src/pr/gh.dart' show GhResult;
 import 'package:specwright_cli/src/process/resolve.dart';
 import 'package:specwright_cli/src/vcs/args.dart';
@@ -380,7 +381,7 @@ void main() {
     });
   });
 
-  group('isGithubUrl', () {
+  group('ghUrl', () {
     test('GitHub hosts, URL and scp forms', () {
       for (final url in [
         'https://github.com/a/b.git',
@@ -389,7 +390,7 @@ void main() {
         'git@github.com:a/b.git',
         'github.com:a/b',
       ]) {
-        expect(isGithubUrl(url), isTrue, reason: url);
+        expect(ghUrl(url), isTrue, reason: url);
       }
     });
 
@@ -403,7 +404,7 @@ void main() {
         'git@gitlab.com:a/b',
         'https://github.com.evil.example/x',
       ]) {
-        expect(isGithubUrl(url), isFalse, reason: url);
+        expect(ghUrl(url), isFalse, reason: url);
       }
     });
   });
