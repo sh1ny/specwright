@@ -95,4 +95,4 @@ Use Specwright with SSH, GitHub Enterprise, token-only automation and a remote n
 
 ### Fixed
 
-- A local-only planning store no longer blocks the code PR; ship reports that the planning branch must be shared by hand (#260).
+- A local-only planning store no longer blocks the code PR. Share and archive the planning branch by hand; PR watch and finish do not archive or merge a manual store handoff (#260).

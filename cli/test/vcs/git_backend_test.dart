@@ -10,7 +10,6 @@ import 'package:specwright_cli/src/process/resolve.dart';
 import 'package:specwright_cli/src/vcs/args.dart';
 import 'package:specwright_cli/src/vcs/codec.dart';
 import 'package:specwright_cli/src/vcs/git_backend.dart';
-import 'package:specwright_cli/src/vcs/git_common.dart';
 import 'package:specwright_cli/src/vcs/probe.dart';
 import 'package:specwright_cli/src/vcs/scripts.dart';
 import 'package:specwright_cli/src/vcs/stop.dart';
@@ -740,13 +739,24 @@ void main() {
       expect(doc['commit'], sh(repoDir.path, ['rev-parse', 'origin/main']));
     }, skip: skip);
 
-    test('fetch-main without a tracking ref is fetch_failed', () async {
-      gitIn(['config', '--unset-all', 'remote.origin.fetch']);
-      gitIn(['update-ref', '-d', 'refs/remotes/origin/main']);
-      final stop = await stopOf(() => op('fetch-main', session()));
-      expect(stop.error, 'fetch_failed');
-      expect(stop.code, 1);
-    }, skip: skip);
+    test(
+      'fetch-main creates the tracking ref without a configured mapping',
+      () async {
+        gitIn(['config', '--unset-all', 'remote.origin.fetch']);
+        gitIn(['update-ref', '-d', 'refs/remotes/origin/main']);
+        final doc = await op('fetch-main', session());
+        expect(doc['ref'], 'origin/main');
+        expect(
+          doc['commit'],
+          sh(remote.path, ['rev-parse', 'refs/heads/main']),
+        );
+        expect(
+          doc['commit'],
+          sh(repoDir.path, ['rev-parse', 'refs/remotes/origin/main']),
+        );
+      },
+      skip: skip,
+    );
 
     test('a failing fetch is git_network_error with exit 3', () async {
       gitIn(['remote', 'set-url', 'origin', posix('${tmp.path}/nowhere')]);
@@ -819,7 +829,10 @@ void main() {
         'fetch-main',
         session(login: 'bot', quiet: true, noTags: true),
       );
-      expect(asLog(), 'bot|git|fetch|-q|--no-tags|origin|main|\n');
+      expect(
+        asLog(),
+        'bot|git|fetch|-q|--no-tags|--refmap=|origin|+refs/heads/main:refs/remotes/origin/main|\n',
+      );
       expect(doc['ref'], 'origin/main');
     }, skip: skip);
 

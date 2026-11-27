@@ -106,6 +106,17 @@ class Workflow {
     return _bound = login;
   }
 
+  /// A store's explicit binding overrides the verified run login, not the
+  /// configured code preference (a handed-off run may have chosen another).
+  Future<void> bindStoreLogin(RepoContext store, String slug) async {
+    if (!store.loginExplicit) return;
+    final bound = await codeLogin(_configuredLogin);
+    if (bound != null && store.login.toLowerCase() != bound.toLowerCase()) {
+      await tokenFor(store.login);
+      _repoLogin[slug.toLowerCase()] = store.login;
+    }
+  }
+
   /// The standalone PR commands bind before their first GitHub call as a
   /// workflow does. An explicit outer `as` login is still reverified.
   Future<Map<String, String>> commandEnvironment(
@@ -1232,12 +1243,7 @@ class Workflow {
     if (command == 'cleanup-plan') return cleanupPlan(argv);
     if (command == 'branch-check') return branchCheck(argv);
     if (command == 'pass') {
-      return FeedbackPass(
-        this,
-        readAs: (repo, login) {
-          _repoLogin[repo.toLowerCase()] = login;
-        },
-      ).run(argv);
+      return FeedbackPass(this).run(argv);
     }
     if (command == 'closing-check' || command == 'closed-check') {
       return closingCheck(command, argv);
@@ -1419,14 +1425,8 @@ class Workflow {
     }
 
     if (cid != null) {
-      final bound = await codeLogin(c.code.login);
-      if (bound != null && sid != null) {
-        final s = c.store!.loginExplicit ? c.store!.login : bound;
-        if (s.toLowerCase() != bound.toLowerCase()) {
-          await tokenFor(s);
-          _repoLogin[sid.toLowerCase()] = s;
-        }
-      }
+      await codeLogin(c.code.login);
+      if (sid != null) await bindStoreLogin(c.store!, sid);
     }
     final cd = cid == null
         ? null

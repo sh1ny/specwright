@@ -127,7 +127,7 @@ String _iso(DateTime time) =>
 /// store; plans are derived again from current snapshots and repository
 /// evidence, never persisted as proof of completion.
 class FeedbackPass {
-  FeedbackPass(this.workflow, {FeedbackRecordStore? records, this.readAs})
+  FeedbackPass(this.workflow, {FeedbackRecordStore? records})
     // A field formal would rename the existing records injection parameter.
     // ignore: prefer_initializing_formals
     : _records = records;
@@ -137,7 +137,6 @@ class FeedbackPass {
   FeedbackRecordStore get records =>
       _records ??= FeedbackRecordStore(_directories.recordDirectory);
   List<String> get _leftLocks => _records?.leftLocks ?? const [];
-  final void Function(String repo, String login)? readAs;
   PrContext get ctx => workflow.ctx;
   static final _random = Random.secure();
 
@@ -770,12 +769,6 @@ class FeedbackPass {
                     (key == 'code' ? record['code_repo'] : null))
                 as String?,
     };
-    final storeLogin = contexts.store?.login ?? '';
-    if (slugs['store'] != null &&
-        storeLogin.isNotEmpty &&
-        storeLogin.toLowerCase() != contexts.code.login.toLowerCase()) {
-      readAs?.call(slugs['store']!, storeLogin);
-    }
     final host = workflow.githubHost;
     Never mismatch(String side) => throw PairStop(
       'snapshot_target_mismatch',
@@ -803,6 +796,7 @@ class FeedbackPass {
               !matchesPull(supplied['url'], host, expected, number))) {
         mismatch(side);
       }
+      if (side == 'store') await workflow.bindStoreLogin(role, expected);
       final current = await workflow.discover(
         expected,
         branch,
@@ -1062,6 +1056,15 @@ class FeedbackPass {
     }
     if (adopted != null && pyTruthy(prs['store'])) {
       final codePr = _map(prs['code']), storePr = _map(prs['store']);
+      if (!sources.contains('store') && !destinations.contains('store')) {
+        final role = contexts.store!;
+        final expected = await workflow.prTarget(role);
+        if (expected == null ||
+            expected.toLowerCase() != _text(storePr['repo']).toLowerCase()) {
+          mismatch('store');
+        }
+        await workflow.bindStoreLogin(role, expected);
+      }
       final urls = <String, String>{};
       for (final repo in ['code', 'store']) {
         final pr = _map(prs[repo]);

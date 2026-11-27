@@ -714,6 +714,13 @@ def git_read_only(c):
     if sub == "fetch":  # every option is on FETCH_FLAGS (so -f/--force, --tags, --prune-tags, --set-upstream, --refmap and any option
         # the list does not know are writes), and no refspec writes outside refs/remotes/ (`tag v1` is refs/tags/v1:refs/tags/v1) or
         # forces with +
+        if len(c) >= 4 and "--refmap=" in c[1:-2] and set(c[1:-2]) <= {"--refmap=", "-q", "--no-tags"}:
+            # The native Git main refresh explicitly updates its own
+            # conventional tracking ref, not the user's custom mappings.
+            remote, spec = c[-2:]
+            match = re.fullmatch(r"\+refs/heads/([^\s:*?]+):refs/remotes/([^\s:*?]+)", spec)
+            if not remote.startswith("-") and re.fullmatch(r"[^\s:*?]+", remote) and match:
+                return match[2] == f"{remote}/{match[1]}"
         ok, pos, names = read_options(c[1:], FETCH_FLAGS)
         # (a + argument counts in any slot, the first included, as the earlier rule did: fail closed)
         if not (ok and not any(r.startswith("+") for r in pos) and "tag" not in pos[1:] and all(

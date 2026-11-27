@@ -62,7 +62,7 @@ Future<T> withTempFile<T>(
 /// stay private; only the binding hash is ever printed in a proof.
 class ReleaseTarget {
   ReleaseTarget(this.remote, this.host, this.raw, this.fetch, this.pushes)
-    : slug = parseRepo(raw, host: host) ?? parseRepo(fetch, host: host);
+    : slug = parseRepo(fetch, host: host);
 
   final String remote, host, raw, fetch;
   final List<String> pushes;
@@ -82,9 +82,8 @@ class ReleaseTarget {
   }
 
   void check() {
-    if (parseRepo(raw, host: host) != null &&
-        parseRepo(fetch, host: host) != null &&
-        !sameRepo(raw, fetch)) {
+    final named = parseRepo(raw, host: host);
+    if (named != null && named.toLowerCase() != slug?.toLowerCase()) {
       throw ReleaseStop(
         'push_url_mismatch',
         '$remote is configured as ${mask(raw)} but a URL rewrite (insteadOf) '

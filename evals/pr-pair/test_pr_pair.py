@@ -1220,19 +1220,43 @@ sys.exit(subprocess.call([{jjenv.real_git()!r}, *a]))
         self.assertIn("push URLs", r["message"])
         self.assertEqual(self.gh_calls(), [])
 
-    def test_finish_transport_gate_leaves_clean_and_preedited_store_untouched(self):
+    def test_archive_entry_hands_off_before_prompt_sync_or_writes(self):
+        # The installed archive entry is agent instructions, not an OpenSpec CLI hook.
+        # Bind this black-box test to that entry and run the command the skill prescribes.
+        config = (ROOT / "templates" / "openspec" / "config.yaml").read_text(encoding="utf-8")
+        trigger = next(line for line in config.splitlines() if "'specwright-finish' PR transport gate" in line)
+        self.assertRegex(trigger, r"before asking to archive, syncing specs, or moving files")
+        self.assertRegex(trigger, r"manual_store_handoff means .* skip that change\. Do not change existing archive edits")
+        finish = (ROOT / "skills" / "specwright-finish" / "SKILL.md").read_text(encoding="utf-8")
+        entry, _ = finish.split("\n## Resume\n", 1)
+        gate = next(line for line in entry.splitlines() if line.startswith("**PR transport gate.**"))
+        self.assertRegex(gate, r"before archive prompts, spec sync, changes to existing archive edits, or \*\*Resume\*\*")
+        command = re.search(r"`<sw> pr ([^`]+)`", gate)
+        self.assertIsNotNone(command)
+        locations = {"<code toplevel>": self.code, "<store toplevel>": self.store, "<branch>": BRANCH}
+        argv = re.findall(r"<[^>]+>|\S+", command[1])
+        argv = [locations.get(arg, arg) for arg in argv]
+        self.assertEqual(self.pp(*argv)["action"], "publishable")
         self.git(self.store, "remote", "remove", "origin")
         self.save_gh({**self.gh(), "user": None})
+        active = f"openspec/changes/{CHANGE}/specs/greeting/spec.md"
+        original = {active: "Pending delta\n", SPEC_MAIN: "Stable main spec\n"}
+        self.commit(self.store, original, "docs: add active planning change")
+        self.assertFalse((self.store / ARCHIVE).exists())
+        self.gh_log.unlink(missing_ok=True)
         for edited in (False, True):
             with self.subTest(edited=edited):
                 if edited:
                     self.write(f"store/{SPEC_ARCHIVED}", "preexisting archive edit\n")
                 before = self.git(self.store, "status", "--porcelain=v1", "--untracked-files=all")
                 head = self.tip(self.store)
-                r = self.pp("expected", "--transport-only", "--code", self.code, "--store", self.store, "--branch", BRANCH)
+                r = self.pp(*argv)
                 self.assertEqual((r["action"], r["branch"]), ("manual_store_handoff", BRANCH))
                 self.assertEqual(self.git(self.store, "status", "--porcelain=v1", "--untracked-files=all"), before)
                 self.assertEqual(self.tip(self.store), head)
+                for path, text in original.items():
+                    self.assertEqual((self.store / path).read_text(encoding="utf-8"), text)
+                self.assertEqual((self.store / ARCHIVE).exists(), edited)
                 if edited:
                     self.assertEqual((self.store / SPEC_ARCHIVED).read_text(encoding="utf-8"), "preexisting archive edit\n")
         self.assertEqual(self.gh_calls(), [])
@@ -2089,6 +2113,19 @@ class PassPlan(PassBase):
         self.assertEqual(result["error"], "missing_run_login", result)
         self.assertEqual(self.gh_calls(), [])
         self.assertTrue(self.record_path().is_file())
+
+    def test_feedback_uses_explicit_store_login_over_handed_code_login(self):
+        self.settings("github:\n  login: KintsugiBot\nplanning_store:\n  login: KintsugiBot\n")
+        self.write_record([self.finding(source="store", dest="store")])
+        state = self.gh()
+        state["repos"][STORE]["readers"] = ["KintsugiBot"]
+        self.save_gh(state)
+        self.gh_log.unlink(missing_ok=True)
+        plan = self.plan(store=snap(threads=[thread()]), flags=("--run-login", "sh1ny", "--handoff"))
+        self.assertEqual(self.row(plan, "fix_commit", "store")["state"], "todo")
+        reads = [c for c in self.gh_calls() if c["argv"][0] == "api" and any(f"repos/{STORE}/" in a for a in c["argv"])]
+        self.assertTrue(reads, "feedback did not check the private store PR")
+        self.assertEqual({c["env"]["GH_TOKEN"] for c in reads}, {"tok-k"})
 
     def test_feedback_record_is_isolated_by_host(self):
         self.write_record([self.finding()])

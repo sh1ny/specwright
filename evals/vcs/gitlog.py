@@ -40,9 +40,10 @@ def classify(argv):
     if command == "tag" and (not tail or any(arg in _TAG_READS or arg.startswith(("--format=", "--sort=", "--points-at=", "--contains="))
                                               for arg in tail)) and not any(arg in _TAG_WRITES for arg in tail):
         write = False  # listing tags reads
-    if command == "fetch" and any(arg == "--refmap=" for arg in tail):
-        write = False
-        exception = "FETCH_HEAD-only read fetch"
+    if command == "fetch" and "--refmap=" in tail:
+        explicit = tail[-1].partition(":")[2]
+        if not explicit:
+            write, exception = False, "FETCH_HEAD-only read fetch"
     elif command == "tag" and "-a" in tail:
         write = True
         exception = "annotated release tag"

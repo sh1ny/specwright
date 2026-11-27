@@ -307,21 +307,32 @@ Future<void> requireReleaseShape(ReleaseGit git, String sha) async {
   );
 }
 
-/// The main branch name: the setting, else `main`, else `master`, whichever
-/// exists locally; the first name when none does.
-Future<String> detectMain(ReleaseGit git, String? mainBranch) async {
-  final names = [mainBranch ?? 'main', if (mainBranch == null) 'master'];
-  for (final n in names) {
+/// The configured name, otherwise the first visible branch of `main`, `master`.
+/// Local history reads do not use tracking refs.
+Future<String> detectMain(
+  ReleaseGit git,
+  String? mainBranch, {
+  String? trackingRemote,
+}) async {
+  if (mainBranch != null) return mainBranch;
+  for (final n in const ['main', 'master']) {
     if (await git.succeeds([
-      'show-ref',
-      '--verify',
-      '--quiet',
-      'refs/heads/$n',
-    ])) {
+          'show-ref',
+          '--verify',
+          '--quiet',
+          'refs/heads/$n',
+        ]) ||
+        trackingRemote != null &&
+            await git.succeeds([
+              'show-ref',
+              '--verify',
+              '--quiet',
+              'refs/remotes/$trackingRemote/$n',
+            ])) {
       return n;
     }
   }
-  return names.first;
+  return 'main';
 }
 
 Future<String> releaseMainBranch(
@@ -329,7 +340,12 @@ Future<String> releaseMainBranch(
   ReleaseSettings settings,
   String? requested,
 ) async {
-  final main = await detectMain(git, settings.mainBranch);
+  final target = await git.bindTarget();
+  final main = await detectMain(
+    git,
+    settings.mainBranch,
+    trackingRemote: target?.slug == null ? null : git.remote,
+  );
   if (requested != null && requested != main) {
     throw ReleaseStop(
       'release_main_mismatch',

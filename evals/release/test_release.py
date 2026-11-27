@@ -9,7 +9,6 @@ Run: python -m unittest discover evals/release
 import importlib.util
 import json
 import os
-import shutil
 import subprocess
 import sys
 import tempfile
@@ -1256,8 +1255,7 @@ CODE_SLUG = "acme/code"
 
 
 class GhFlow(Flow):
-    """A `gh` fake on PATH backed by evals/fakes/gh.py, and a code repo whose origin looks like github.com but reaches a
-    local bare repository through `url.<bare>.insteadOf`.
+    """A fake `gh` on PATH and a Git test transport that serves GitHub URLs from local bare repositories.
 
     The fake is written with fakeexe.write_fake as an `.exe` on Windows (it receives `%` and quotes in `--jq` and templates,
     which a `.cmd` refuses), so `sw` finds it. It logs every call to FAKE_GH_LOG; a publish or a store-backed read that
@@ -1281,18 +1279,19 @@ class GhFlow(Flow):
     def env(self):
         e = {k: v for k, v in os.environ.items() if k not in (
             "GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN", "GH_REPO", "GH_HOST")}
-        e.update({"PATH": str(self.tmp / "bin") + os.pathsep + e.get("PATH", ""), "FAKE_GH_STATE": str(self.gh_state),
-                  "FAKE_GH_LOG": str(self.gh_log), "GH_REPO": "someone/else"})  # an inherited GH_REPO must not reach gh
+        e.update({"PATH": os.pathsep.join((str(self.tmp / "bin"), str(fx.transport_git(self.tmp).parent), e.get("PATH", ""))),
+                  "FAKE_GH_STATE": str(self.gh_state), "FAKE_GH_LOG": str(self.gh_log),
+                  "GH_REPO": "someone/else"})  # an inherited GH_REPO must not reach gh
         return fx.sw_env(e)
 
     def save(self):
         self.gh_state.write_text(json.dumps(self.state), encoding="utf-8")
 
     def connect(self):
-        """origin keeps a GitHub-form URL (release.sh derives the gh repo from it); git reaches the local bare repo."""
+        """Serve the canonical GitHub URL from the test's bare endpoint."""
         url = f"https://github.com/{CODE_SLUG}.git"
         fx.git(self.work, "config", "remote.origin.url", url)
-        fx.git(self.work, "config", f"url.{(self.tmp / 'origin.git').as_posix()}.insteadOf", url)
+        fx.route_github_git(self.tmp, url, self.tmp / "origin.git")
         settings = self.work / "openspec/specwright.yaml"
         settings.write_text(settings.read_text(encoding="utf-8") + "github:\n  fence: false\n", encoding="utf-8")
         return self.tmp / "origin.git"
@@ -1547,6 +1546,36 @@ class TestReleaseProof(PubFlow):
         self.assertEqual(fx.git(self.bare, "tag", "-l"), "")
         self.assertEqual(self.gh_calls(), [])
 
+    def test_github_release_refuses_off_host_fetch_and_push_rewrite(self):
+        mirror = self.tmp / "unexpected-mirror.git"
+        fx.git(self.tmp, "clone", "-q", "--bare", str(self.bare), str(mirror))
+        url = f"https://github.com/{CODE_SLUG}.git"
+        fx.git(self.work, "config", f"url.{mirror.as_posix()}.insteadOf", url)
+        self.assertEqual(fx.git(self.work, "remote", "get-url", "origin"), mirror.as_posix())
+        self.state["repos"][CODE_SLUG]["remote_tags"] = [self.TAG]
+        for command, args in (("prove-main", ()), ("publish", ("--version", "0.5.0"))):
+            with self.subTest(command=command):
+                self.save()
+                code, doc, raw = self.release(command, *args, env=self.env())
+                self.assertEqual((code, doc.get("error")), (1, "push_url_mismatch"), raw)
+        for repo in (self.work, self.bare, mirror):
+            self.assertEqual(fx.git(repo, "tag", "-l"), "")
+        self.assertEqual(self.gh_calls(), [])
+
+    def test_release_main_can_be_detected_from_selected_remote_tracking_branch(self):
+        fx.git(self.work, "remote", "rename", "origin", "publishing")
+        fx.git(self.work, "push", "-q", "publishing", "main:master")
+        fx.git(self.work, "checkout", "-q", "--detach")
+        fx.git(self.work, "branch", "-D", "main")
+        settings = self.work / "openspec/specwright.yaml"
+        settings.write_text(settings.read_text(encoding="utf-8") + "\nremote: publishing\n", encoding="utf-8")
+        self.assertEqual(fx.git(self.work, "rev-parse", "refs/remotes/publishing/master"), self.rc)
+        fx.git(self.work, "update-ref", "-d", "refs/remotes/publishing/main")
+        self.save()
+        code, proof, raw = self.release("prove-main", "--main", "master", env=self.env())
+        self.assertEqual(code, 0, raw)
+        self.assertEqual((proof["main_branch"], proof["commit"]), ("master", self.rc))
+
     def test_release_proof_rejected_after_main_branch_changes(self):
         code, proof, raw = self.prove()
         self.assertEqual(code, 0, raw)
@@ -1596,7 +1625,7 @@ class TestReleaseProof(PubFlow):
 import subprocess, sys
 from pathlib import Path
 args = sys.argv[1:]
-git = {shutil.which("git")!r}
+git = {str(fx.transport_git(self.tmp))!r}
 result = subprocess.call([git, *args])
 if result == 0 and args[0] == "fetch" and any(":refs/specwright/release/" in s for s in args):
     subprocess.run([git, "fetch", {str(other)!r}, "refs/heads/main"], check=True)
@@ -1634,9 +1663,9 @@ sys.exit(result)
         host, name = "github.example.com", "publishing"
         bare = self.tmp / "publishing.git"
         fx.git(self.tmp, "init", "-q", "--bare", "-b", "main", str(bare))
-        url = f"git@{host}:{CODE_SLUG}.git"
+        url = f"https://{host}/{CODE_SLUG}.git" if fence else f"git@{host}:{CODE_SLUG}.git"
         fx.git(self.work, "remote", "add", name, url)
-        fx.git(self.work, "config", f"url.{bare.as_posix()}.insteadOf", url)
+        fx.route_github_git(self.tmp, url, bare)
         fx.git(self.work, "push", "-q", name, "main")
         settings = self.work / "openspec/specwright.yaml"
         source = settings.read_text(encoding="utf-8").split("github:\n", 1)[0]
@@ -1673,7 +1702,7 @@ sys.exit(result)
         fx.git(self.tmp, "init", "-q", "--bare", "-b", "main", str(fork))
         url = f"https://{host}/fork/code.git"
         fx.git(self.work, "config", "remote.publishing.pushurl", url)
-        fx.git(self.work, "config", f"url.{fork.as_posix()}.insteadOf", url)
+        fx.route_github_git(self.tmp, url, fork)
         code, doc, raw = self.publish()
         self.assertEqual((code, doc["error"]), (1, "push_url_mismatch"), raw)
         self.assertIn("publishing fetches", doc["message"])
@@ -1682,8 +1711,7 @@ sys.exit(result)
         self.assertEqual(self.gh_calls(), [])
 
     def test_publish_refuses_rewrite_to_other_enterprise_repo(self):
-        host, bare, url = self.use_enterprise()
-        fx.git(self.work, "config", "--unset", f"url.{bare.as_posix()}.insteadOf")
+        host, _, url = self.use_enterprise()
         fx.git(self.work, "config", f"url.https://{host}/other/code.git.insteadOf", url)
         code, doc, raw = self.publish()
         self.assertEqual((code, doc["error"]), (1, "push_url_mismatch"), raw)
@@ -1771,7 +1799,7 @@ class TestPublish(PubFlow):
         fork = self.tmp / "fork.git"
         fx.git(self.tmp, "init", "-q", "--bare", str(fork))
         fx.git(self.work, "config", "remote.origin.pushurl", "https://github.com/someone/fork.git")
-        fx.git(self.work, "config", f"url.{fork.as_posix()}.insteadOf", "https://github.com/someone/fork.git")
+        fx.route_github_git(self.tmp, "https://github.com/someone/fork.git", fork)
         code, doc, raw = self.publish()
         self.assertEqual(code, 1, raw)
         self.assertEqual(doc["error"], "push_url_mismatch")
@@ -1789,7 +1817,6 @@ class TestPublish(PubFlow):
     def test_rewrite_to_another_github_repo_stops(self):
         # insteadOf turns acme/ into me/: the tag would go to me/code while the release names acme/code. Publish stops
         # before any network read.
-        fx.git(self.work, "config", "--unset", f"url.{self.bare.as_posix()}.insteadOf")
         fx.git(self.work, "config", "url.https://github.com/me/.insteadOf", "https://github.com/acme/")
         code, doc, raw = self.publish()
         self.assertEqual(code, 1, raw)
@@ -1984,7 +2011,6 @@ class TestGithubRelease(PubFlow):
     def test_shorthand_rewritten_to_github_creates_release(self):
         # origin is a non-GitHub shorthand that insteadOf expands to github.com: git reaches GitHub, so the release is
         # created there and not skipped as not_github. A fake ssh serves the github.com URL from the local bare repo.
-        fx.git(self.work, "config", "--unset", f"url.{self.bare.as_posix()}.insteadOf")
         fx.git(self.work, "config", "remote.origin.url", "corp:acme/code")
         fx.git(self.work, "config", "url.ssh://git@github.com/.insteadOf", "corp:")
         ssh = self.tmp / "fake-ssh"
@@ -2010,7 +2036,7 @@ class TestBoundedNetwork(PubFlow):
         fakeexe.write_python_fake(self.tmp / "bin" / "git", f"""
 import json, subprocess, sys
 from pathlib import Path
-git = {shutil.which("git")!r}
+git = {str(fx.transport_git(self.tmp))!r}
 args = sys.argv[1:]
 event = Path({str(self.event)!r})
 if args[0] in ("ls-remote", "fetch", "push"):

@@ -54,7 +54,7 @@ class JjRelease(unittest.TestCase):
         url = f"https://github.com/{CODE_SLUG}.git"
         self.bare = self.tmp / "origin.git"
         fx.git(self.work, "config", "remote.origin.url", url)
-        fx.git(self.work, "config", f"url.{self.bare.as_posix()}.insteadOf", url)
+        fx.route_github_git(self.tmp, url, self.bare)
         fx.push(self.work)
         self.base = fx.git(self.work, "rev-parse", "HEAD")
         self.rc = fx.squash_merge(self.work, "add-x", "0.5.0", 7)
@@ -66,9 +66,9 @@ class JjRelease(unittest.TestCase):
 
     def env(self):
         e = {k: v for k, v in os.environ.items() if k not in ("GH_TOKEN", "GITHUB_TOKEN", "GH_REPO", "GH_HOST")}
-        e.update({"PATH": str(self.tmp / "bin") + os.pathsep + e.get("PATH", ""), "FAKE_GH_STATE": str(self.gh_state),
-                  "FAKE_GH_LOG": str(self.gh_log), "GIT_TRACE2_EVENT": str(self.trace),
-                  "JJ_USER": jjenv.FIXTURE_NAME, "JJ_EMAIL": jjenv.FIXTURE_EMAIL})
+        e.update({"PATH": os.pathsep.join((str(self.tmp / "bin"), str(fx.transport_git(self.tmp).parent), e.get("PATH", ""))),
+                  "FAKE_GH_STATE": str(self.gh_state), "FAKE_GH_LOG": str(self.gh_log),
+                  "GIT_TRACE2_EVENT": str(self.trace), "JJ_USER": jjenv.FIXTURE_NAME, "JJ_EMAIL": jjenv.FIXTURE_EMAIL})
         return fx.sw_env(e)
 
     def release(self, *args):

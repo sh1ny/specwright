@@ -485,6 +485,14 @@ class GitAllowlist(unittest.TestCase):
                     "fetch -qx origin", "fetch --depth 1 origin",  # an option off the read-only list is a write
                     "fetch +refs/heads/main:refs/heads/main", "fetch -q +refs/heads/x:refs/remotes/origin/x")  # + in any slot
 
+    def test_main_refresh_allows_only_the_selected_tracking_ref(self):
+        self.reads("fetch -q --refmap= publishing +refs/heads/main:refs/remotes/publishing/main")
+        self.writes("fetch --refmap= publishing +refs/heads/main:refs/heads/main",
+                    "fetch --refmap= publishing +refs/heads/main:refs/remotes/origin/main",
+                    "fetch --refmap= publishing +refs/heads/main:refs/remotes/publishing/master",
+                    "fetch --refmap= publishing +refs/heads/*:refs/remotes/publishing/*",
+                    "fetch --refmap= --tags publishing +refs/heads/main:refs/remotes/publishing/main")
+
     def test_branch_option_off_the_list_is_a_write(self):
         self.writes("branch -uother", "branch -vuother", "branch -fx main", "branch --frobnicate", "branch --sort=x -u other",
                     "branch -a --unset-upstream")

@@ -506,6 +506,7 @@ Future<Map<String, Object?>> runGitOperation(
       ], error: 'branch_delete_failed');
       return {'ok': true, 'backend': 'git', 'branch': branch};
     case 'fetch-main':
+      final tracking = 'refs/remotes/${remote.name}/$main';
       await networkGit(
         scripts,
         repo,
@@ -513,8 +514,9 @@ Future<Map<String, Object?>> runGitOperation(
           'fetch',
           if (request.quiet) '-q',
           if (request.noTags) '--no-tags',
+          '--refmap=',
           remote.name,
-          main,
+          '+refs/heads/$main:$tracking',
         ],
         _loginFor(s),
         remote: remote.name,
@@ -523,7 +525,7 @@ Future<Map<String, Object?>> runGitOperation(
       final commit = (await gitChecked(scripts, repo, [
         'rev-parse',
         '--verify',
-        'refs/remotes/${remote.name}/$main^{commit}',
+        '$tracking^{commit}',
       ], error: 'fetch_failed')).stdout.trim();
       return {
         'ok': true,

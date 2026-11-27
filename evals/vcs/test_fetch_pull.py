@@ -44,6 +44,17 @@ class TestGitSelectedRemotes(VcsTestCase):
         self.assertEqual((plan["ref"], plan["commit"]), ("plans/main", store_sha))
         self.assertNotEqual(self.must(store, "rev-parse", "origin/main"), store_sha)
 
+    def test_custom_fetch_refspec_cannot_return_stale_selected_main(self):
+        _, current = self.add_remote(self.repo, "publishing")
+        previous = self.must(self.repo, "rev-parse", "refs/remotes/publishing/main")
+        self.assertNotEqual(previous, current)
+        self.must(self.repo, "config", "remote.publishing.fetch", "+refs/heads/*:refs/custom/published/*")
+        self.set_settings(self.repo, "remote: publishing\n")
+        result, _ = self.invoke("fetch-main", "--no-tags")
+        self.assertEqual((result["ref"], result["commit"]), ("publishing/main", current))
+        self.assertEqual(self.must(self.repo, "rev-parse", result["ref"]), current)
+        self.assertEqual(self.must(self.repo, "for-each-ref", "refs/custom/published"), "")
+
     def test_selected_planning_tip_contains_archive_not_in_origin(self):
         store = self.root / "store"
         self._init_git(store)

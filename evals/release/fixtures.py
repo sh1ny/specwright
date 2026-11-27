@@ -8,6 +8,7 @@ from ...`) and rebase_style (single-parent task commits with no `(#n)`).
 
 Later test groups (release commit, notes, publish) reuse these helpers.
 """
+import json
 import os
 import shutil
 import subprocess
@@ -17,6 +18,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT / "evals") not in sys.path:
     sys.path.append(str(ROOT / "evals"))
+import fakeexe  # noqa: E402
 import fixturecache  # noqa: E402  per-process cache: a path-independent repo is built once and copied
 if str(ROOT / "evals" / "vcs") not in sys.path:
     sys.path.append(str(ROOT / "evals" / "vcs"))
@@ -61,10 +63,43 @@ def rmtree(path):
 
 
 def git(repo, *args, check=True):
-    r = subprocess.run(["git", *args], cwd=repo, capture_output=True, text=True, encoding="utf-8")
+    transport = transport_git(Path(repo).parent)
+    executable = str(transport) if args[:1] in (("fetch",), ("push",), ("ls-remote",)) and transport.is_file() else "git"
+    r = subprocess.run([executable, *args], cwd=repo, capture_output=True, text=True, encoding="utf-8")
     if check and r.returncode != 0:
         raise RuntimeError(f"git {' '.join(args)} failed: {r.stderr}")
     return r.stdout.strip()
+
+
+def transport_git(tmp):
+    return Path(tmp) / "transport" / ("git.exe" if os.name == "nt" else "git")
+
+
+def route_github_git(tmp, url, bare):
+    """Give the test Git transport local endpoints for GitHub URLs, without changing reported effective URLs."""
+    routes = Path(tmp) / "git-transport.json"
+    known = json.loads(routes.read_text(encoding="utf-8")) if routes.exists() else {}
+    known[url] = Path(bare).as_posix()
+    routes.write_text(json.dumps(known), encoding="utf-8")
+    transport = transport_git(tmp)
+    if transport.exists():
+        return
+    transport.parent.mkdir()
+    real = shutil.which("git")
+    assert real, "git not installed"
+    fakeexe.write_python_fake(transport.with_name("git"), f"""
+import json, os, subprocess, sys
+from pathlib import Path
+args = sys.argv[1:]
+env = os.environ.copy()
+if args[:1] in (["fetch"], ["push"], ["ls-remote"]):
+    for url, path in json.loads(Path({str(routes)!r}).read_text(encoding="utf-8")).items():
+        i = int(env.get("GIT_CONFIG_COUNT", "0"))
+        env[f"GIT_CONFIG_KEY_{{i}}"] = f"url.{{path}}.insteadOf"
+        env[f"GIT_CONFIG_VALUE_{{i}}"] = url
+        env["GIT_CONFIG_COUNT"] = str(i + 1)
+sys.exit(subprocess.call([{real!r}, *args], env=env))
+""")
 
 
 def write(repo, rel, text):

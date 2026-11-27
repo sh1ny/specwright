@@ -32,6 +32,7 @@ Red means added/changed coverage to prove before implementation; inherited green
 | github-identity → An empty login is resolved once per run | Ambient token variables do not choose the login | `evals/pr-pair/test_as_sh.py` | `test_resolve_ignores_gh_token_env` | green |
 | github-identity → Login fallbacks end at the run login | Review requests with every login empty | `evals/pr-pair/test_skill_text.py` | `test_review_request_poster_falls_back_to_run_login_fenced` | green |
 | github-identity → Login fallbacks end at the run login | Store login empty | `evals/pr-pair/test_pr_pair.py` | `test_fenced_initial_lookup_is_deferred_then_bound` | green |
+| github-identity → Login fallbacks end at the run login | Feedback uses the explicitly configured store account instead of a different handed-off code login | `evals/pr-pair/test_pr_pair.py` | `test_feedback_uses_explicit_store_login_over_handed_code_login` | green |
 | github-identity → Login fallbacks end at the run login | Fallback login has no credential | `evals/pr-pair/test_as_sh.py` | `test_request_as_without_credential_exits_3` | green |
 | github-identity → Login fallbacks end at the run login | Store reads with both logins empty | `evals/vcs/test_sw_fence.py` | `test_fenced_store_fetch_refuses_userinfo_with_empty_logins` | green |
 | github-identity → Main refreshes and pulls from GitHub are fenced | Cleanup pull after merge | `evals/pr-pair/test_pr_pair.py` | `test_cleanup_plan_pull_runs_through_as_sh` | green |
@@ -87,8 +88,8 @@ Red means added/changed coverage to prove before implementation; inherited green
 | native-cli → The project root is found from the physical path | A project path through a link and `..` | `evals/cli/test_sw_project_version.py` | `test_project_through_link_and_dotdot_is_physical` | green |
 | native-cli → The project root is found from the physical path | Stale settings in a shared store do not choose its GitHub host | `evals/cli/test_sw_project_version.py` | `test_store_fence_uses_code_project_host` | green |
 | planning-stores → A store without a PR is a manual handoff | Feedback rounds with an off-host store | `evals/pr-pair/test_pr_pair.py` | `test_rounds_off_host_store_hands_off_without_reading_history` | green |
-| planning-stores → A store without a PR is a manual handoff | PR finish with a local-only store | `evals/pr-pair/test_pr_pair.py` | `test_finish_transport_gate_leaves_clean_and_preedited_store_untouched` | green |
-| planning-stores → A store without a PR is a manual handoff | Archive edits already exist at PR finish | `evals/pr-pair/test_pr_pair.py` | `test_finish_transport_gate_leaves_clean_and_preedited_store_untouched` | green |
+| planning-stores → A store without a PR is a manual handoff | PR finish with a local-only store | `evals/pr-pair/test_pr_pair.py` | `test_archive_entry_hands_off_before_prompt_sync_or_writes` | green |
+| planning-stores → A store without a PR is a manual handoff | Archive edits already exist at PR finish | `evals/pr-pair/test_pr_pair.py` | `test_archive_entry_hands_off_before_prompt_sync_or_writes` | green |
 | planning-stores → A change name is used once | Name of an archived change | `evals/vcs/test_fetch_pull.py` | `test_selected_planning_tip_contains_archive_not_in_origin` | green |
 | planning-stores → A change name is used once | Archived from another checkout | `evals/vcs/test_fetch_pull.py` | `test_selected_planning_tip_contains_archive_not_in_origin` | green |
 | planning-stores → The expected PR set follows the change's work and transport | Planning-only change with a GitHub store | `evals/pr-pair/test_pr_pair.py` | `test_expected_planning_only_github_store` | green |
@@ -156,6 +157,7 @@ Red means added/changed coverage to prove before implementation; inherited green
 | releases → The release commit is found on main | Version not on main | `evals/release/test_release.py` | `test_not_on_main`, `test_off_host_publish_refuses_history_not_on_local_main` | green |
 | releases → The release commit is found on main | Publication destination changes after main was fetched | `evals/release/test_release.py` | `test_release_proof_rejected_after_remote_changes` | green |
 | releases → The release commit is found on main | Fetched main has a custom refspec | `evals/release/test_release.py` | `test_release_proof_ignores_stale_standard_tracking_ref` | green |
+| releases → The release commit is found on main | The selected GitHub remote alone tracks `master` | `evals/release/test_release.py` | `test_release_main_can_be_detected_from_selected_remote_tracking_branch` | green |
 | releases → The release commit is found on main | Another fetch finishes before the release proof is read | `evals/release/test_release.py` | `test_release_proof_keeps_its_own_commit_across_other_fetch` | green |
 | releases → Notes list the changes merged since the previous release | One change in the range | `evals/release/test_release.py` | `test_one_change` | green |
 | releases → Notes list the changes merged since the previous release | Several changes in the range | `evals/release/test_release.py` | `test_several_changes_in_order` | green |
@@ -170,6 +172,7 @@ Red means added/changed coverage to prove before implementation; inherited green
 | releases → Store-backed notes use the code-merge proof | Store and code use separate named remotes | `evals/release/test_release.py` | `test_release_notes_resolve_independent_named_remotes` | green |
 | releases → Store-backed notes use the code-merge proof | Local-store archive has not reached store main | `evals/release/test_release.py` | `test_release_notes_exclude_archive_only_on_manual_share_branch` | green |
 | releases → Publish creates and pushes an annotated tag | New release | `evals/release/test_release.py` | `test_publish_release_targets_enterprise_host` | green |
+| releases → Publish creates and pushes an annotated tag | GitHub URL rewrites to an off-host repository for both fetch and push | `evals/release/test_release.py` | `test_github_release_refuses_off_host_fetch_and_push_rewrite` | green |
 | releases → Publish creates and pushes an annotated tag | Tag template without the version | `evals/release/test_release.py` | `test_tag_template_without_version_refused` | green |
 | releases → Publish creates and pushes an annotated tag | Push refused by the fence | `evals/release/test_release.py` | `test_push_failure` | green |
 | releases → Publish creates and pushes an annotated tag | Store-backed project | `evals/release/test_release.py` | `test_store_not_tagged` | green |
@@ -203,6 +206,7 @@ Red means added/changed coverage to prove before implementation; inherited green
 | releases → A cut-off tag push or release creation is decided by a read-back | Read-back fails too | `evals/release/test_release.py` | `test_push_cut_off_read_back_fails_state_unknown` | green |
 | releases → A cut-off tag push or release creation is decided by a read-back | Remote retargeted after the tag push is cut off | `evals/release/test_release.py` | `test_publish_readback_does_not_follow_retargeted_remote` | green |
 | vcs-backends → Each repository selects one network remote | Code and store use different remote names | `evals/vcs/test_fetch_pull.py` | `test_code_and_store_refresh_only_their_selected_remote` | green |
+| vcs-backends → Each repository selects one network remote | A selected Git remote uses a custom fetch refspec | `evals/vcs/test_fetch_pull.py` | `test_custom_fetch_refspec_cannot_return_stale_selected_main` | green |
 | vcs-backends → Each repository selects one network remote | The store does not inherit the code's remote name | `evals/vcs/test_fetch_pull.py` | `test_store_defaults_to_origin_even_when_code_remote_is_set` | green |
 | vcs-backends → Each repository selects one network remote | A selected remote is missing | `evals/vcs/test_fetch_pull.py` | `test_fetch_and_push_refuse_missing_selected_remote` | green |
 | vcs-backends → Each repository selects one network remote | Git main has a different upstream | `evals/vcs/test_fetch_pull.py` | `test_git_pull_without_remote_keeps_non_origin_upstream` | green |

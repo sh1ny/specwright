@@ -311,7 +311,7 @@ class FenceCase(gbnet.GitButlerNetworkCase):
         flags = ["-q", "--no-tags"] if quiet else []
         if step == "fetch-main":
             if world.kind == "git":
-                return ["fetch", *flags, "origin", "main"]
+                return ["fetch", *flags, "--refmap=", "origin", "+refs/heads/main:refs/remotes/origin/main"]
             return ["fetch", *flags, "--refmap=", "origin", "refs/heads/main"]
         if step == "push":
             return {"git": ["push", "-u", "origin", "HEAD"],
