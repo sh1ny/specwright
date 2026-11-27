@@ -7,7 +7,7 @@ Specwright's GitHub workflows assume HTTPS, github.com, a stored `gh` account an
 ## What Changes
 
 - Add `github.host` (default `github.com`) for repository identity, fenced HTTPS authentication, PR operations and GitHub releases on GitHub Enterprise (#167).
-- Add `github.fence` (default `true`). Explicitly setting it to `false` uses the caller's Git and `gh` credentials, including SSH keys or environment tokens without a stored `gh` account. Keep the existing default protection and document the credentials and trust tradeoff (#167).
+- Add `github.fence` (default `true`). Explicitly setting it to `false` uses the caller's Git and `gh` credentials, including SSH keys or environment tokens without a stored `gh` account. Environment tokens require a host match approved outside the checkout through `GH_HOST` (default `github.com`). Keep the existing default protection (#167).
 - Add `remote` and `planning_store.remote` (each default `origin`). Select one remote per repository for fetch, push, pull, PR identity and release operations; keep the mismatched-repository refusal and do not add cross-repository PRs (#168).
 - Limit #260 to ship: work out expected PRs first, open the code PR when expected, and say to share the local planning branch by hand. Do not validate for publication, push, open or watch a PR for that store. In the PR workflow, watch, feedback and finish hand the store back for manual sharing and archiving instead of automating its part.
 
@@ -90,7 +90,7 @@ Use Specwright with SSH, GitHub Enterprise, token-only automation and a remote n
 ### Changed
 
 - `sw pr snapshot` and `sw pr reply` default to the selected remote. Snapshot accepts at most one PR number or URL. Reply checks that the item belongs to the selected PR; `sw pr policy` requires its PR coordinates.
-- Direct `sw pr snapshot`, `sw pr reply` and `sw pr policy` bind a stored account with the fence on. Token-only callers must explicitly opt into `github.fence: false` (#167).
+- Direct `sw pr snapshot`, `sw pr reply` and `sw pr policy` bind a stored account with the fence on. Token-only callers must opt into `github.fence: false`; for a custom host, set matching `GH_HOST` outside the checkout (#167).
 - `sw release prove-main` binds the fetched main commit to the publication destination. Pass its receipt-backed `--proof` to `untagged` and `publish`.
 
 ### Fixed

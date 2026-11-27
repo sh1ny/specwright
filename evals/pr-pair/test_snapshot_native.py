@@ -66,6 +66,26 @@ class TestSelectors(NativeSnapshotCase):
                 self.assertIn("pass at most one PR number or URL", self.text(r.stderr))
                 self.assertEqual(self.gh_calls(), [], "ambiguous input must not bind an account or read a PR")
 
+    def test_ambient_tokens_require_caller_approved_host(self):
+        for host, host_env, token_var in (
+            ("github.example.com", {}, "GH_ENTERPRISE_TOKEN"),
+            ("github.example.com", {"GH_HOST": "elsewhere.example.com"}, "GITHUB_ENTERPRISE_TOKEN"),
+            ("tenant.ghe.com", {"GH_HOST": ""}, "GH_TOKEN"),
+            ("github.com", {"GH_HOST": "tenant.ghe.com"}, "GITHUB_TOKEN"),
+        ):
+            with self.subTest(host=host, token=token_var):
+                (self.tmp / "openspec" / "specwright.yaml").write_text(
+                    f"github:\n  host: {host}\n  fence: false\n", encoding="utf-8")
+                credentials = dict.fromkeys(("GH_TOKEN", "GITHUB_TOKEN",
+                                             "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN"), "")
+                credentials[token_var] = "tok-me"
+                r = self.handoff_run(str(self.PR), "--repo", self.SLUG, env={**host_env, **credentials})
+                self.assertEqual((r.returncode, r.stdout), (3, b""), r.stdout + r.stderr)
+                self.assertIn("ambient GitHub token host mismatch", self.text(r.stderr))
+                self.assertIn(host, self.text(r.stderr))
+                self.assertNotIn("tok-me", self.text(r.stderr))
+                self.assertEqual(self.gh_calls(), [], "host approval must precede every gh call")
+
 
 class TestReviewerConfigWithoutChild(NativeSnapshotCase):
     def test_bad_config_checked_without_child(self):
@@ -266,7 +286,7 @@ class TestProjectSelector(SnapCase):
         self.mutate(lambda st: st["repos"][self.SLUG]["pulls"][0].update(
             html_url=f"https://github.example.com/{self.SLUG}/pull/{self.PR}"))
         r = self.run_script(SNAPSHOT, self.PR, cwd=self.store, project=fixtures.posix(self.code),
-                            env={"GH_HOST": "wrong.example", "GH_REPO": "o/default", "GH_ENTERPRISE_TOKEN": "tok-me"})
+                            env={"GH_HOST": "github.example.com", "GH_REPO": "o/default", "GH_ENTERPRISE_TOKEN": "tok-me"})
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertEqual(json.loads(r.stdout)["url"], f"https://github.example.com/{self.SLUG}/pull/{self.PR}")
         self.assertFalse(any(c[:2] == ["auth", "token"] for c in self.gh_calls()))
@@ -292,7 +312,7 @@ class TestProjectSelector(SnapCase):
         (self.code / "openspec" / "specwright.yaml").write_text(
             "github:\n  host: github.example.com\n  fence: false\n", encoding="utf-8")
         enterprise = self.run_script(SNAPSHOT, self.PR, "--repo", self.SLUG, "--wait", "--timeout", 0, cwd=self.code,
-                                     env={"GH_ENTERPRISE_TOKEN": "tok-me"})
+                                     env={"GH_HOST": "github.example.com", "GH_ENTERPRISE_TOKEN": "tok-me"})
         self.assertEqual(enterprise.returncode, 0, enterprise.stdout + enterprise.stderr)
         self.assertEqual(head.read_bytes(), first)
         heads = list(self.state_dir.rglob("a" * 40))

@@ -1678,7 +1678,7 @@ sys.exit(result)
 
     def test_publish_release_targets_enterprise_host(self):
         host, bare, _ = self.use_enterprise()
-        env = {**self.env(), "GH_HOST": "elsewhere.example", "GH_ENTERPRISE_TOKEN": "tok"}
+        env = {**self.env(), "GH_HOST": host, "GH_ENTERPRISE_TOKEN": "tok"}
         code, doc, raw = self.publish(env=env)
         self.assertEqual(code, 0, raw)
         self.assertEqual(doc["release_url"], f"https://{host}/{CODE_SLUG}/releases/tag/{self.TAG}")
@@ -1696,6 +1696,16 @@ sys.exit(result)
                          ("fetched", "existing", "existing"))
         self.assertEqual(len(self.creates()), calls_before)
         self.assertEqual(fx.git(self.bare, "tag", "-l"), "")
+
+    def test_publish_refuses_ambient_token_for_unapproved_host_before_writing(self):
+        host, bare, _ = self.use_enterprise()
+        env = {**self.env(), "GH_HOST": "elsewhere.example.com", "GH_ENTERPRISE_TOKEN": "tok"}
+        code, doc, raw = self.publish(env=env)
+        self.assertEqual((code, doc.get("error")), (3, "ambient_token_host_mismatch"), raw)
+        self.assertIn(host, doc["message"])
+        self.assertEqual(self.gh_calls(), [])
+        for repo in (self.work, bare):
+            self.assertEqual(fx.git(repo, "tag", "-l"), "")
 
     def test_publish_refuses_named_remote_push_to_fork(self):
         host, bare, _ = self.use_enterprise()

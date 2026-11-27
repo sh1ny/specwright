@@ -18,6 +18,8 @@ github:
   # true = verify a stored gh login and fence HTTPS to this host. false = use
   # caller Git/gh credentials (SSH or environment tokens); leave named
   # accounts below, planning_store.login and pr.request_as empty in that mode.
+  # With environment tokens, set GH_HOST outside the checkout to the approved
+  # host. Unset or empty GH_HOST approves github.com only.
   # fence: true
   # Account for push, PR creation, replies and thread resolution.
   # Empty = the active gh account, resolved once when a run starts and fenced

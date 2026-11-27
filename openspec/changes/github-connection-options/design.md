@@ -27,7 +27,7 @@ TIER: FULL
 
 ### D1: Ambient mode cannot promise an account
 
-- **Choice:** `github.fence: false` selects ambient credentials for all automatic workflow operations. Reject nonempty `github.login`, `planning_store.login`, `github.review_request.login` or `pr.request_as` before network operations and say how to clear the conflict. Do not call the stored-token resolver in that mode. A workflow directly launches Git and `gh`; it still addresses the configured host and exact repo. An explicit `sw as` is a request for the fence, not a way to silently downgrade it.
+- **Choice:** `github.fence: false` selects ambient credentials for automatic workflow operations. Reject nonempty `github.login`, `planning_store.login`, `github.review_request.login` or `pr.request_as` before network operations and say how to clear the conflict. Do not call the stored-token resolver in that mode. A workflow directly launches Git and `gh`; it still addresses the configured host and exact repo. For an applicable environment token, require a host match against the caller's original `GH_HOST` (unset or empty means `github.com`) before launching `gh`; checkout settings cannot approve a credential destination. An explicit `sw as` is a request for the fence, not a way to silently downgrade it.
 - **Rejected:** Ignore configured logins in ambient mode, because a named review request could be posted as the wrong account with no error. Do not automatically fall back to ambient credentials after a missing/mismatched token or SSH refusal.
 - **Reversal cost:** high; the policy determines which credential can publish or mutate.
 - **Important:** yes; changes what settings mean at an authentication boundary.

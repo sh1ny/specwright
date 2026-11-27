@@ -17,11 +17,11 @@
 With `github.fence: false`, Specwright SHALL use the caller's Git and `gh` credentials without stored-account lookup or fence transport overrides. It SHALL still target the configured GitHub host and explicit repository for PRs and releases. Named account and review-poster settings SHALL stop the workflow before publication, naming the key and telling the user to remove it or re-enable fencing. A fenced failure SHALL NOT fall back to ambient authentication.
 
 #### Scenario: SSH transport and an environment token only
-- **WHEN** `github.fence: false`, the selected remote uses SSH, the caller has a working SSH key and `gh` has only the environment token for the configured host
+- **WHEN** `github.fence: false`, the selected remote uses SSH, the caller has a working SSH key, and the caller's environment supplies a token and approves the configured host
 - **THEN** Git fetch and push can use the SSH key and the PR can be opened and watched with the environment token, without `gh auth token --user` or `gh auth login`
 
 #### Scenario: Token-only HTTPS automation
-- **WHEN** `github.fence: false`, Git's HTTPS credentials are already configured and `gh` has an environment token but no stored account
+- **WHEN** `github.fence: false`, Git's HTTPS credentials are already configured, and the caller's environment supplies a token for the approved host but no stored account
 - **THEN** ship uses those credentials and makes no attempt to resolve a stored account
 
 #### Scenario: A named identity conflicts with ambient authentication
@@ -31,6 +31,13 @@ With `github.fence: false`, Specwright SHALL use the caller's Git and `gh` crede
 #### Scenario: SSH remains disabled by the default fence
 - **WHEN** the selected remote uses SSH and `github.fence` is omitted
 - **THEN** a GitHub push cannot use ambient SSH credentials and ship reports the fence or transport refusal instead of bypassing it
+
+### Requirement: Ambient environment tokens require caller approval of the host
+Before a GitHub CLI call with an applicable ambient environment token, the selected host SHALL match the externally supplied `GH_HOST`, or `github.com` when `GH_HOST` is unset or empty. A mismatch SHALL stop before launching `gh`, without printing or forwarding the token. Repository settings SHALL NOT substitute for host approval.
+
+#### Scenario: A configured host is not approved for the environment token
+- **WHEN** `github.fence: false` selects `github.example.com`, an applicable environment token is present, and the caller's `GH_HOST` is unset, empty, or names a different host
+- **THEN** snapshot, ship and release refuse the mismatch before calling `gh`; publication does not proceed and no token value is printed
 
 ### Requirement: Fenced calls target the configured GitHub host
 Fenced discovery, identity verification and repository operations SHALL use `github.host`. The fence SHALL ignore caller host and token overrides and supply the verified token in the variable `gh` uses for that host. Its Git credential helper SHALL supply that token only for HTTPS to the configured host. Caller-supplied host or token variables SHALL NOT redirect fenced operations.

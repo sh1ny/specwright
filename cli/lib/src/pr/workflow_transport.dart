@@ -31,9 +31,34 @@ Map<String, String> hostGhEnvironment(
   String host, {
   bool fenced = true,
 }) {
-  final scoped = fenced
-      ? {...environment}
-      : {...originalGitEnvironment(environment)!};
+  final scoped = Map<String, String>.of(
+    fenced ? environment : originalGitEnvironment(environment)!,
+  );
+  if (!fenced) {
+    final primary = githubTokenVariable(host);
+    final fallback = primary == 'GH_TOKEN'
+        ? 'GITHUB_TOKEN'
+        : 'GITHUB_ENTERPRISE_TOKEN';
+    var callerHost = '';
+    var hasToken = false;
+    for (final entry in scoped.entries) {
+      if (entry.value.isEmpty) continue;
+      final key = Platform.isWindows ? entry.key.toUpperCase() : entry.key;
+      if (key == 'GH_HOST') callerHost = entry.value;
+      if (key == primary || key == fallback) hasToken = true;
+    }
+    final approved = callerHost.isEmpty
+        ? defaultGitHubHost
+        : canonicalHost(callerHost);
+    if (hasToken && host != approved) {
+      throw PairStop(
+        'ambient_token_host_mismatch',
+        'ambient GitHub token host mismatch for $host; set GH_HOST to the '
+            'approved hostname outside the checkout or remove the environment token',
+        code: 3,
+      );
+    }
+  }
   scoped.removeWhere(
     (key, _) => const {'GH_HOST', 'GH_REPO'}.contains(key.toUpperCase()),
   );

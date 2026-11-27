@@ -5,6 +5,7 @@ import 'dart:math';
 import '../fence/fence.dart';
 import '../fence/urls.dart';
 import '../pr/identity.dart' show parseRepo;
+import '../pr/pair.dart' show PairStop;
 import '../pr/workflow_transport.dart' show hostGhArgs, hostGhEnvironment;
 import '../settings/reviewer_config.dart' show sha256Hex;
 import 'settings.dart';
@@ -213,15 +214,21 @@ class ReleaseGit {
     if (_bound) return _target;
     final target = await _readTarget(remote, host, _input);
     target?.check();
-    _target = target;
-    _bound = true;
-    if (target?.slug == null || !_fence) {
+    if (target?.slug == null) {
       _gitEnv = _ambient;
-      _ghEnv = _ambient;
+    } else if (!_fence) {
+      try {
+        _ghEnv = hostGhEnvironment(_ambient, host, fenced: false);
+      } on PairStop catch (e) {
+        throw ReleaseStop(e.error, e.message, code: e.code);
+      }
+      _gitEnv = _ambient;
     } else if (_inherited) {
       _gitEnv = _environment;
-      _ghEnv = _environment;
+      _ghEnv = hostGhEnvironment(_environment, host);
     }
+    _target = target;
+    _bound = true;
     return target;
   }
 
@@ -249,7 +256,7 @@ class ReleaseGit {
         _localGit,
         host: host,
       );
-      _ghEnv = verified;
+      _ghEnv = hostGhEnvironment(verified, host);
     } on FenceStop catch (e) {
       throw ReleaseStop('fence_refused', e.message, code: e.code);
     }
@@ -513,7 +520,7 @@ class ReleaseGit {
       () => _bounded(
         ['gh', ...hostGhArgs(args, host)],
         'gh ${args.take(2).join(' ')}',
-        hostGhEnvironment(_ghEnv!, host, fenced: _fence),
+        _ghEnv!,
         paged: paged,
       ),
       writes: writes,

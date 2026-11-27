@@ -1023,7 +1023,7 @@ class Expected(Base):
         self.commit(self.code, {"openspec/specwright.yaml": f"remote: publishing\ngithub:\n  host: {host}\n{auth}",
                                "work.txt": "code work\n"}, "feat: code work")
         store_before = self.tip(self.store)
-        env = {"GH_HOST": "wrong.example", "GH_REPO": "wrong/repo",
+        env = {"GH_HOST": "wrong.example" if fenced else host, "GH_REPO": "wrong/repo",
                "GH_ENTERPRISE_TOKEN": "tok-s" if fenced else "tok-k"}
         if protocol == "ssh":
             ssh = self.tmp / "ssh-transport"
@@ -1121,7 +1121,8 @@ sys.exit(subprocess.call([git, *args]))
         self.commit(self.code, {"work": "code\n"}, "code work")
         self.save_gh({**self.gh(), "host": "github.example.com", "user": None})
         result = self.sw_pr("expected", "--code", self.code, "--store", self.store, "--branch", BRANCH,
-                            project=project, cwd=self.store, env={"GH_ENTERPRISE_TOKEN": "tok-k"})
+                            project=project, cwd=self.store,
+                            env={"GH_HOST": "github.example.com", "GH_ENTERPRISE_TOKEN": "tok-k"})
         self.assertEqual(result["set"], ["store", "code"])
         self.assertEqual((result["code"]["repo"], result["store"]["repo"]), (CODE, STORE))
         self.assertEqual((result["code"]["remote"], result["store"]["remote"]), ("publishing", "plans"))
@@ -1145,7 +1146,7 @@ sys.exit(subprocess.call([git, *args]))
         self.git(self.code, "remote", "set-url", "origin", f"git@github.example.com:{CODE}.git")
         self.git(self.store, "remote", "remove", "origin")
         self.add_pull(CODE, 17)
-        r = self.expected(env={"GH_HOST": "unrelated.example", "GH_REPO": "elsewhere/repo",
+        r = self.expected(env={"GH_HOST": "GITHUB.EXAMPLE.COM.", "GH_REPO": "elsewhere/repo",
                                "GH_ENTERPRISE_TOKEN": "tok-k", "GH_TOKEN": "unrelated-token"})
         self.assertEqual((r["set"], r["code"]["pr"]["number"]), (["code"], 17))
         calls = self.gh_calls()
