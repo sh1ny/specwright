@@ -11,7 +11,9 @@ import 'pair.dart';
 /// The host and repository are selected by the caller, not by GH_HOST, GH_REPO
 /// or gh's inference from whatever checkout happens to be current.
 List<String> hostGhArgs(List<String> args, String host) {
-  if (args.first == 'api') return ['api', '--hostname', host, ...args.skip(1)];
+  if (args.first == 'api' && host != defaultGitHubHost) {
+    return ['api', '--hostname', host, ...args.skip(1)];
+  }
   if (host == defaultGitHubHost) return args;
   return [
     for (var i = 0; i < args.length; i++)
@@ -35,7 +37,7 @@ Map<String, String> hostGhEnvironment(
   scoped.removeWhere(
     (key, _) => const {'GH_HOST', 'GH_REPO'}.contains(key.toUpperCase()),
   );
-  if (!fenced || host != defaultGitHubHost) scoped['GH_HOST'] = host;
+  scoped['GH_HOST'] = host;
   return scoped;
 }
 

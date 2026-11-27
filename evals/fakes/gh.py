@@ -892,7 +892,13 @@ def cmd_graphql_evidence(st, q, fields):
         found = find_item(st, fields.get("id", ""))
         if not found or not _readable(st, found[0], viewer):
             return {"data": {"node": None}}
-        return {"data": {"node": _render_item(st, found[2], found[3], viewer)}}
+        slug, pull, kind, item, _ = found
+        node = _render_item(st, kind, item, viewer)
+        if pull and kind != "issue_comment" and "pullRequest { url }" in q:
+            node["pullRequest"] = {"url": pull["html_url"]}
+            if kind == "thread" and fields.get("limit"):
+                node["comments"]["nodes"] = node["comments"]["nodes"][:int(fields["limit"])]
+        return {"data": {"node": node}}
     return None
 
 
@@ -1066,6 +1072,14 @@ def cmd_api(st, args):
         c = add_thread_comment(st, slug, pull["number"], thread["id"], viewer, fields.get("body", ""))
         return emit({"id": c["databaseId"], "node_id": c["id"], "html_url": c["url"], "body": c["body"], "user": {"login": viewer},
                      "created_at": c["createdAt"], "in_reply_to_id": thread["comments"][0]["databaseId"]}, expr)
+    m = re.fullmatch(r"pulls/comments/(\d+)", rest)
+    if m and method == "GET":
+        for p in repo.get("pulls", []):
+            for t in p.get("threads", []):
+                for c in t["comments"]:
+                    if c["databaseId"] == int(m.group(1)):
+                        return emit({"id": c["databaseId"], "html_url": c["url"]}, expr)
+        raise http_fail(404, "Not Found")
     m = re.fullmatch(r"pulls/comments/(\d+)/reactions", rest)
     if m and method == "POST":
         viewer = whoami(st)

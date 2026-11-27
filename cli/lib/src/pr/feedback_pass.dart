@@ -10,6 +10,7 @@ import '../vcs/stop.dart';
 import 'context.dart';
 import 'feedback_environment.dart';
 import 'feedback_record.dart';
+import 'identity.dart' show matchesPull;
 import 'pair.dart';
 import 'settings_commands.dart';
 import 'workflow.dart';
@@ -132,7 +133,7 @@ class FeedbackPass {
     : _records = records;
   final Workflow workflow;
   FeedbackRecordStore? _records;
-  late final _directories = feedbackDirectory(ctx);
+  late final _directories = feedbackDirectory(ctx, host: workflow.githubHost);
   FeedbackRecordStore get records =>
       _records ??= FeedbackRecordStore(_directories.recordDirectory);
   List<String> get _leftLocks => _records?.leftLocks ?? const [];
@@ -739,7 +740,7 @@ class FeedbackPass {
     final store = args['store'] == null || args['store']!.isEmpty
         ? null
         : args['store']!;
-    final contexts = await workflowContexts(ctx, code, store);
+    final contexts = await workflow.useRoles(code, store);
     final directories = {'code': code, 'store': store},
         marker = record['marker'];
     final codeGitbutler =
@@ -774,6 +775,47 @@ class FeedbackPass {
         storeLogin.isNotEmpty &&
         storeLogin.toLowerCase() != contexts.code.login.toLowerCase()) {
       readAs?.call(slugs['store']!, storeLogin);
+    }
+    final host = workflow.githubHost;
+    Never mismatch(String side) => throw PairStop(
+      'snapshot_target_mismatch',
+      'feedback $side no longer matches this pass on $host; read the current PR and take a fresh snapshot',
+      code: 2,
+    );
+    final roles = {'code': contexts.code, 'store': contexts.store};
+    for (final entry in roles.entries) {
+      final side = entry.key, role = entry.value, saved = _map(prs[entry.key]);
+      if (role == null || saved.isEmpty && !destinations.contains(side))
+        continue;
+      final expected = await workflow.prTarget(role);
+      if (expected == null ||
+          expected.toLowerCase() != slugs[side]?.toLowerCase()) {
+        mismatch(side);
+      }
+      if (saved.isEmpty)
+        continue; // The code PR may be opened later in this pass.
+      final number = saved['number'];
+      final supplied = snapshots[side];
+      if (supplied != null &&
+          (supplied['number'] != number ||
+              !matchesPull(supplied['url'], host, expected, number))) {
+        mismatch(side);
+      }
+      final current = await workflow.discover(
+        expected,
+        branch,
+        base: role.main,
+      );
+      final found = _list(current['prs']).map(_map);
+      final pr = found.firstWhere(
+        (p) => p['state'] == 'OPEN',
+        orElse: () => _map(current['newest']),
+      );
+      if (pr['number'] != number ||
+          !matchesPull(pr['url'], host, expected, number) ||
+          supplied != null && supplied['head_oid'] != pr['head_sha']) {
+        mismatch(side);
+      }
     }
     for (final repo in destinations) {
       final directory = directories[repo]!;

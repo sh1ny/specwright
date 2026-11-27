@@ -42,6 +42,8 @@ class Workflow {
   final _roles = <String, RepoContext>{};
   String? _ambient;
 
+  String get githubHost => _connection.host;
+
   Future<Contexts> useRoles(String code, String? store) async {
     final settings = await workflowContexts(ctx, code, store);
     _connection = settings.connection;
@@ -413,6 +415,11 @@ class Workflow {
                   .toLowerCase() ==
               repo.toLowerCase() &&
           h['ref'] == branch) {
+        if (!matchesPull(p['html_url'], _connection.host, repo, p['number'])) {
+          workflowUnknown(
+            'GitHub returned a PR outside ${_connection.host}/$repo',
+          );
+        }
         own[p['number'] as int] = normalize(p as Map<dynamic, dynamic>);
       }
     }
@@ -496,7 +503,11 @@ class Workflow {
         file.path,
       ], repo: repo);
       if (r.exitCode != 0) workflowUnknown(reason(r));
-      return intendedReferences(decodeReplacing(r.stdout), repo);
+      return intendedReferences(
+        decodeReplacing(r.stdout),
+        repo,
+        host: githubHost,
+      );
     } finally {
       await temp.delete(recursive: true);
     }
@@ -704,6 +715,10 @@ class Workflow {
     late Map<dynamic, dynamic> pr;
     try {
       pr = await object('repos/$repo/pulls/$number') as Map<dynamic, dynamic>;
+      if (!matchesPull(pr['html_url'], githubHost, repo, n) ||
+          pr['number'] != n) {
+        workflowUnknown('merge read-back did not return $githubHost/$repo#$n');
+      }
     } on PairStop catch (e) {
       throw PairStop(
         e.error,
@@ -1589,16 +1604,16 @@ class Workflow {
           }
         }
         String? stale;
-        final re = RegExp(r'https?://[^/]+/([^/]+/[^/]+)/pull/(\d+)');
-        final got = re.firstMatch(s['url'] is String ? s['url'] as String : ''),
-            want = re.firstMatch((p['url'] ?? '') as String);
+        final got = pullCoordinates(s['url']);
+        final targetRepo = (e[k] as Map)['repo'] as String;
         if (s['number'] != p['number'] ||
-            got == null ||
-            want == null ||
-            got[1]!.toLowerCase() != want[1]!.toLowerCase()) {
+            !matchesPull(s['url'], githubHost, targetRepo, p['number']) ||
+            !matchesPull(p['url'], githubHost, targetRepo, p['number'])) {
           var n = s['number']?.toString() ?? '?';
           if (s['number'] == p['number'] && got != null) {
-            n = '${got[1]}#${s['number']}';
+            n = got.host == githubHost
+                ? '${got.repo}#$n'
+                : '${got.host}/${got.repo}#$n';
           }
           stale = 'refresh:pr:$n!=${p['number']}';
         } else if (((s['head_oid'] ?? '') as String).isEmpty ||

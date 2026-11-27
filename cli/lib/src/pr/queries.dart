@@ -1,9 +1,6 @@
 // The GraphQL and jq text of `sw pr snapshot` and `sw pr reply`. It was taken from the retired scripts byte for byte and is
 // kept by hand; the recorded runs of evals/pr-pair/oracle/records pin what it asks for.
 
-/// `gh repo view --json owner,name --jq`: the repository's `owner/name`.
-const String repoViewJq = r'''.owner.login + "/" + .name''';
-
 /// `sw pr reply`: the REST reply's `--jq`.
 const String htmlUrlJq = '.html_url';
 
@@ -283,22 +280,26 @@ const String pendingQuery =
 const String pendingJq =
     r'''.data.viewer.login as $me | [.data.repository.pullRequest.reviews.nodes[] | select(.author.login == $me)] | length''';
 
-/// `pr-reply.sh --rev`: the item re-read.
-const String revQuery =
-    '\n'
-    r'''    query($id:ID!){ node(id:$id){ __typename
-      ... on PullRequestReviewThread { comments(first:100){ totalCount nodes{ databaseId createdAt lastEditedAt } } }
-      ... on IssueComment { createdAt lastEditedAt }
-      ... on PullRequestReview { submittedAt lastEditedAt } } }''';
+/// Parent PR, thread root and revision from the one bounded item read.
+const String revQuery = r'''query($id:ID!,$limit:Int!){ node(id:$id){ __typename
+      ... on PullRequestReviewThread { pullRequest { url }
+        comments(first:$limit){ totalCount nodes{ databaseId createdAt lastEditedAt } } }
+      ... on IssueComment { url createdAt lastEditedAt }
+      ... on PullRequestReviewComment { pullRequest { url } createdAt lastEditedAt }
+      ... on PullRequestReview { pullRequest { url } submittedAt lastEditedAt } } }''';
 
 /// Its jq program.
-const String revJq = r'''.data.node | if . == null then error("item not found")
-      elif .__typename == "PullRequestReviewThread" and .comments.totalCount > (.comments.nodes | length) then
-        "long:" + (.comments.totalCount | tostring)
-      elif .__typename == "PullRequestReviewThread" then
-        ((.comments.nodes[-1].databaseId // 0 | tostring) + "@" + ([ .comments.nodes[] | .lastEditedAt // .createdAt // "" ] | max // ""))
-      elif .__typename == "PullRequestReview" then (.lastEditedAt // .submittedAt)
-      else (.lastEditedAt // .createdAt) end''';
+const String revJq = r'''
+  def revision:
+    if .__typename == "PullRequestReviewThread" and .comments.totalCount > (.comments.nodes | length) then
+      "long:" + (.comments.totalCount | tostring)
+    elif .__typename == "PullRequestReviewThread" then
+      ((.comments.nodes[-1].databaseId // 0 | tostring) + "@" + ([ .comments.nodes[] | .lastEditedAt // .createdAt // "" ] | max // ""))
+    else (.lastEditedAt // .createdAt // .submittedAt) end;
+  .data.node | if . == null then error("item not found") else
+    {type: .__typename, url: (.pullRequest.url // .url),
+     root: (.comments.nodes[0].databaseId // null), rev: revision}
+  end''';
 
 /// A reaction on a node id.
 const String reactNodeQuery =

@@ -92,7 +92,16 @@ void main() {
   Future<({int code, Map<String, Object?> json})> policy(
     List<String> argv,
   ) async {
-    final code = await runPolicy(f.ctx, argv);
+    final code = await runPolicy(f.ctx, [
+      ...argv,
+      if (!argv.contains('--pr')) ...['--pr', '1'],
+      if (argv.contains('--store') && !argv.contains('--store-repo')) ...[
+        '--store-repo',
+        'o/store',
+        '--store-pr',
+        '1',
+      ],
+    ]);
     return (
       code: code,
       json: jsonDecode(f.stdout.trim()) as Map<String, Object?>,
@@ -105,8 +114,11 @@ void main() {
     String? config,
     String state = 'reported',
     String login = 'rev',
+    String repo = 'o/n',
   }) => {
     'head_oid': oid,
+    'number': 1,
+    'url': 'https://github.com/$repo/pull/1',
     'reviewer_config': config ?? revDigest,
     'reviewers': [
       {'login': login, 'state': state},
@@ -610,7 +622,7 @@ void main() {
           'planning_store:\n  reviewers:\n    other:\n      role: advisory\n';
       serve(main: '$text$own', headText: text);
       final s1 = snapshotFile('c.json', snap());
-      final s2 = snapshotFile('s.json', snap());
+      final s2 = snapshotFile('s.json', snap(repo: 'o/store'));
       final r = await policy([
         '--repo',
         'o/n',
@@ -866,7 +878,7 @@ void main() {
       expect(c['missing'], <String>[]);
     });
 
-    test('a snapshot that is not an object reports nothing', () async {
+    test('a snapshot that is not an object cannot authorize a PR', () async {
       serve(main: reviewersMain, headText: reviewersMain);
       final s = snapshotFile('code.json', [1, 2]);
       final r = await policy([
@@ -877,11 +889,8 @@ void main() {
         '--snapshot',
         'code=${s.path}',
       ]);
-      final c = ((r.json['reported']! as Map)['main']! as Map)['code']! as Map;
-      expect(c['ok'], false);
-      expect(c['snapshot_head'], isNull);
-      expect(c['rules_mismatch'], true);
-      expect(c['head_mismatch'], true);
+      expect((r.code, r.json['error']), (2, 'snapshot_target_mismatch'));
+      expect(f.ghCalls, isEmpty);
     });
   });
 
@@ -1022,7 +1031,7 @@ void main() {
 
     Future<({int code, Map<String, Object?> json})> runStore() {
       final code = snapshotFile('c.json', snap());
-      final store = snapshotFile('s.json', snap());
+      final store = snapshotFile('s.json', snap(repo: 'o/store'));
       return policy([
         '--repo',
         'o/n',

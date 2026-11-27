@@ -3,7 +3,7 @@ import 'dart:io' as io;
 import 'dart:io';
 import 'dart:math';
 
-import '../fence/urls.dart' show lowerAscii;
+import '../fence/urls.dart' show defaultGitHubHost, lowerAscii;
 import '../fs/link.dart';
 import '../vcs/codec.dart';
 import 'context.dart';
@@ -15,14 +15,18 @@ import 'text.dart';
 
 /// `SPECWRIGHT_STATE_DIR`, else `$HOME/.cache/specwright`, as the environment gives it. On Windows a shell that sets no
 /// `HOME` (PowerShell, cmd) falls back to the user profile: `USERPROFILE`, else `HOMEDRIVE` and `HOMEPATH`.
-String stateBase(PrContext ctx) {
+String stateBase(PrContext ctx, {String host = defaultGitHubHost}) {
   final env = ctx.env;
   var base = env['SPECWRIGHT_STATE_DIR'];
   if (base == null || base.isEmpty) {
     base = '${_home(env)}/.cache/specwright';
   }
-  return base;
+  return hostStateBase(base, host);
 }
+
+/// github.com keeps its existing state layout.
+String hostStateBase(String base, String host) =>
+    host == defaultGitHubHost ? base : '$base/hosts/$host';
 
 String _home(Map<String, String> env) {
   final home = env['HOME'];

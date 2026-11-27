@@ -719,8 +719,8 @@ class AgentMerge(unittest.TestCase):
         p = self.policy_read()
         self.assertRegex(p, r"(?is)start-of-watch read[^.]*only|only[^.]*start-of-watch read", "`context` is not limited to the start-of-watch read")
         self.assertRegex(p, r"(?is)never decides an archive or a merge", "`context`'s merge may still decide the archive or the merge")
-        self.assertRegex(p, r"(?is)<sw> as <run login> <sw> pr policy --repo <owner>/<name> --head <ready head> --snapshot code=<file>",
-                         "watch has no fenced `policy` call")
+        self.assertRegex(p, r"(?is)<sw> pr policy --repo <owner>/<name> --pr <code PR number> --head <ready head> --snapshot code=<file>",
+                         "watch does not bind the policy read to the discovered code PR")
         self.assertRegex(p, r"(?is)default branch[^.]*never[^.]*work tree", "the policy is not read from the default branch")
         self.assertRegex(p, r"(?is)for every change or roadmap branch[^.]*whatever `context`'s `merge` says", "the read is skipped when `context` says `user`")
 

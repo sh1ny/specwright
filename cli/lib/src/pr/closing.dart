@@ -1,6 +1,8 @@
 import 'package:html/dom.dart';
 import 'package:html/parser.dart' show parseFragment;
 
+import '../fence/urls.dart' show defaultGitHubHost;
+
 const _blocks = {
   'p',
   'pre',
@@ -88,11 +90,16 @@ final _gaps = RegExp(
   caseSensitive: false,
   unicode: true,
 );
-final _refs = RegExp(
-  r'https?://github\.com/([\w.-]+/[\w.-]+)/issues/(\d+)\b|(?<![\w/.-])([\w.-]+/[\w.-]+)#(\d+)\b|(?<![\w/&])#(\d+)\b',
-);
-
-List<String> intendedReferences(String html, String repo) {
+List<String> intendedReferences(
+  String html,
+  String repo, {
+  String host = defaultGitHubHost,
+}) {
+  final refsForHost = RegExp(
+    'https?://${RegExp.escape(host)}'
+    r'/([\w.-]+/[\w.-]+)/issues/(\d+)\b|(?<![\w/.-])([\w.-]+/[\w.-]+)#(\d+)\b|(?<![\w/&])#(\d+)\b',
+    caseSensitive: false,
+  );
   final found = <String>[];
   String key(RegExpMatch m) => m[1] != null
       ? '${m[1]}#${BigInt.parse(m[2]!)}'
@@ -100,7 +107,7 @@ List<String> intendedReferences(String html, String repo) {
       ? '${m[3]}#${BigInt.parse(m[4]!)}'
       : '$repo#${BigInt.parse(m[5]!)}';
   for (final line in renderedLines(html)) {
-    final refs = _refs.allMatches(line).toList();
+    final refs = refsForHost.allMatches(line).toList();
     final lead = _lead.firstMatch(line);
     if (lead != null) {
       var previous = lead.end, first = true;

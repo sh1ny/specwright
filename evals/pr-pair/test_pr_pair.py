@@ -764,10 +764,11 @@ class Context(Base):
         for word in ("line 88", "true", "false"):
             self.assertIn(word, r["note"])
 
-    def test_identity_ignores_refused_settings(self):
+    def test_identity_refuses_unreadable_connection_settings(self):
         self.settings("pr:\n\treact: true\n")
-        r = self.pp("identity", self.code)
-        self.assertEqual((r["repo"], r["fetch"], r["_rc"]), (CODE, CODE, 0))
+        r = self.pp("identity", self.code, expect=2)
+        self.assertEqual(r["error"], "bad_setting")
+        self.assertFalse(self.gh_calls())
 
 
 class ContextPin(Base):
@@ -1406,6 +1407,15 @@ class PairState(Base):
         s.update(over)
         return s
 
+    def test_pair_state_requires_snapshot_host_to_match_discovery(self):
+        self.add_pull(STORE, 1)
+        current = self.snap(STORE)
+        wrong = {**current, "url": current["url"].replace("github.com/", "github.example.com/")}
+        refused = self.state(store=wrong)
+        self.assertEqual(refused["ready"], {"store": False}, refused)
+        self.assertTrue(any(s.startswith("refresh:pr:") for s in refused["blocking"]["store"]), refused)
+        self.assertEqual(self.state(store=current)["action"], "ready")
+
     def test_pair_state_carry_over_readies_an_archive_head(self):
         self.add_pull(STORE, 1)
         r = self.state(store=self.archive_head())
@@ -1879,17 +1889,31 @@ class PassBase(Base):
         out = self.pp("pass", "write", *self.common(), "--intent", f, expect=expect)
         if out.get("ok"):
             self.owner = out["owner"]  # the id `pass write` returns; plan and done carry it
+            for ref in (intent or self.intent(findings, rnd))["prs"].values():
+                if ref is None:
+                    continue
+                slug, n = ref["repo"], ref["number"]
+                if not any(p["number"] == n for p in self.gh().get("repos", {}).get(slug, {}).get("pulls", [])):
+                    self.add_pull(slug, n, sha=self.tip(self.code if slug == CODE else self.store))
         return out
 
     def record_path(self):
         return self.state_dir / "feedback" / record_key(CODE, CHANGE)
 
-    def plan(self, code=None, store=None, sub="plan", expect=0):
+    def plan(self, code=None, store=None, sub="plan", expect=0, preserve_target=False):
         args = ["pass", sub, *self.common()]
         if getattr(self, "owner", None):
             args += ["--owner", self.owner]
-        for name, s in (("code", code), ("store", store)):
-            args += ["--snapshot", f"{name}={self.write_json(f'{name}-snap.json', s if s is not None else snap())}"]
+        for name, s, slug, n in (("code", code, CODE, 5), ("store", store, STORE, 3)):
+            doc = dict(s if s is not None else snap())
+            if not preserve_target or s is None:
+                pr = next((p for p in reversed(self.gh().get("repos", {}).get(slug, {}).get("pulls", []))
+                           if p["number"] == n), None)
+                if pr:
+                    doc.update(number=n, url=pr["html_url"], head_oid=pr["head"]["sha"])
+                else:
+                    doc.update(number=n, url=f"https://github.com/{slug}/pull/{n}")
+            args += ["--snapshot", f"{name}={self.write_json(f'{name}-snap.json', doc)}"]
         return self.pp(*args, expect=expect)
 
     @staticmethod
@@ -1914,6 +1938,31 @@ class PassBase(Base):
 
 
 class PassPlan(PassBase):
+    def test_feedback_record_is_isolated_by_host(self):
+        self.write_record([self.finding()])
+        public = self.record_path()
+        original = public.read_bytes()
+        for directory, slug in ((self.code, CODE), (self.store, STORE)):
+            self.git(directory, "config", "testfixture.originUrl", f"https://github.example.com/{slug}.git")
+        self.commit(self.code, {"openspec/specwright.yaml":
+                    "github:\n  host: github.example.com\n  fence: false\n"}, "chore: use another GitHub host")
+        out = self.write_record([self.finding()], rnd=3)
+        self.assertTrue(out["ok"], out)
+        enterprise = self.state_dir / "hosts" / "github.example.com" / "feedback" / public.name
+        self.assertEqual(json.loads(enterprise.read_text(encoding="utf-8"))["round"], 3)
+        self.assertEqual(public.read_bytes(), original)
+
+    def test_feedback_refuses_same_head_from_other_host_or_pr(self):
+        self.write_record([self.finding()])
+        before = self.record_path().read_bytes()
+        for host, number in (("github.example.com", 5), ("github.com", 99)):
+            with self.subTest(host=host, number=number):
+                evidence = snap(threads=[thread()], head_oid=self.tip(self.code), number=number,
+                                url=f"https://{host}/{CODE}/pull/{number}")
+                result = self.plan(code=evidence, expect=2, preserve_target=True)
+                self.assertEqual(result["error"], "snapshot_target_mismatch", result)
+                self.assertEqual(self.record_path().read_bytes(), before)
+
     def test_pass_plan_routes_spec_fix_to_store(self):
         # a reviewer on the code PR asks for a spec change: the fix lands in the store, the reply goes to the code PR
         w = self.write_record([self.finding()])
@@ -2219,7 +2268,9 @@ class PassPlan(PassBase):
         self.plan(store=snap(threads=[]), sub="done", expect=1)
         self.assertTrue(self.record_path().exists())
         # once ship opened the code PR, the pass re-requests review on it and then completes
-        self.add_pull(STORE, 3, body=f"Code PR: https://github.com/{CODE}/pull/7")  # ship linked the pair (step 5)
+        st = self.gh()
+        st["repos"][STORE]["pulls"][0]["body"] = f"Code PR: https://github.com/{CODE}/pull/7"
+        self.save_gh(st)
         self.add_pull(CODE, 7, body=f"Store PR: https://github.com/{STORE}/pull/3")
         p = self.plan(store=snap(threads=[]))
         self.assertEqual(self.row(p, "push", "code")["state"], "done")
@@ -2346,7 +2397,9 @@ class PassPlan(PassBase):
         store_pull = self.pull(STORE, 3)
         if store_url:
             store_pull["html_url"] = store_url
-        self.seed_pulls(STORE, [store_pull])
+        st = self.gh()
+        st["repos"][STORE]["pulls"] = [store_pull]
+        self.save_gh(st)
         self.add_pull(CODE, 7)
         self.pushed_at(CODE, BRANCH, self.tip(self.code), "2026-10-08T12:00:00Z")
         self.add_comment(CODE, 7, "@codex review", "KintsugiBot", 2003, created_at="2026-10-08T12:00:03Z")
@@ -2506,8 +2559,8 @@ class PassPlan(PassBase):
         self.write_record([self.finding()])
         self.fix_store()
         self.push_all()
-        p = self.pp("pass", "plan", *self.common(), "--snapshot", f"code={self.write_json('code-snap.json', snap(threads=[thread()]))}",
-                    "--snapshot", f"store={self.write_json('store-snap.json', snap())}", env={"GH_TOKEN": "tok-k"})
+        del self.owner
+        p = self.plan(code=snap(threads=[thread()]))
         rr = self.row(p, "rerequest", "store")
         self.assertEqual(rr["state"], "todo")
         self.assertIn("push_time", rr)
@@ -4344,20 +4397,24 @@ class PolicyBase(Base):
     def policy(self, *extra, expect=0, **kw):
         """Passes the snapshots policy requires (codex reported at the head) unless the test names its own."""
         extra = list(extra)
+        if "--pr" not in extra:
+            extra += ["--pr", "1"]
+        if "--store" in extra and "--store-repo" not in extra:
+            extra += ["--store-repo", STORE, "--store-pr", "1"]
         if not any(str(x).startswith("code=") for x in extra):
             extra += ["--snapshot", "code=" + str(self.psnap("default-code", self.HEAD, ["chatgpt-codex-connector"]))]
         if "--store" in extra and not any(str(x).startswith("store=") for x in extra):
-            extra += ["--snapshot", "store=" + str(self.psnap("default-store", self.HEAD, ["chatgpt-codex-connector"])),
+            extra += ["--snapshot", "store=" + str(self.psnap("default-store", self.HEAD, [CODEX], repo=STORE)),
                       "--reviewed-head", "store=" + self.HEAD]
         return self.pp("policy", "--repo", CODE, "--head", self.HEAD, *extra, env=self.TOKEN, expect=expect, **kw)
 
-    def psnap(self, name, head, reported=(), waiting=(), config=None):
+    def psnap(self, name, head, reported=(), waiting=(), config=None, repo=CODE):
         """A snapshot file shaped as pr-snapshot.sh writes it: the head, the reviewers with their state and `reviewer_config`,
         the digest of the config the wait ran with. config: a list of reviewer entries (rv) whose digest it carries, a digest
         string, or False for a snapshot without one. Default: the set of the default settings, codex alone."""
         rs = [{"login": l, "role": "required", "timeout": 1200, "state": "reported"} for l in reported]
         rs += [{"login": l, "role": "required", "timeout": 1200, "state": "waiting"} for l in waiting]
-        obj = {"head_oid": head, "number": 1, "url": f"https://github.com/{CODE}/pull/1", "reviewers": rs}
+        obj = {"head_oid": head, "number": 1, "url": f"https://github.com/{repo}/pull/1", "reviewers": rs}
         if config is not False:
             obj["reviewer_config"] = config if isinstance(config, str) else config_digest(*(config if config is not None else [rv(CODEX)]))
         return self.write_json(f"{name}.json", obj)
@@ -4373,6 +4430,18 @@ class PolicyBase(Base):
 
 class Policy(PolicyBase):
     """policy: the merge policy read from GitHub's default branch and the head, never the work tree (trust-main-merge-policy D1-D4)."""
+
+    def test_policy_refuses_same_head_from_other_host_or_pr(self):
+        self.seed_both(self.AGENT, self.AGENT)
+        path = self.psnap("same-head", self.HEAD, [CODEX])
+        original = json.loads(path.read_text(encoding="utf-8"))
+        for host, number in (("github.example.com", 1), ("github.com", 9)):
+            with self.subTest(host=host, number=number):
+                evidence = {**original, "number": number, "url": f"https://{host}/{CODE}/pull/{number}"}
+                wrong = self.write_json("foreign.json", evidence)
+                result = self.policy("--pr", "1", "--snapshot", f"code={wrong}", expect=2)
+                self.assertEqual(result["error"], "snapshot_target_mismatch", result)
+                self.assertFalse(self.gh_calls())
 
     def test_same_policy_no_drift_main_values(self):
         self.seed_both(self.AGENT, self.AGENT)
@@ -4674,7 +4743,7 @@ class Policy(PolicyBase):
         store = r["reported"]["main"]["store"]
         self.assertEqual((store["ok"], store["rules_mismatch"]), (False, True))
         self.assertTrue(r["reported"]["main"]["code"]["ok"])
-        own = "store=" + str(self.psnap("own", self.HEAD, [], config=[]))
+        own = "store=" + str(self.psnap("own", self.HEAD, [], config=[], repo=STORE))
         r = self.policy("--store", "--snapshot", own, "--reviewed-head", "store=" + self.HEAD)
         store = r["reported"]["main"]["store"]
         self.assertEqual((store["ok"], store["rules_mismatch"]), (False, False), "an empty set has no required reviewer")
@@ -4724,7 +4793,7 @@ class PolicyReviewers(PolicyBase):
         st = f"{7:040x}"
         code_set = [rv(CODEX), rv("code-bot")]
         r = self.policy("--store", "--snapshot", "code=" + str(self.psnap("c", self.HEAD, [self.CODEX, "code-bot"], config=code_set)),
-                        "--snapshot", "store=" + str(self.psnap("st", st, ["store-bot"], config=[rv("store-bot")])),
+                        "--snapshot", "store=" + str(self.psnap("st", st, ["store-bot"], config=[rv("store-bot")], repo=STORE)),
                         "--reviewed-head", f"store={st}")
         self.assertTrue(r["reported"]["main"]["store"]["ok"], r["reported"])
         self.assertTrue(r["reported"]["main"]["code"]["ok"], r["reported"])

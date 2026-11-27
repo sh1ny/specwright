@@ -24,6 +24,50 @@ String? parseRepo(String url, {String host = defaultGitHubHost}) {
   return m == null ? null : '${m.group(1)}/${m.group(2)}';
 }
 
+final _repoSlug = RegExp(r'^[A-Za-z0-9][A-Za-z0-9-]*/[A-Za-z0-9_.-]+$');
+
+String? prRepoSlug(String value, String host) {
+  final parts = value.split('/');
+  final slug = parts.length == 3 && canonicalHost(parts.first) == host
+      ? parts.skip(1).join('/')
+      : value;
+  return _repoSlug.hasMatch(slug) &&
+          !slug.endsWith('/.') &&
+          !slug.endsWith('/..')
+      ? slug
+      : null;
+}
+
+/// Canonical coordinates from a GitHub web URL, including item fragments.
+({String host, String repo, int number})? pullCoordinates(Object? url) {
+  if (url is! String) return null;
+  final uri = Uri.tryParse(url);
+  if (uri == null ||
+      uri.scheme != 'https' ||
+      uri.host.isEmpty ||
+      uri.userInfo.isNotEmpty ||
+      uri.port != 443)
+    return null;
+  final parts = uri.pathSegments;
+  if (parts.length < 4 || parts[2] != 'pull') return null;
+  final slug = '${parts[0]}/${parts[1]}';
+  final number = int.tryParse(parts[3]);
+  if (prRepoSlug(slug, canonicalHost(uri.host)) == null ||
+      number == null ||
+      number <= 0 ||
+      '$number' != parts[3])
+    return null;
+  return (host: canonicalHost(uri.host), repo: slug, number: number);
+}
+
+bool matchesPull(Object? url, String host, String repo, Object? number) {
+  final target = pullCoordinates(url);
+  return target != null &&
+      target.host == host &&
+      target.repo.toLowerCase() == repo.toLowerCase() &&
+      target.number == number;
+}
+
 final _scheme = RegExp(r'^([a-z][a-z0-9+.-]*)://', caseSensitive: false);
 final _supported = {'http', 'https', 'ssh', 'git', 'ftp', 'ftps'};
 

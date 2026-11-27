@@ -136,21 +136,21 @@ Red means added/changed coverage to prove before implementation; inherited green
 | planning-stores → Cleanup after merge covers every expected PR | Only one PR merged | `evals/pr-pair/test_pr_pair.py` | `test_cleanup_plan_split` | green |
 | planning-stores → Cleanup after merge covers every expected PR | Cleanup re-run after the store PR merges | `evals/pr-pair/test_pr_pair.py` | `test_cleanup_resumes_on_selected_store_remote_after_split` | red |
 | planning-stores → Cleanup after merge covers every expected PR | Code PR merged beside a local-only store | `evals/pr-pair/test_pr_pair.py` | `test_cleanup_plan_keeps_a_store_branch_shared_by_hand` | green |
-| pr-script-runtime → PR evidence is scoped to its GitHub host | Identical PR coordinates on two hosts | `evals/pr-pair/test_pr_pair.py` | `test_watch_and_feedback_state_isolated_by_host` | red |
-| pr-script-runtime → PR evidence is scoped to its GitHub host | Snapshot from the wrong host | `evals/pr-pair/test_pr_pair.py` | `test_pair_state_requires_snapshot_host_to_match_discovery` | red |
-| pr-script-runtime → PR evidence is scoped to its GitHub host | Wrong PR evidence does not authorize merge or feedback | `evals/pr-pair/test_pr_pair.py` | `test_policy_and_feedback_refuse_same_head_from_other_host_or_pr` | red |
-| pr-script-runtime → Reply mutations verify the addressed PR item | A thread and its root belong to the target PR | `evals/pr-pair/test_pr_reply.py` | `test_reply_only_mutates_verified_thread_and_its_actual_root` | red |
-| pr-script-runtime → Reply mutations verify the addressed PR item | An ID belongs to a different PR | `evals/pr-pair/test_pr_reply.py` | `test_reply_rejects_node_from_other_pr_including_standalone_actions` | red |
+| pr-script-runtime → PR evidence is scoped to its GitHub host | Identical PR coordinates on two hosts | `evals/pr-pair/test_snapshot_native.py`, `evals/pr-pair/test_pr_pair.py` | `test_watch_claims_and_head_records_are_isolated_by_host`, `test_feedback_record_is_isolated_by_host` | green |
+| pr-script-runtime → PR evidence is scoped to its GitHub host | Snapshot from the wrong host | `evals/pr-pair/test_pr_pair.py` | `test_pair_state_requires_snapshot_host_to_match_discovery` | green |
+| pr-script-runtime → PR evidence is scoped to its GitHub host | Wrong PR evidence does not authorize merge or feedback | `evals/pr-pair/test_pr_pair.py` | `test_policy_refuses_same_head_from_other_host_or_pr`, `test_feedback_refuses_same_head_from_other_host_or_pr` | green |
+| pr-script-runtime → Reply mutations verify the addressed PR item | A thread and its root belong to the target PR | `evals/pr-pair/test_pr_reply.py` | `test_reply_only_mutates_verified_thread_and_its_actual_root` | green |
+| pr-script-runtime → Reply mutations verify the addressed PR item | An ID belongs to a different PR | `evals/pr-pair/test_pr_reply.py` | `test_reply_rejects_node_from_other_pr_including_standalone_actions` | green |
 | pr-script-runtime → PR snapshots and replies run in the project's sw | Snapshot with a matching sw | `evals/pr-pair/test_snapshot_native.py` | `test_snapshot_without_python` | green |
 | pr-script-runtime → PR snapshots and replies run in the project's sw | Reply with a matching sw | `evals/pr-pair/test_pr_reply.py` | `test_reply_with_matching_rev_posts_and_resolves` | green |
 | pr-script-runtime → PR snapshots and replies run in the project's sw | A refusal keeps its exit status | `evals/pr-pair/test_pr_reply.py` | `test_reply_refuses_missing_body_file` | green |
-| pr-script-runtime → PR snapshots and replies run in the project's sw | Store-started snapshot selects the code project | `evals/pr-pair/test_snapshot_native.py` | `test_store_snapshot_selects_code_project` | red |
-| pr-script-runtime → PR snapshots and replies run in the project's sw | Store-started reply selects the code project | `evals/pr-pair/test_snapshot_native.py` | `test_store_reply_selects_code_project` | red |
+| pr-script-runtime → PR snapshots and replies run in the project's sw | Store-started snapshot selects the code project | `evals/pr-pair/test_snapshot_native.py` | `test_store_snapshot_selects_code_project` | green |
+| pr-script-runtime → PR snapshots and replies run in the project's sw | Store-started reply selects the code project | `evals/pr-pair/test_snapshot_native.py` | `test_store_reply_selects_code_project` | green |
 | pr-script-runtime → PR snapshots and replies run in the project's sw | Missing selected binary refuses without fallback | `evals/pr-pair/test_snapshot_native.py` | `test_missing_selected_binary_has_no_fallback` | green |
 | pr-script-runtime → PR snapshots and replies run in the project's sw | Malformed project prefix | `evals/pr-pair/test_snapshot_native.py` | `test_malformed_project_prefix_is_usage` | green |
-| pr-script-runtime → PR snapshots and replies run in the project's sw | The same PR number exists on another remote | `evals/pr-pair/test_snapshot_native.py` | `test_snapshot_infers_selected_remote_not_gh_default` | red |
-| pr-script-runtime → PR snapshots and replies run in the project's sw | Store snapshot infers its planning remote | `evals/pr-pair/test_snapshot_native.py` | `test_store_snapshot_infers_selected_planning_remote` | red |
-| pr-script-runtime → PR snapshots and replies run in the project's sw | Selected remote is unusable and no repo is given | `evals/pr-pair/test_snapshot_native.py` | `test_repo_omitted_stops_before_gh_when_selected_remote_is_unusable` | red |
+| pr-script-runtime → PR snapshots and replies run in the project's sw | The same PR number exists on another remote | `evals/pr-pair/test_snapshot_native.py` | `test_snapshot_infers_selected_remote_not_gh_default` | green |
+| pr-script-runtime → PR snapshots and replies run in the project's sw | Store snapshot infers its planning remote | `evals/pr-pair/test_snapshot_native.py` | `test_store_snapshot_infers_selected_planning_remote` | green |
+| pr-script-runtime → PR snapshots and replies run in the project's sw | Selected remote is unusable and no repo is given | `evals/pr-pair/test_snapshot_native.py` | `test_repo_omitted_stops_before_gh_when_selected_remote_is_unusable` | green |
 | releases → The release commit is found on main | Squash-merged change | `evals/release/test_release.py` | `test_squash` | green |
 | releases → The release commit is found on main | Merge-commit change | `evals/release/test_release.py` | `test_merge_commit` | green |
 | releases → The release commit is found on main | Version not on main | `evals/release/test_release.py` | `test_not_on_main` | green |
@@ -259,8 +259,8 @@ Red means added/changed coverage to prove before implementation; inherited green
 
 ## 5. PR evidence and bounded mutation routing
 
-- [ ] 5.1 Write and run the new host partition, stale/foreign PR snapshot, target inference, and item parent and root cases first in the mapped `test_pr_pair.py`, `test_snapshot_native.py` and `test_pr_reply.py` files. Use the same slug, PR number or SHA on distinct hosts where needed so passing requires checking the target.
-- [ ] 5.2 Bind discovery, policy, feedback, snapshot and reply evidence to configured host and expected repo/PR; reject other item parents; partition watch and feedback state while retaining github.com's layout (C4, C6, C9). Verify 5.1 and rerun the matching default-target and selected-project regression modules. Update the affected skill instructions and README PR call options.
+- [x] 5.1 Write and run the new host partition, stale/foreign PR snapshot, target inference, and item parent and root cases first in the mapped `test_pr_pair.py`, `test_snapshot_native.py` and `test_pr_reply.py` files. Use the same slug, PR number or SHA on distinct hosts where needed so passing requires checking the target.
+- [x] 5.2 Bind discovery, policy, feedback, snapshot and reply evidence to configured host and expected repo/PR; reject other item parents; partition watch and feedback state while retaining github.com's layout (C4, C6, C9). Verify 5.1 and rerun the matching default-target and selected-project regression modules. Update the affected skill instructions and README PR call options.
 
 ## 6. Release history and publication target
 

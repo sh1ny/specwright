@@ -5,6 +5,7 @@ import 'package:specwright_cli/src/pr/context.dart';
 import 'package:specwright_cli/src/process/limit_line.dart' show BoundedLimit;
 import 'package:specwright_cli/src/pr/gh.dart';
 import 'package:specwright_cli/src/vcs/codec.dart';
+import 'package:specwright_cli/src/vcs/text_result.dart';
 
 /// A gh answer: exit 0 and [stdout] by default. [merged] is the combined
 /// output of a call that ran in merged mode (the `--log-failed` call): its
@@ -39,6 +40,15 @@ class Fixture {
       writeOut: out.addAll,
       writeErr: err.addAll,
       environment: environment,
+      git: (_, args) async => switch (args.join(' ')) {
+        'rev-parse --show-toplevel' => TextResult(0, tempDir.path, ''),
+        'rev-parse --git-dir' => TextResult(0, '.git', ''),
+        'symbolic-ref --quiet --short HEAD' => TextResult(0, 'feature', ''),
+        'remote' => TextResult(0, 'origin\n', ''),
+        'remote get-url origin' || 'remote get-url --push --all origin' =>
+          TextResult(0, 'https://github.com/o/n.git\n', ''),
+        _ => throw StateError('unexpected Git call: $args'),
+      },
       seconds: () => clock,
       bounded: (command, {environment}) async {
         boundedCalls.add(command);

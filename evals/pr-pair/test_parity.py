@@ -323,6 +323,16 @@ class SnapshotParity(PrParity):
 
 
 class ReplyParity(PrParity):
+    def reply_pair(self, *args, **kw):
+        new, old = super().reply_pair(*args, **kw)
+        # PR ownership introduces a mandatory read and replaces the rev-only
+        # lookup. Compare the commands and effects that did not change.
+        def node_read(argv):
+            return argv[:2] == ["api", "graphql"] and any("node(id:$id)" in a for a in argv)
+        new["calls"] = [c for c in new["calls"] if not node_read(c)]
+        old["calls"] = [c for c in old["calls"] if not node_read(c)]
+        return new, old
+
     def thread_case(self):
         tid, c = self.add_thread("rev", "please fix")
         return tid, c
@@ -570,13 +580,14 @@ class PairParity(PrParity):
         raw = json.dumps({"format": fmt, "reviewers": entries}, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
         return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
-    def reviewed(self, which, *logins, head=None):
+    def reviewed(self, which, *logins, head=None, store=False):
         """A snapshot file as pr-snapshot.sh writes it, carrying the digest of this side's own config format."""
         fmt = 2 if which == "new" else 1
-        doc = {"head_oid": head or self.HEAD, "number": 1, "url": f"https://github.com/{self.SLUG}/pull/1",
+        slug = "o/store" if store else self.SLUG
+        doc = {"head_oid": head or self.HEAD, "number": 1, "url": f"https://github.com/{slug}/pull/1",
                "reviewers": [{"login": l, "role": "required", "timeout": 1200, "state": "reported"} for l in logins],
                "reviewer_config": self.digest(fmt, "rev")}
-        f = self.tmp / f"snap-{which}.json"
+        f = self.tmp / (f"snap-{which}-store.json" if store else f"snap-{which}.json")
         f.write_text(json.dumps(doc), encoding="utf-8")
         return fixtures.posix(f)
 
@@ -747,7 +758,7 @@ class PairParity(PrParity):
     # ---- policy -----------------------------------------------------------------------------------------
     def policy_args(self, *extra, snapshot=True, logins=("rev",)):
         def build(which):
-            args = ["policy", "--repo", self.SLUG, "--head", self.HEAD, *extra]
+            args = ["policy", "--repo", self.SLUG, "--pr", "1", "--head", self.HEAD, *extra]
             if snapshot:
                 args += ["--snapshot", "code=" + self.reviewed(which, *logins)]
             return args
@@ -806,8 +817,9 @@ class PairParity(PrParity):
         self.contents(self.HEAD, self.AGENT)
 
         def build(which):
-            return ["policy", "--repo", self.SLUG, "--head", self.HEAD, "--store", "--snapshot", "code=" + self.reviewed(which, "rev"),
-                    "--snapshot", "store=" + self.reviewed(which, "rev"), "--reviewed-head", "store=" + self.HEAD]
+            return ["policy", "--repo", self.SLUG, "--pr", "1", "--head", self.HEAD, "--store", "--store-repo", "o/store",
+                    "--store-pr", "1", "--snapshot", "code=" + self.reviewed(which, "rev"),
+                    "--snapshot", "store=" + self.reviewed(which, "rev", store=True), "--reviewed-head", "store=" + self.HEAD]
         self.run_pair(build, code=0)
         self.run_pair(self.policy_args("--store"), code=2)
 

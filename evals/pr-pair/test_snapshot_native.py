@@ -198,6 +198,70 @@ class TestProjectSelector(SnapCase):
         for argv in self.gh_calls():
             self.assertNotIn("--project", argv)
 
+    def git(self, directory, *args):
+        r = subprocess.run(["git", *args], cwd=directory, capture_output=True, text=True, env=self.env())
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+    def make_remote_repo(self, directory, remote, host="github.com"):
+        self.git(directory, "init", "-qb", "main")
+        self.git(directory, "remote", "add", "origin", f"https://{host}/o/default.git")
+        self.git(directory, "remote", "add", remote, f"git@{host}:{self.SLUG}.git")
+        self.git(directory, "symbolic-ref", "HEAD", "refs/heads/feat/x")
+
+    def test_snapshot_infers_selected_remote_not_gh_default(self):
+        self.make_remote_repo(self.code, "publish")
+        (self.code / "openspec" / "specwright.yaml").write_text("remote: publish\n", encoding="utf-8")
+        tid, _ = self.add_thread("rev", "target PR")
+        self.mutate(lambda st: st["repos"].update({"o/default": {"pulls": [
+            {**self._pull(), "html_url": f"https://github.com/o/default/pull/{self.PR}"}]}}))
+        r = self.run_script(SNAPSHOT, cwd=self.code, env={"GH_REPO": "o/default"})
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual([t["id"] for t in json.loads(r.stdout)["threads"]], [tid])
+        self.assertFalse(any(c[:2] == ["repo", "view"] for c in self.gh_calls()))
+
+    def test_store_snapshot_infers_selected_planning_remote(self):
+        self.make_remote_repo(self.store, "plans", "github.example.com")
+        (self.code / "openspec" / "specwright.yaml").write_text(
+            "github:\n  host: github.example.com\n  fence: false\nremote: code\nplanning_store:\n  remote: plans\n",
+            encoding="utf-8")
+        self.mutate(lambda st: st.update(host="github.example.com", user=None))
+        self.mutate(lambda st: st["repos"][self.SLUG]["pulls"][0].update(
+            html_url=f"https://github.example.com/{self.SLUG}/pull/{self.PR}"))
+        r = self.run_script(SNAPSHOT, self.PR, cwd=self.store, project=fixtures.posix(self.code),
+                            env={"GH_HOST": "wrong.example", "GH_REPO": "o/default", "GH_ENTERPRISE_TOKEN": "tok-me"})
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(json.loads(r.stdout)["url"], f"https://github.example.com/{self.SLUG}/pull/{self.PR}")
+        self.assertFalse(any(c[:2] == ["auth", "token"] for c in self.gh_calls()))
+
+    def test_repo_omitted_stops_before_gh_when_selected_remote_is_unusable(self):
+        self.make_remote_repo(self.code, "publish")
+        (self.code / "openspec" / "specwright.yaml").write_text("remote: missing\n", encoding="utf-8")
+        r = self.run_script(SNAPSHOT, self.PR, cwd=self.code)
+        self.assertNotEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("missing", r.stderr)
+        self.assertEqual(self.gh_calls(), [])
+
+    def test_watch_claims_and_head_records_are_isolated_by_host(self):
+        self.make_remote_repo(self.code, "publish")
+        public = self.run_script(SNAPSHOT, self.PR, "--repo", self.SLUG, "--wait", "--timeout", 0, cwd=self.code)
+        self.assertEqual(public.returncode, 0, public.stdout + public.stderr)
+        head = self.state_dir / "heads" / self.SLUG / str(self.PR) / ("a" * 40)
+        first = head.read_bytes()
+        self.advance(60)
+        self.mutate(lambda st: st.update(host="github.example.com"))
+        self.mutate(lambda st: st["repos"][self.SLUG]["pulls"][0].update(
+            html_url=f"https://github.example.com/{self.SLUG}/pull/{self.PR}"))
+        (self.code / "openspec" / "specwright.yaml").write_text(
+            "github:\n  host: github.example.com\n  fence: false\n", encoding="utf-8")
+        enterprise = self.run_script(SNAPSHOT, self.PR, "--repo", self.SLUG, "--wait", "--timeout", 0, cwd=self.code,
+                                     env={"GH_ENTERPRISE_TOKEN": "tok-me"})
+        self.assertEqual(enterprise.returncode, 0, enterprise.stdout + enterprise.stderr)
+        self.assertEqual(head.read_bytes(), first)
+        heads = list(self.state_dir.rglob("a" * 40))
+        self.assertEqual(len(heads), 2)
+        self.assertNotEqual(next(x for x in heads if x != head).read_bytes(), first)
+        self.assertEqual(len([p for p in self.state_dir.rglob(str(self.PR)) if "watch" in p.parts]), 2)
+
     def test_missing_selected_binary_has_no_fallback(self):
         """A project at a version no binary serves is a `sw_mismatch`: the other binary is not used and no gh call runs."""
         other = self.tmp / "other"
