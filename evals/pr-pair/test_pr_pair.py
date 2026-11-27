@@ -3412,8 +3412,8 @@ class Cleanup(Base):
 
     def fenced_pull(self, login, role):
         """Use VCS so the pull classifies the upstream after switching to main."""
-        code = str(self.code).replace("\\", "/")
-        repo = str(self.code if role == "code" else self.store).replace("\\", "/")
+        code = Path(self.code).resolve().as_posix()
+        repo = Path(self.code if role == "code" else self.store).resolve().as_posix()
         return [self.sw_head(), "--project", code, "vcs", "pull", "--repo", repo, "--role", role,
                 "--code", code, "--branch", "main", "--login", login]
 

@@ -29,9 +29,9 @@ jobs:
   suite:
     needs: list
     runs-on: ${{ matrix.os }}
-    # PR-pair has several serial files after its parallel batch. On Windows,
-    # allow their aggregate runtime beyond one file's unchanged 1800s bound.
-    timeout-minutes: ${{ matrix.os == 'windows-latest' && matrix.suite == 'pr-pair' && 60 || matrix.timeout }}
+    # PR-pair has several serial files after its parallel batch. Allow their
+    # aggregate runtime on Windows and macOS without raising per-file bounds.
+    timeout-minutes: ${{ matrix.suite == 'pr-pair' && (matrix.os == 'windows-latest' || matrix.os == 'macos-latest') && 60 || matrix.timeout }}
     strategy:
       fail-fast: false
       matrix:
